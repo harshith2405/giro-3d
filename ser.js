@@ -881,7 +881,162 @@ window.addEventListener("DOMContentLoaded", () => {
     const val = parseFloat(e.target.value);
     heatmapOpacityVal.textContent = Math.round(val * 100) + '%';
     if (slopeColorMap) {
-      slopeColorMap.opacity = new Array(5).fill(val);
+      const mode = document.querySelector('input[name="heatmapMode"]:checked')?.value || 'predefined';
+      if (mode === 'predefined') {
+        slopeColorMap.opacity = new Array(5).fill(val);
+        instance.notifyChange();
+      } else {
+        btnApplyCustomHeatmap?.click();
+      }
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Custom Heat Map Logic
+  // -------------------------------------------------------------------------
+  const heatmapRadios = document.getElementsByName('heatmapMode');
+  const predefinedHeatmapUI = document.getElementById('predefinedHeatmapUI');
+  const customHeatmapUI = document.getElementById('customHeatmapUI');
+  const customHeatmapRanges = document.getElementById('customHeatmapRanges');
+  const btnAddHeatmapRange = document.getElementById('btnAddHeatmapRange');
+  const btnApplyCustomHeatmap = document.getElementById('btnApplyCustomHeatmap');
+  const customHeatmapError = document.getElementById('customHeatmapError');
+  
+  let customRanges = [
+    { min: 0, max: 15, color: '#00ff00' },
+    { min: 15, max: 30, color: '#ffff00' }
+  ];
+
+  function renderCustomRanges() {
+    if (!customHeatmapRanges) return;
+    customHeatmapRanges.innerHTML = '';
+    customRanges.forEach((range, index) => {
+      const row = document.createElement('div');
+      row.style.display = 'flex';
+      row.style.gap = '5px';
+      row.style.alignItems = 'center';
+      
+      const colorInput = document.createElement('input');
+      colorInput.type = 'color';
+      colorInput.value = range.color;
+      colorInput.style.width = '30px';
+      colorInput.style.height = '24px';
+      colorInput.style.padding = '0';
+      colorInput.style.border = 'none';
+      colorInput.addEventListener('change', (e) => { customRanges[index].color = e.target.value; });
+      
+      const minInput = document.createElement('input');
+      minInput.type = 'number';
+      minInput.value = range.min;
+      minInput.style.width = '55px';
+      minInput.style.padding = '2px';
+      minInput.addEventListener('change', (e) => { customRanges[index].min = parseFloat(e.target.value); });
+      
+      const span = document.createElement('span');
+      span.textContent = 'to';
+      span.style.fontSize = '12px';
+      
+      const maxInput = document.createElement('input');
+      maxInput.type = 'number';
+      maxInput.value = range.max;
+      maxInput.style.width = '55px';
+      maxInput.style.padding = '2px';
+      maxInput.addEventListener('change', (e) => { customRanges[index].max = parseFloat(e.target.value); });
+      
+      const btnDel = document.createElement('button');
+      btnDel.textContent = 'X';
+      btnDel.className = 'btn btn-outline';
+      btnDel.style.padding = '2px 6px';
+      btnDel.addEventListener('click', () => {
+        customRanges.splice(index, 1);
+        renderCustomRanges();
+      });
+      
+      row.appendChild(colorInput);
+      row.appendChild(minInput);
+      row.appendChild(span);
+      row.appendChild(maxInput);
+      row.appendChild(btnDel);
+      
+      customHeatmapRanges.appendChild(row);
+    });
+  }
+
+  heatmapRadios.forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      if (e.target.value === 'custom') {
+        predefinedHeatmapUI.classList.add('hidden');
+        customHeatmapUI.classList.remove('hidden');
+        renderCustomRanges();
+      } else {
+        predefinedHeatmapUI.classList.remove('hidden');
+        customHeatmapUI.classList.add('hidden');
+        if (slopeColorMap) {
+          slopeColorMap.colors = [
+            new Color('green'),
+            new Color('yellow'),
+            new Color('orange'),
+            new Color('red'),
+            new Color('darkred')
+          ];
+          const val = parseFloat(heatmapOpacity.value);
+          slopeColorMap.opacity = new Array(5).fill(val);
+          instance.notifyChange();
+        }
+      }
+    });
+  });
+
+  btnAddHeatmapRange?.addEventListener('click', () => {
+    const lastMax = customRanges.length > 0 ? customRanges[customRanges.length - 1].max : 0;
+    customRanges.push({ min: lastMax, max: lastMax + 15, color: '#ff0000' });
+    renderCustomRanges();
+  });
+
+  btnApplyCustomHeatmap?.addEventListener('click', () => {
+    if (!customHeatmapError) return;
+    customHeatmapError.style.display = 'none';
+    
+    const sorted = [...customRanges].sort((a, b) => a.min - b.min);
+    for (let i = 0; i < sorted.length; i++) {
+      if (sorted[i].min >= sorted[i].max) {
+        customHeatmapError.textContent = `Error: Range must have min < max (${sorted[i].min} to ${sorted[i].max})`;
+        customHeatmapError.style.display = 'block';
+        return;
+      }
+      if (i > 0 && sorted[i].min < sorted[i-1].max) {
+        customHeatmapError.textContent = `Error: Degrees overlap (${sorted[i-1].max} encounters ${sorted[i].min})`;
+        customHeatmapError.style.display = 'block';
+        return;
+      }
+    }
+    
+    if (slopeColorMap) {
+      const RESOLUTION = 256;
+      const newColors = [];
+      const newOpacities = [];
+      const val = parseFloat(heatmapOpacity.value);
+      
+      for (let i = 0; i < RESOLUTION; i++) {
+        // Giro3D maps 0..90 degrees across the array length
+        const deg = (i / (RESOLUTION - 1)) * 90;
+        let foundColor = null;
+        for (const r of customRanges) {
+          if (deg >= r.min && deg <= r.max) {
+            foundColor = r.color;
+            break;
+          }
+        }
+        if (foundColor) {
+          newColors.push(new Color(foundColor));
+          newOpacities.push(val);
+        } else {
+          newColors.push(new Color('black'));
+          newOpacities.push(0);
+        }
+      }
+      slopeColorMap.colors = newColors;
+      slopeColorMap.opacity = newOpacities;
       instance.notifyChange();
     }
   });

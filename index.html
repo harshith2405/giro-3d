@@ -117,22 +117,44 @@
         </div>
         
         <div id="heatmapSettings" class="hidden" style="margin-top: 15px;">
-          <div class="row">
-            <label style="display: flex; justify-content: space-between; width: 100%;">
-              Opacity: <span id="heatmapOpacityVal">35%</span>
-            </label>
-            <input type="range" id="heatmapOpacity" min="0" max="1" step="0.05" value="0.35" style="width: 100%; margin-top: 5px;">
-          </div>
+            <div class="row">
+              <label style="display: flex; justify-content: space-between; width: 100%;">
+                Opacity: <span id="heatmapOpacityVal">35%</span>
+              </label>
+              <input type="range" id="heatmapOpacity" min="0" max="1" step="0.05" value="0.35" style="width: 100%; margin-top: 5px;">
+            </div>
 
-          <!-- Heat Map Legend -->
-          <div class="hint" style="font-weight: bold; margin-top: 15px; margin-bottom: 5px;">Slope Legend</div>
-          <div style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; margin-top: 5px;">
-            <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:green;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> 0&deg; &ndash; 15&deg; (Flat)</div>
-            <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:yellow;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> 15&deg; &ndash; 30&deg; (Moderate)</div>
-            <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:orange;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> 30&deg; &ndash; 45&deg; (Steep)</div>
-            <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:red;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> &gt; 45&deg; (Extreme)</div>
+            <!-- Predefined vs Custom Toggle -->
+            <div style="margin-top: 15px; margin-bottom: 10px; display: flex; gap: 15px; font-size: 13px;">
+              <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                <input type="radio" name="heatmapMode" value="predefined" checked> Pre-defined
+              </label>
+              <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                <input type="radio" name="heatmapMode" value="custom"> Custom
+              </label>
+            </div>
+  
+            <!-- Heat Map Legend (Predefined) -->
+            <div id="predefinedHeatmapUI">
+              <div class="hint" style="font-weight: bold; margin-bottom: 5px;">Slope Legend</div>
+              <div style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; margin-top: 5px;">
+                <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:green;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> 0&deg; &ndash; 15&deg; (Flat)</div>
+                <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:yellow;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> 15&deg; &ndash; 30&deg; (Moderate)</div>
+                <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:orange;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> 30&deg; &ndash; 45&deg; (Steep)</div>
+                <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:red;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> &gt; 45&deg; (Extreme)</div>
+              </div>
+            </div>
+
+            <!-- Custom Heat Map UI -->
+            <div id="customHeatmapUI" class="hidden">
+              <div id="customHeatmapRanges" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px;">
+                <!-- Dynamically populated rows -->
+              </div>
+              <button id="btnAddHeatmapRange" class="btn btn-outline" style="width: 100%; padding: 4px; margin-bottom: 10px; font-size: 12px;">+ Add Range</button>
+              <div id="customHeatmapError" style="color: #ef4444; font-size: 11px; margin-bottom: 10px; display: none;">Error msg</div>
+              <button id="btnApplyCustomHeatmap" class="btn" style="width: 100%; font-size: 12px;">Apply Custom Ranges</button>
+            </div>
           </div>
-        </div>
       </div>
     </div>
 

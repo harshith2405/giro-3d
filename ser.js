@@ -558,6 +558,71 @@ window.addEventListener("DOMContentLoaded", () => {
     resetROI.disabled = true;
   });
 
+  const btnUploadKml = document.getElementById("btnUploadKml");
+  const kmlUpload = document.getElementById("kmlUpload");
+
+  btnUploadKml?.addEventListener("click", () => {
+    kmlUpload?.click();
+  });
+
+  kmlUpload?.addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target.result;
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(text, "text/xml");
+      
+      const coordsTags = xmlDoc.getElementsByTagName("coordinates");
+      if (!coordsTags || coordsTags.length === 0) {
+        alert("No coordinates found in KML file.");
+        return;
+      }
+      
+      let minX = Infinity, minY = Infinity;
+      let maxX = -Infinity, maxY = -Infinity;
+      let hasValidCoords = false;
+
+      for (let i = 0; i < coordsTags.length; i++) {
+        const coordsText = coordsTags[i].textContent.trim();
+        if (!coordsText) continue;
+        
+        const points = coordsText.split(/\s+/);
+        for (const pt of points) {
+          const parts = pt.split(",");
+          if (parts.length >= 2) {
+            const lon = parseFloat(parts[0]);
+            const lat = parseFloat(parts[1]);
+            if (isNaN(lon) || isNaN(lat)) continue;
+            
+            // Convert from WGS84 to Map CRS
+            const [x, y] = proj4("WGS84", "EPSG:3395", [lon, lat]);
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+            hasValidCoords = true;
+          }
+        }
+      }
+      
+      if (hasValidCoords) {
+        resetRoiState();
+        roiSvg.style.display = "none";
+        const clipExtent = new Extent(giroCrs, minX, maxX, minY, maxY);
+        loadProject(activeProject, clipExtent);
+        if (roiHint) roiHint.textContent = "Terrain clipped via KML! Click 'Reset' to restore.";
+        if (resetROI) resetROI.disabled = false;
+      } else {
+        alert("Could not parse coordinates from KML.");
+      }
+    };
+    reader.readAsText(file);
+    kmlUpload.value = ""; // Reset input so same file can be uploaded again if needed
+  });
+
   // Serialize [ [x,y], ... ] into an SVG points string.
   function pointsToString(points) {
     return points.map(([x, y]) => `${x},${y}`).join(" ");

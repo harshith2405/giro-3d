@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Giro3D Mining Viewer</title>
+  <link rel="icon" href="data:," />
+  <script type="module" src="/ser.js"></script>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="view"></div>
+
+  <!-- ROI 2.5D SVG selection overlay -->
+  <svg id="roiSvg" style="
+    display: none;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 9999;
+  ">
+    <defs>
+      <filter id="roiGlow">
+        <feGaussianBlur stdDeviation="3" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <!-- Bottom wall (far) -->
+    <polygon id="roiFaceBottom" fill="rgba(0,220,100,0.18)" stroke="none"/>
+    <!-- Right wall -->
+    <polygon id="roiFaceRight"  fill="rgba(0,180,80,0.22)"  stroke="none"/>
+    <!-- Top face (selection area) -->
+    <polygon id="roiFaceTop"   fill="rgba(0,255,136,0.18)" stroke="#00ff88" stroke-width="1.5" filter="url(#roiGlow)"/>
+    <!-- Depth edges -->
+    <g id="roiDepthEdges" stroke="#00ff88" stroke-width="1" stroke-dasharray="4 3" opacity="0.7"></g>
+    <!-- Corner dots (top face) -->
+    <g id="roiCornerDots" fill="#ffffff" filter="url(#roiGlow)"></g>
+  </svg>
+
+  <!-- Measurement SVG Overlay -->
+  <svg id="measureSvg" style="
+    display: none;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 9999;
+  ">
+    <defs>
+      <filter id="measureGlow">
+        <feGaussianBlur stdDeviation="2" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <line id="measureSvgLine" stroke="#ffff00" stroke-width="3" filter="url(#measureGlow)" />
+    <circle id="measureSvgStart" r="5" fill="#ffff00" stroke="#000" stroke-width="1" filter="url(#measureGlow)" />
+    <circle id="measureSvgEnd" r="5" fill="#ffff00" stroke="#000" stroke-width="1" filter="url(#measureGlow)" />
+  </svg>
+
+
+
+  <!-- Right-side tool panel — ALL groups live inside here -->
+  <div class="tool-panel">
+    <h2>Tooo-9</h2>
+
+
+    <!-- ROI Tools -->
+    <div class="group">
+      <div class="group-title">ROI Clipping</div>
+      <div class="btn-group">
+        <button id="selectROI" class="btn">Select ROI</button>
+        <button id="resetROI" class="btn btn-outline" disabled>Reset</button>
+      </div>
+      <div class="hint" id="roiHint">
+        Click 'Select ROI' to start drawing a rectangle.
+      </div>
+    </div>
+
+    <!-- Measurement Tool -->
+    <div class="group">
+      <div class="group-title" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" id="measureHeader">
+        Measurement <span id="measureCarrot">▼</span>
+      </div>
+      
+      <div id="measureSettings" style="display: none; margin-top: 10px;">
+        <div class="btn-group">
+          <button id="btnMeasure" class="btn">Measure Distance</button>
+          <button id="btnClearMeasure" class="btn btn-outline" disabled>Clear</button>
+        </div>
+        
+        <div id="measureResults" class="hidden" style="margin-top: 12px; padding: 10px; background: rgba(13, 148, 136, 0.05); border-radius: 8px; border: 1px solid rgba(13, 148, 136, 0.2);">
+          <div style="font-size: 13px; margin-bottom: 4px;"><strong>Horizontal (2D):</strong> <span id="measureHoriz">0.00</span> m</div>
+          <div style="font-size: 13px; margin-bottom: 4px;"><strong>Vertical (Z):</strong> <span id="measureVert">0.00</span> m</div>
+          <div style="font-size: 13px;"><strong>3D Distance:</strong> <span id="measure3D">0.00</span> m</div>
+        </div>
+        <div class="hint" id="measureHint" style="margin-top: 8px;">
+          Click 'Measure Distance' then click and drag on the map.
+        </div>
+      </div>
+    </div>
+
+    <!-- Slope Heat Map Tool -->
+    <div class="group">
+      <div class="group-title" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" id="heatmapHeader">
+        Slope Heat Map <span id="heatmapCarrot">▼</span>
+      </div>
+      <div id="heatmapSettingsContainer" style="display: none; margin-top: 10px;">
+        <div class="btn-group">
+          <button id="btnEnableHeatmap" class="btn">Enable Heat Map</button>
+          <button id="btnDisableHeatmap" class="btn btn-outline" disabled>Disable</button>
+        </div>
+        <div class="hint" id="heatmapHint">Visualize terrain steepness using colors.</div>
+        
+        <div id="heatmapLoading" class="hidden" style="color: #0d9488; font-size: 13px; font-weight: 600; text-align: center; margin-top: 10px; margin-bottom: 12px; padding: 8px; background: rgba(13, 148, 136, 0.1); border-radius: 8px;">
+          <span class="spinner" style="margin-right: 6px;"></span> Generating Heat Map...
+        </div>
+        
+        <div id="heatmapSettings" class="hidden" style="margin-top: 15px;">
+          <div class="row">
+            <label style="display: flex; justify-content: space-between; width: 100%;">
+              Opacity: <span id="heatmapOpacityVal">35%</span>
+            </label>
+            <input type="range" id="heatmapOpacity" min="0" max="1" step="0.05" value="0.35" style="width: 100%; margin-top: 5px;">
+          </div>
+
+          <!-- Heat Map Legend -->
+          <div class="hint" style="font-weight: bold; margin-top: 15px; margin-bottom: 5px;">Slope Legend</div>
+          <div style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; margin-top: 5px;">
+            <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:green;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> 0&deg; &ndash; 15&deg; (Flat)</div>
+            <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:yellow;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> 15&deg; &ndash; 30&deg; (Moderate)</div>
+            <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:orange;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> 30&deg; &ndash; 45&deg; (Steep)</div>
+            <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:red;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> &gt; 45&deg; (Extreme)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+        <!-- Contours Tools -->
+    <div class="group">
+      <div class="group-title" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" id="contourHeader">
+        Contours <span id="contourCarrot">▼</span>
+      </div>
+      
+      <div id="contourSettings" style="display: none; margin-top: 10px;">
+        <div class="btn-group">
+          <button id="btnEnableContours" class="btn">Enable Contours</button>
+          <button id="btnDisableContours" class="btn btn-outline" disabled>Disable Contours</button>
+        </div>
+        
+        <div id="contourLoading" class="hidden" style="color: #0d9488; font-size: 13px; font-weight: 600; text-align: center; margin-bottom: 12px; padding: 8px; background: rgba(13, 148, 136, 0.1); border-radius: 8px;">
+          <span class="spinner" style="margin-right: 6px;"></span> Generating Contours...
+        </div>
+        
+        <div class="row" style="margin-top: 6px;">
+          <label>Preset</label>
+          <select id="contourPreset" class="input" style="width: 120px;">
+            <option value="custom">Custom</option>
+            <option value="survey">Survey (1m/5m)</option>
+            <option value="mining" selected>Mining (2m/10m)</option>
+            <option value="overview">Overview (10m/50m)</option>
+          </select>
+        </div>
+
+        <div class="row">
+          <label>Minor Interval (m)</label>
+          <input id="contourInterval" type="number" value="2" min="0.1" step="0.5" class="input" style="width: 60px;">
+        </div>
+        
+        <div class="row">
+          <label>Major Interval (m)</label>
+          <input id="majorInterval" type="number" value="10" min="1" step="1" class="input" style="width: 60px;">
+        </div>
+
+        <div class="row">
+          <label>Line Color</label>
+          <input id="contourColor" type="color" value="#ffffff" class="input-color">
+        </div>
+        
+        <div class="row">
+          <label>Line Width</label>
+          <input id="contourWidth" type="number" value="1" min="0.5" step="0.5" class="input" style="width: 60px;">
+        </div>
+        
+        <div class="row">
+          <label>Opacity</label>
+          <input id="contourOpacity" type="range" value="0.8" min="0" max="1" step="0.1" style="flex: 1; margin-left: 10px;">
+          <span id="contourOpacityVal" style="width: 30px; text-align: right;">0.8</span>
+        </div>
+        
+        <div class="hint" style="margin-top: 8px;">
+          Terrain Range: <span id="contourRange">Loading...</span>
+        </div>
+      </div>
+    </div>
+
+
+
+  </div><!-- /.tool-panel -->
+
+
+  <!-- ROI Metrics -->
+  <div id="roiMetrics" class="roi-metrics hidden">
+    <div>Perimeter: <span id="roiPerimeter">0</span> m</div>
+    <div>Area: <span id="roiArea">0</span> m²</div>
+  </div>
+
+  <!-- Bottom-right HUD (Camera + Coordinates) -->
+  <div class="bottom-right-panel">
+    
+    <!-- Collapsible Camera Controls -->
+    <div id="camControlsPanel" class="cam-controls-panel">
+      <div class="cam-controls-content">
+        <div class="camera-row">
+          <label>Heading</label>
+          <input id="headingSlider" type="range" min="-180" max="180" value="0" />
+          <span id="headingValue">0°</span>
+        </div>
+        <div class="camera-row">
+          <label>Tilt</label>
+          <input id="tiltSlider" type="range" min="0" max="90" value="0" />
+          <span id="tiltValue">0°</span>
+        </div>
+        <div class="camera-row" style="margin-bottom: 0;">
+          <button id="resetCameraBtn" class="btn btn-outline" style="width: 100%;">Reset View</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Coordinate Display -->
+    <div class="coordinate-display">
+      <span id="coordLonLat">-</span> | Elev: <span id="coordElev">-</span>
+    </div>
+
+  </div>
+
+</body>
+</html>

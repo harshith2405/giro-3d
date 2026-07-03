@@ -1,0 +1,457 @@
+/* ── Import the same fonts Polygon uses ── */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Poppins:wght@400;500;600;700;800&family=Roboto:wght@300;400;500;600&display=swap");
+
+:root {
+  --purple-primary: #5e19ea;
+  --purple-light: #8b5cf6;
+  --purple-bg: rgba(94, 25, 234, 0.08);
+  --panel-bg: #ffffff;
+  --panel-border: #e2e8f0;
+  --text: #1e293b;
+  --muted: #64748b;
+  --shadow: 0 20px 40px rgba(0, 0, 0, 0.1), 0 4px 12px rgba(0, 0, 0, 0.06);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: "Roboto", "Helvetica Neue", sans-serif;
+  font-size: 0.9rem;
+  background: #f1f5f9;
+}
+
+#view {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Status Card (Top-Left) ── */
+.viewer-card {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+  z-index: 1000;
+  padding: 10px 16px;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: "Inter", sans-serif;
+}
+
+.status::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--purple-primary);
+  box-shadow: 0 0 8px rgba(94, 25, 234, 0.5);
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ── Tool Panel (Right) ── */
+.tool-panel {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 300px;
+  max-height: calc(100vh - 20px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  z-index: 1001;
+  color: var(--text);
+}
+
+.tool-panel::-webkit-scrollbar { width: 6px; }
+.tool-panel::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 3px; }
+.tool-panel::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+.tool-panel::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+.tool-panel h2 {
+  font-size: 16px;
+  font-weight: 700;
+  font-family: "Poppins", sans-serif;
+  margin-bottom: 14px;
+  background: linear-gradient(135deg, #5e19ea, #8b5cf6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Tool Panel select dropdown ── */
+.tool-panel select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: "Roboto", sans-serif;
+  color: var(--text);
+  background: #f8fafc;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.tool-panel select:focus {
+  border-color: var(--purple-primary);
+  box-shadow: 0 0 0 3px rgba(94, 25, 234, 0.1);
+}
+
+/* ── Groups ── */
+.group {
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.group:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.group-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #000000;
+  margin-bottom: 10px;
+  font-family: "Inter", sans-serif;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 400;
+  margin-bottom: 10px;
+  color: var(--text);
+  font-family: "Roboto", sans-serif;
+}
+
+.check input[type="checkbox"] {
+  accent-color: var(--purple-primary);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+.hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.elevation-info {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* ── Elevation Tooltip ── */
+.elevation-tooltip {
+  position: fixed;
+  z-index: 2000;
+  min-width: 140px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  font-size: 13px;
+  min-width: 140px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  white-space: nowrap;
+}
+
+.elevation-tooltip.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── Bottom-Right Panel ── */
+.bottom-right-panel {
+  position: absolute;
+  right: 10px;
+  bottom: 60px; /* Above the Angular toggle buttons */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+/* ── Camera Controls Widget ── */
+.cam-controls-panel {
+  pointer-events: auto;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+  width: 260px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cam-controls-panel:hover {
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
+}
+
+.cam-controls-content {
+  padding: 14px;
+}
+
+.camera-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.camera-row label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #000000;
+  width: 60px;
+  font-family: "Inter", sans-serif;
+}
+
+.camera-row input[type="range"] {
+  flex: 1;
+  -webkit-appearance: none;
+  height: 4px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  outline: none;
+  cursor: pointer;
+}
+
+.camera-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  cursor: pointer;
+  border: 2px solid var(--purple-primary);
+  box-shadow: 0 0 4px rgba(94, 25, 234, 0.3);
+}
+
+.camera-row span {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+  width: 32px;
+  text-align: right;
+}
+
+/* ── Coordinates ── */
+.coordinate-display {
+  font-family: "Roboto", sans-serif;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── Buttons ── */
+.btn-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.btn {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: "Roboto", sans-serif;
+}
+
+.btn:hover:not(:disabled) {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Select ROI Button - purple accent */
+#btnSelectROI {
+  background: linear-gradient(135deg, #5e19ea, #8b5cf6);
+  color: #ffffff;
+  border: none;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(94, 25, 234, 0.3);
+}
+
+#btnSelectROI:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4c14c0, #7c3aed);
+  box-shadow: 0 6px 16px rgba(94, 25, 234, 0.4);
+  transform: translateY(-1px);
+}
+
+#btnSelectROI.active {
+  background: linear-gradient(135deg, #dc2626, #ef4444);
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
+}
+
+/* Reset ROI button */
+#btnResetROI {
+  background: #ffffff;
+  color: var(--purple-primary);
+  border-color: var(--purple-primary);
+}
+
+#btnResetROI:hover:not(:disabled) {
+  background: var(--purple-bg);
+}
+
+/* Reset View button in camera panel */
+#resetCameraBtn {
+  background: #ffffff;
+  color: var(--text);
+  border-color: var(--panel-border);
+}
+
+#resetCameraBtn:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+
+/* Contour inputs */
+.tool-panel input[type="number"],
+.tool-panel input[type="range"],
+.tool-panel input[type="color"] {
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 13px;
+  color: var(--text);
+  background: #f8fafc;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.tool-panel input[type="number"]:focus {
+  border-color: var(--purple-primary);
+}/* --- Utilities --- */
+.hidden {
+  display: none !important;
+}
+
+/*  Added Styles for Bottom Right Panel  */
+.bottom-right-panel {
+  position: absolute;
+  right: 20px;
+  bottom: 90px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-end;
+  pointer-events: none;
+  z-index: 1000;
+}
+
+.coordinate-display {
+  pointer-events: auto;
+  background: #ffffff;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #1e293b;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.view-mode-toggle {
+  pointer-events: auto;
+  display: flex;
+  background: #ffffff;
+  border-radius: 20px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.view-mode-toggle button {
+  background: transparent;
+  border: none;
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: 'Inter', sans-serif;
+}
+
+.view-mode-toggle button.active {
+  background: #5e19ea;
+  color: #ffffff;
+}

@@ -805,6 +805,8 @@ window.addEventListener("DOMContentLoaded", () => {
   let measureEndPoint = null; // world point (Vector3)
   let measureStartCoord = null; // geographic coord
   let measureEndCoord = null; // geographic coord
+  let measureDragScreenStart = null;
+  let measureHasFirstTap = false;
 
   measureHeader?.addEventListener("click", () => {
     const show = measureSettings.style.display === "none";
@@ -861,11 +863,12 @@ window.addEventListener("DOMContentLoaded", () => {
 
   btnMeasure?.addEventListener("click", () => {
     measureState = "SELECTING";
+    measureHasFirstTap = false;
     controls.enabled = false;
     document.body.classList.add("roi-selecting");
     btnMeasure.classList.add("active");
     btnMeasure.textContent = "Click to start";
-    measureHint.textContent = "Click on the map to place the start point, then drag.";
+    measureHint.textContent = "Click on the map to place the start point, then drag or tap.";
     btnClearMeasure.disabled = false;
     measureResults.classList.remove("hidden");
     clearMeasure();
@@ -890,14 +893,21 @@ window.addEventListener("DOMContentLoaded", () => {
     if (measureState === "SELECTING") {
       const rect = canvas.getBoundingClientRect();
       const mouse = new Vector2(e.clientX - rect.left, e.clientY - rect.top);
+      measureDragScreenStart = { x: e.clientX, y: e.clientY };
       const picked = map.pick(mouse);
       if (picked && picked.length > 0) {
-        measureStartPoint = picked[0].point.clone();
-        measureStartCoord = picked[0].coord.clone();
-        measureEndPoint = measureStartPoint.clone();
-        measureEndCoord = measureStartCoord.clone();
-        updateMeasureSvg();
-        measureHint.textContent = "Drag to measure. Release to finish.";
+        if (!measureStartPoint) {
+          measureStartPoint = picked[0].point.clone();
+          measureStartCoord = picked[0].coord.clone();
+          measureEndPoint = measureStartPoint.clone();
+          measureEndCoord = measureStartCoord.clone();
+          updateMeasureSvg();
+          measureHint.textContent = "Drag to measure, or tap again to set the end point.";
+        } else {
+          measureEndPoint = picked[0].point.clone();
+          measureEndCoord = picked[0].coord.clone();
+          updateMeasureSvg();
+        }
       }
     }
   });
@@ -926,15 +936,34 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  canvas.addEventListener("mouseup", () => {
-    if (measureState === "SELECTING" && measureStartPoint) {
-      measureState = "FINISHED";
-      controls.enabled = true;
-      document.body.classList.remove("roi-selecting");
-      btnMeasure.classList.remove("active");
-      btnMeasure.textContent = "Measure Distance";
-      measureHint.textContent =
-        "Measurement complete. Rotate the map to see the line stick! Click 'Clear' to remove.";
+  canvas.addEventListener("mouseup", (e) => {
+    if (measureState === "SELECTING" && measureStartPoint && measureDragScreenStart) {
+      const dx = e.clientX - measureDragScreenStart.x;
+      const dy = e.clientY - measureDragScreenStart.y;
+      const dragDist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dragDist > 5) {
+        measureState = "FINISHED";
+        controls.enabled = true;
+        document.body.classList.remove("roi-selecting");
+        btnMeasure.classList.remove("active");
+        btnMeasure.textContent = "Measure Distance";
+        measureHint.textContent =
+          "Measurement complete. Rotate the map to see the line stick! Click 'Clear' to remove.";
+      } else {
+        if (!measureHasFirstTap) {
+          measureHasFirstTap = true;
+          measureHint.textContent = "First point set. Tap elsewhere to set the second point.";
+        } else {
+          measureState = "FINISHED";
+          controls.enabled = true;
+          document.body.classList.remove("roi-selecting");
+          btnMeasure.classList.remove("active");
+          btnMeasure.textContent = "Measure Distance";
+          measureHint.textContent =
+            "Measurement complete. Rotate the map to see the line stick! Click 'Clear' to remove.";
+        }
+      }
     }
   });
 

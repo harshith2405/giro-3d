@@ -560,39 +560,6 @@ window.addEventListener("DOMContentLoaded", () => {
 
   const btnUploadKml = document.getElementById("btnUploadKml");
   const kmlUpload = document.getElementById("kmlUpload");
-  const kmlSvg = document.getElementById("kmlSvg");
-  const kmlLine = document.getElementById("kmlLine");
-  let kmlWorldPoints = [];
-
-  function updateKmlSvg() {
-    if (!kmlWorldPoints.length) {
-      if (kmlSvg) kmlSvg.style.display = "none";
-      return;
-    }
-    
-    // Check if the center point is behind the camera
-    const testProj = kmlWorldPoints[0].clone().project(instance.view.camera);
-    if (testProj.z > 1) {
-      if (kmlSvg) kmlSvg.style.display = "none";
-      return;
-    }
-    
-    if (kmlSvg) kmlSvg.style.display = "block";
-    const rect = canvas.getBoundingClientRect();
-    
-    const screenPoints = kmlWorldPoints.map(wp => {
-      const p = wp.clone().project(instance.view.camera);
-      const sx = ((p.x + 1) / 2) * rect.width;
-      const sy = ((-p.y + 1) / 2) * rect.height;
-      return `${sx},${sy}`;
-    });
-    
-    if (kmlLine) {
-      kmlLine.setAttribute("d", "M " + screenPoints.join(" L ") + " Z");
-    }
-  }
-
-  controls.addEventListener("change", updateKmlSvg);
 
   btnUploadKml?.addEventListener("click", () => {
     kmlUpload?.click();
@@ -617,7 +584,6 @@ window.addEventListener("DOMContentLoaded", () => {
       let minX = Infinity, minY = Infinity;
       let maxX = -Infinity, maxY = -Infinity;
       let hasValidCoords = false;
-      kmlWorldPoints = [];
 
       for (let i = 0; i < coordsTags.length; i++) {
         const coordsText = coordsTags[i].textContent.trim();
@@ -638,22 +604,17 @@ window.addEventListener("DOMContentLoaded", () => {
             if (y < minY) minY = y;
             if (y > maxY) maxY = y;
             hasValidCoords = true;
-            kmlWorldPoints.push(new Vector3(x, y, activeProject.zOffset || 0));
           }
         }
       }
       
       if (hasValidCoords) {
         resetRoiState();
-        if (roiSvg) roiSvg.style.display = "none";
-        // Do NOT clip the terrain anymore. Just focus camera.
-        const center = new Vector3((minX + maxX) / 2, ((minY + maxY) / 2) - 1000, (activeProject.zOffset || 0) + 1500);
-        instance.view.camera.position.copy(center);
-        controls.target.copy(new Vector3((minX + maxX) / 2, (minY + maxY) / 2, activeProject.zOffset || 0));
-        controls.update();
-        
-        updateKmlSvg();
-        if (roiHint) roiHint.textContent = "KML loaded! Red boundary is now visible.";
+        roiSvg.style.display = "none";
+        const clipExtent = new Extent(giroCrs, minX, maxX, minY, maxY);
+        loadProject(activeProject, clipExtent);
+        if (roiHint) roiHint.textContent = "Terrain clipped via KML! Click 'Reset' to restore.";
+        if (resetROI) resetROI.disabled = false;
       } else {
         alert("Could not parse coordinates from KML.");
       }
@@ -989,9 +950,6 @@ window.addEventListener("DOMContentLoaded", () => {
       if (mode === 'predefined') {
         slopeColorMap.opacity = new Array(5).fill(val);
         instance.notifyChange();
-      } else if (mode === 'haulroad') {
-        slopeColorMap.opacity = new Array(256).fill(val);
-        instance.notifyChange();
       } else {
         btnApplyCustomHeatmap?.click();
       }
@@ -1004,7 +962,6 @@ window.addEventListener("DOMContentLoaded", () => {
   const heatmapRadios = document.getElementsByName('heatmapMode');
   const predefinedHeatmapUI = document.getElementById('predefinedHeatmapUI');
   const customHeatmapUI = document.getElementById('customHeatmapUI');
-  const haulroadHeatmapUI = document.getElementById('haulroadHeatmapUI');
   const customHeatmapRanges = document.getElementById('customHeatmapRanges');
   const btnAddHeatmapRange = document.getElementById('btnAddHeatmapRange');
   const btnApplyCustomHeatmap = document.getElementById('btnApplyCustomHeatmap');
@@ -1072,39 +1029,13 @@ window.addEventListener("DOMContentLoaded", () => {
 
   heatmapRadios.forEach(radio => {
     radio.addEventListener('change', (e) => {
-      const mode = e.target.value;
-      if (mode === 'custom') {
+      if (e.target.value === 'custom') {
         predefinedHeatmapUI.classList.add('hidden');
-        if (haulroadHeatmapUI) haulroadHeatmapUI.classList.add('hidden');
         customHeatmapUI.classList.remove('hidden');
         renderCustomRanges();
-      } else if (mode === 'haulroad') {
-        predefinedHeatmapUI.classList.add('hidden');
-        customHeatmapUI.classList.add('hidden');
-        if (haulroadHeatmapUI) haulroadHeatmapUI.classList.remove('hidden');
-        
-        if (slopeColorMap) {
-          const RESOLUTION = 256;
-          const newColors = [];
-          const val = parseFloat(heatmapOpacity.value);
-          const newOpacities = new Array(RESOLUTION).fill(val);
-          
-          for (let i = 0; i < RESOLUTION; i++) {
-            const deg = (i / (RESOLUTION - 1)) * 90;
-            if (deg <= 5) newColors.push(new Color('green'));
-            else if (deg <= 8) newColors.push(new Color('yellow'));
-            else if (deg <= 10) newColors.push(new Color('orange'));
-            else newColors.push(new Color('red'));
-          }
-          slopeColorMap.colors = newColors;
-          slopeColorMap.opacity = newOpacities;
-          instance.notifyChange();
-        }
       } else {
         predefinedHeatmapUI.classList.remove('hidden');
         customHeatmapUI.classList.add('hidden');
-        if (haulroadHeatmapUI) haulroadHeatmapUI.classList.add('hidden');
-        
         if (slopeColorMap) {
           slopeColorMap.colors = [
             new Color('green'),

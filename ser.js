@@ -15,6 +15,7 @@ import ColorLayer from "@giro3d/giro3d/core/layer/ColorLayer.js";
 import CoordinateSystem from "@giro3d/giro3d/core/geographic/CoordinateSystem.js";
 import ColorMap, { ColorMapMode } from "@giro3d/giro3d/core/ColorMap.js";
 import HttpConfiguration from "@giro3d/giro3d/utils/HttpConfiguration.js";
+import Chart from "chart.js/auto";
 
 // Fix for Chromium's ERR_CACHE_OPERATION_NOT_SUPPORTED on GeoTIFF range requests
 HttpConfiguration.setOptions(window.location.origin, { cache: "no-store" });
@@ -229,8 +230,23 @@ const controls = new MapControls(instance.view.camera, instance.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
 controls.minDistance = 50;
-controls.maxDistance = 5e4;
-controls.listenToKeyEvents(window);
+controls.maxDistance = 150000;
+controls.maxPolarAngle = Math.PI / 2.1;
+
+const toggleToolPanel = document.getElementById('toggleToolPanel');
+const toolPanelContent = document.getElementById('toolPanelContent');
+
+toggleToolPanel?.addEventListener('click', () => {
+  if (toolPanelContent.style.display === 'none') {
+    toolPanelContent.style.display = 'block';
+    toggleToolPanel.textContent = '_';
+    toggleToolPanel.parentElement.parentElement.classList.remove('minimized');
+  } else {
+    toolPanelContent.style.display = 'none';
+    toggleToolPanel.textContent = '□';
+    toggleToolPanel.parentElement.parentElement.classList.add('minimized');
+  }
+});
 instance.view.setControls(controls);
 
 console.log("Giro3D initialized");
@@ -554,6 +570,11 @@ window.addEventListener("DOMContentLoaded", () => {
   resetROI?.addEventListener("click", () => {
     resetRoiState();
     roiSvg.style.display = "none";
+    
+    // Clear KML boundary
+    kmlWorldPoints = [];
+    if (typeof updateKmlSvg === "function") updateKmlSvg();
+
     loadProject(activeProject, null); // reload full extent (un-clipped)
     resetROI.disabled = true;
   });
@@ -653,7 +674,8 @@ window.addEventListener("DOMContentLoaded", () => {
         controls.update();
         
         updateKmlSvg();
-        if (roiHint) roiHint.textContent = "KML loaded! Red boundary is now visible.";
+        if (roiHint) roiHint.textContent = "KML loaded! Red boundary is now visible. Click 'Reset' to clear.";
+        if (resetROI) resetROI.disabled = false;
       } else {
         alert("Could not parse coordinates from KML.");
       }
@@ -817,6 +839,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // Clear the current measurement overlay + points.
   function clearMeasure() {
     if (measureSvg) measureSvg.style.display = "none";
+    if (elevationMiniContainer) elevationMiniContainer.classList.add("hidden");
     measureStartPoint = null;
     measureEndPoint = null;
     measureStartCoord = null;
@@ -932,6 +955,9 @@ window.addEventListener("DOMContentLoaded", () => {
         measureHoriz.textContent = horizontal.toFixed(2);
         measureVert.textContent = vertical.toFixed(2);
         measure3D.textContent = distance3D.toFixed(2);
+        
+        // Live update the elevation profile
+        updateElevationProfile();
       }
     }
   });
@@ -964,7 +990,165 @@ window.addEventListener("DOMContentLoaded", () => {
             "Measurement complete. Rotate the map to see the line stick! Click 'Clear' to remove.";
         }
       }
+      // Ensure profile is finalized
+      updateElevationProfile();
     }
+  });
+
+  // -------------------------------------------------------------------------
+  // Elevation Profile Graph
+  // -------------------------------------------------------------------------
+  const elevationMiniContainer = document.getElementById("elevationMiniContainer");
+  const elevationMiniChartCtx = document.getElementById("elevationMiniChart")?.getContext("2d");
+  const elevationFullChartCtx = document.getElementById("elevationFullChart")?.getContext("2d");
+  const elevationModal = document.getElementById("elevationModal");
+  const btnCloseModal = document.getElementById("btnCloseModal");
+  const btnDownloadCsv = document.getElementById("btnDownloadCsv");
+  const btnDownloadImage = document.getElementById("btnDownloadImage");
+
+  let miniChart = null;
+  let fullChart = null;
+  let currentProfileData = [];
+
+  const customBgPlugin = {
+    id: 'customCanvasBackgroundColor',
+    beforeDraw: (chart, args, options) => {
+      const {ctx} = chart;
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-over';
+      ctx.fillStyle = options.color || '#0f172a'; // Dark background
+      ctx.fillRect(0, 0, chart.width, chart.height);
+      ctx.restore();
+    }
+  };
+
+  function initCharts() {
+    if (miniChart) return;
+    const commonOptions = {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false, // critical for smooth live dragging
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { 
+          title: { display: true, text: 'Distance (m)', color: '#fff' },
+          ticks: { color: '#ccc' },
+          grid: { color: 'rgba(255,255,255,0.1)' }
+        },
+        y: { 
+          title: { display: true, text: 'Elevation (m)', color: '#fff' },
+          ticks: { color: '#ccc' },
+          grid: { color: 'rgba(255,255,255,0.1)' }
+        }
+      }
+    };
+
+    miniChart = new Chart(elevationMiniChartCtx, {
+      type: 'line',
+      data: { labels: [], datasets: [{ data: [], borderColor: '#00ff88', backgroundColor: 'rgba(0, 255, 136, 0.2)', fill: true, tension: 0.1, pointRadius: 0, borderWidth: 3 }] },
+      options: {
+        ...commonOptions,
+        scales: {
+          x: { display: false },
+          y: { ticks: { color: '#ccc', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,0.1)' } }
+        }
+      }
+    });
+
+    fullChart = new Chart(elevationFullChartCtx, {
+      type: 'line',
+      data: { labels: [], datasets: [{ label: 'Elevation', data: [], borderColor: '#00ff88', backgroundColor: 'rgba(0, 255, 136, 0.2)', fill: true, tension: 0.1, pointRadius: 2, pointHoverRadius: 5, borderWidth: 3 }] },
+      options: commonOptions,
+      plugins: [customBgPlugin]
+    });
+  }
+
+  function updateElevationProfile() {
+    if (!measureStartCoord || !measureEndCoord || !map) {
+      if (elevationMiniContainer) elevationMiniContainer.classList.add("hidden");
+      return;
+    }
+    
+    const dx = measureEndCoord.x - measureStartCoord.x;
+    const dy = measureEndCoord.y - measureStartCoord.y;
+    const totalDist = Math.sqrt(dx * dx + dy * dy);
+    if (totalDist < 1) {
+      if (elevationMiniContainer) elevationMiniContainer.classList.add("hidden");
+      return;
+    }
+
+    // Dynamic sampling: 1 sample every 2 meters, min 10, max 200
+    let numSamples = Math.max(10, Math.min(200, Math.floor(totalDist / 2)));
+    
+    const distances = [];
+    const elevations = [];
+    currentProfileData = [];
+
+    for (let i = 0; i <= numSamples; i++) {
+      const t = i / numSamples;
+      const x = measureStartCoord.x + t * dx;
+      const y = measureStartCoord.y + t * dy;
+      
+      const sample = map.getElevationFast(x, y);
+      let z = sample ? sample.elevation : 0;
+      
+      const currentDist = t * totalDist;
+      distances.push(currentDist.toFixed(1));
+      elevations.push(z);
+      currentProfileData.push({ dist: currentDist, elev: z, x, y });
+    }
+
+    if (elevationMiniContainer) elevationMiniContainer.classList.remove("hidden");
+    
+    initCharts();
+    miniChart.data.labels = distances;
+    miniChart.data.datasets[0].data = elevations;
+    miniChart.update();
+
+    if (!elevationModal.classList.contains("hidden")) {
+      fullChart.data.labels = distances;
+      fullChart.data.datasets[0].data = elevations;
+      fullChart.update();
+    }
+  }
+
+  elevationMiniContainer?.addEventListener("click", () => {
+    elevationModal.classList.remove("hidden");
+    initCharts();
+    fullChart.data.labels = miniChart.data.labels;
+    fullChart.data.datasets[0].data = miniChart.data.datasets[0].data;
+    fullChart.update();
+  });
+
+  btnCloseModal?.addEventListener("click", () => {
+    elevationModal.classList.add("hidden");
+  });
+
+  btnDownloadCsv?.addEventListener("click", () => {
+    if (currentProfileData.length === 0) return;
+    let csv = "Distance (m),Elevation (m),X (EPSG:3395),Y (EPSG:3395)\n";
+    currentProfileData.forEach(pt => {
+      csv += `${pt.dist.toFixed(2)},${pt.elev.toFixed(2)},${pt.x.toFixed(2)},${pt.y.toFixed(2)}\n`;
+    });
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.style.display = 'none';
+    a.href = url;
+    a.download = 'elevation_profile.csv';
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+  });
+
+  btnDownloadImage?.addEventListener("click", () => {
+    if (!fullChart) return;
+    const a = document.createElement('a');
+    a.href = fullChart.canvas.toDataURL('image/png');
+    a.download = 'elevation_profile.png';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   });
 
   const mode2D = document.getElementById('mode2D');

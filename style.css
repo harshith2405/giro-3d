@@ -75,22 +75,121 @@ body {
   50% { opacity: 0.5; }
 }
 
-/* ── Tool Panel (Right) ── */
-.tool-panel {
+/* ── Icon Sidebar & Flyout Layout ── */
+.sidebar-layout {
   position: absolute;
   top: 10px;
   left: 10px;
-  width: 300px;
-  max-height: calc(100vh - 20px);
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 16px;
+  display: flex;
+  height: calc(100vh - 20px);
+  z-index: 1001;
+}
+
+.icon-sidebar {
+  width: 50px;
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
-  border-radius: 16px;
+  border-radius: 12px;
   box-shadow: var(--shadow);
-  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 0;
+  gap: 15px;
+  z-index: 2; /* keep above flyout */
+}
+
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.icon-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.icon-btn:hover {
+  background: var(--purple-bg);
+  color: var(--purple-primary);
+}
+
+.icon-btn.active {
+  background: var(--purple-primary);
+  color: #fff;
+  box-shadow: 0 4px 10px rgba(94, 25, 234, 0.4);
+}
+
+.flyout-panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 0 16px 16px 0;
+  box-shadow: var(--shadow);
+  width: 300px;
+  margin-left: -10px; /* pull under the sidebar border slightly */
+  padding: 16px;
+  padding-left: 24px; /* extra padding to account for the overlap */
   color: var(--text);
+  overflow-y: auto;
+  overflow-x: hidden;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s;
+  transform-origin: left center;
+  z-index: 1;
+}
+
+.flyout-panel.closed {
+  transform: translateX(-110%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.flyout-group {
+  display: none;
+  animation: fadeIn 0.3s ease;
+}
+
+.flyout-group.active {
+  display: block;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+
+
+.saved-report-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  background: rgba(0,0,0,0.03);
+  border-radius: 6px;
+  border: 1px solid rgba(0,0,0,0.05);
+  transition: all 0.2s;
+  font-size: 12px;
+  text-decoration: none;
+  color: var(--text);
+}
+
+.saved-report-item:hover {
+  background: rgba(94, 25, 234, 0.05);
+  border-color: rgba(94, 25, 234, 0.2);
+  color: var(--purple-primary);
+}
+
+.saved-report-item svg {
+  min-width: 14px;
 }
 
 .tool-panel::-webkit-scrollbar { width: 6px; }
@@ -407,7 +506,7 @@ body {
 .bottom-right-panel {
   position: absolute;
   right: 20px;
-  bottom: 90px;
+  bottom: 60px; /* Moved down 30px */
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -454,4 +553,54 @@ body {
 .view-mode-toggle button.active {
   background: #5e19ea;
   color: #ffffff;
+}
+
+/* ── Form Rows & Inputs ── */
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+.row label {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.input {
+  padding: 6px 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: "Roboto", sans-serif;
+  color: var(--text);
+  background: #f8fafc;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.input:focus {
+  border-color: var(--purple-primary);
+  box-shadow: 0 0 0 3px rgba(94, 25, 234, 0.1);
+}
+
+.input-color {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  background: none;
+}
+
+.input-color::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.input-color::-webkit-color-swatch {
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
 }

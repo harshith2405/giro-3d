@@ -14,8 +14,11 @@ import ElevationLayer from "@giro3d/giro3d/core/layer/ElevationLayer.js";
 import ColorLayer from "@giro3d/giro3d/core/layer/ColorLayer.js";
 import CoordinateSystem from "@giro3d/giro3d/core/geographic/CoordinateSystem.js";
 import ColorMap, { ColorMapMode } from "@giro3d/giro3d/core/ColorMap.js";
+import Coordinates from "@giro3d/giro3d/core/geographic/Coordinates.js";
 import HttpConfiguration from "@giro3d/giro3d/utils/HttpConfiguration.js";
 import Chart from "chart.js/auto";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
 
 // Fix for Chromium's ERR_CACHE_OPERATION_NOT_SUPPORTED on GeoTIFF range requests
 HttpConfiguration.setOptions(window.location.origin, { cache: "no-store" });
@@ -197,8 +200,7 @@ async function loadProject(project, extentOverride = null) {
 // ---------------------------------------------------------------------------
 const PROJECTS = {
   chattibhariatu_project: {
-    elevationUrl: "./projects/Chattibhariatu/DSM_cloudoptimised.tif",
-    orthoUrl: "./projects/Chattibhariatu/Ortho_CO.tif",
+    folderName: "Chattibhariatu",
     extent: [
       9467845763606766e-9,
       9473006448724607e-9,
@@ -206,10 +208,19 @@ const PROJECTS = {
       2.7244897791313147e6,
     ],
     zOffset: 429,
+      surveys: {
+        may_2026: {
+          elevationUrl: "./projects/Chattibhariatu/surveys/may_2026/DSM_cloudoptimised.tif",
+          orthoUrl: "./projects/Chattibhariatu/surveys/may_2026/Ortho_CO.tif",
+        },
+        july_2026: {
+          elevationUrl: "./projects/Chattibhariatu/surveys/july_2026/DSM_cloudoptimised.tif",
+          orthoUrl: "./projects/Chattibhariatu/surveys/july_2026/Ortho_CO.tif",
+        }
+      }
   },
   ahuja_project: {
-    elevationUrl: "./projects/ahuja/Ahuja_DTM_COG.tif",
-    orthoUrl: "./projects/ahuja/Ambuja_ortho.tif",
+    folderName: "ahuja",
     extent: [
       8755723168817045e-9,
       8756317918817045e-9,
@@ -217,8 +228,36 @@ const PROJECTS = {
       1.9432158557069767e6,
     ],
     zOffset: 550,
+    surveys: {
+      may_2026: {
+        elevationUrl: "./projects/ahuja/surveys/may_2026/Ahuja_DTM_COG.tif",
+        orthoUrl: "./projects/ahuja/surveys/may_2026/Ambuja_ortho.tif",
+      }
+    }
   },
 };
+
+/** Helper to parse URL and return the active project+survey config */
+function getActiveProjectConfig() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const projectId = urlParams.get("project") || "chattibhariatu_project";
+  const surveyId = urlParams.get("survey") || "may_2026";
+  
+  const projectInfo = PROJECTS[projectId] || PROJECTS.chattibhariatu_project;
+  // If the specific survey doesn't exist, default to may_2026 to prevent crashes
+  const surveyInfo = projectInfo.surveys[surveyId] || projectInfo.surveys["may_2026"];
+  
+  return {
+    ...projectInfo,
+    elevationUrl: surveyInfo.elevationUrl,
+    orthoUrl: surveyInfo.orthoUrl,
+    id: projectId,
+    folderName: projectInfo.folderName || projectId,
+    surveyId: surveyId
+  };
+}
+
+let activeProject = null;
 
 // ---------------------------------------------------------------------------
 // Camera controls
@@ -233,20 +272,59 @@ controls.minDistance = 50;
 controls.maxDistance = 150000;
 controls.maxPolarAngle = Math.PI / 2.1;
 
-const toggleToolPanel = document.getElementById('toggleToolPanel');
-const toolPanelContent = document.getElementById('toolPanelContent');
+const flyoutPanel = document.getElementById('flyoutPanel');
+  const toggleFlyoutPanel = document.getElementById('toggleFlyoutPanel');
+  const iconBtns = document.querySelectorAll('.icon-btn');
+  const flyoutGroups = document.querySelectorAll('.flyout-group');
+  const flyoutTitle = document.getElementById('flyoutTitle');
 
-toggleToolPanel?.addEventListener('click', () => {
-  if (toolPanelContent.style.display === 'none') {
-    toolPanelContent.style.display = 'block';
-    toggleToolPanel.textContent = '_';
-    toggleToolPanel.parentElement.parentElement.classList.remove('minimized');
-  } else {
-    toolPanelContent.style.display = 'none';
-    toggleToolPanel.textContent = '□';
-    toggleToolPanel.parentElement.parentElement.classList.add('minimized');
+  // Helper to close flyout
+  function closeFlyout() {
+    flyoutPanel.classList.add('closed');
+    iconBtns.forEach(b => b.classList.remove('active'));
   }
-});
+
+  // Open / Switch Flyout
+  iconBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.getAttribute('data-target');
+      
+      // If clicking the currently active button, just close it
+      if (btn.classList.contains('active')) {
+        closeFlyout();
+        return;
+      }
+      
+      // Otherwise, open it and switch active state
+      flyoutPanel.classList.remove('closed');
+      
+      // Update buttons
+      iconBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      
+      // Update groups
+      flyoutGroups.forEach(g => g.classList.remove('active', 'hidden'));
+      flyoutGroups.forEach(g => {
+        if (g.id === targetId) {
+          g.classList.add('active');
+          g.style.display = 'block';
+        } else {
+          g.classList.add('hidden');
+          g.style.display = 'none';
+        }
+      });
+      
+      // Update Title
+      flyoutTitle.textContent = btn.getAttribute('title');
+    });
+  });
+
+  // Close button inside flyout
+  toggleFlyoutPanel?.addEventListener('click', () => {
+    closeFlyout();
+  });
+
+
 instance.view.setControls(controls);
 
 console.log("Giro3D initialized");
@@ -255,11 +333,8 @@ console.log("Giro3D initialized");
 // UI wiring
 // ---------------------------------------------------------------------------
 window.addEventListener("DOMContentLoaded", () => {
-  // Select project from ?project=... query string.
-  const projectId =
-    new URLSearchParams(window.location.search).get("project") ||
-    "chattibhariatu_project";
-  const activeProject = PROJECTS[projectId] || PROJECTS.chattibhariatu_project;
+  // Select project and survey from query string
+  activeProject = getActiveProjectConfig();
   loadProject(activeProject).then(() => {});
 
   // -------------------------------------------------------------------------
@@ -323,9 +398,7 @@ window.addEventListener("DOMContentLoaded", () => {
   camControlsPanel?.addEventListener("mousedown", (e) => e.stopPropagation());
   resetCameraBtn?.addEventListener("click", (e) => {
     e.stopPropagation();
-    const projectId = new URLSearchParams(window.location.search).get("project") || "chattibhariatu_project";
-    const id = projectId;
-    const project = PROJECTS[id] || PROJECTS.chattibhariatu_project;
+    const project = getActiveProjectConfig();
     const extent = new Extent(giroCrs, ...project.extent);
     const center = extent.centerAsVector3();
     const dims = extent.dimensions();
@@ -521,6 +594,15 @@ window.addEventListener("DOMContentLoaded", () => {
   // -------------------------------------------------------------------------
   const selectROI = document.getElementById("selectROI");
   const resetROI = document.getElementById("resetROI");
+  const roiHeader = document.getElementById("roiHeader");
+  const roiSettings = document.getElementById("roiSettings");
+  const roiCarrot = document.getElementById("roiCarrot");
+
+  roiHeader?.addEventListener("click", () => {
+    const show = roiSettings.style.display === "none";
+    roiSettings.style.display = show ? "block" : "none";
+    roiCarrot.textContent = show ? "▼" : "▲";
+  });
   const roiHint = document.getElementById("roiHint");
   const roiMetrics = document.getElementById("roiMetrics");
   const roiPerimeter = document.getElementById("roiPerimeter");
@@ -792,7 +874,7 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     // Reload the project clipped to the selected rectangle.
     const clipExtent = new Extent(giroCrs, minX, maxX, minY, maxY);
-    const clipProject = PROJECTS.chattibhariatu_project;
+    const clipProject = getActiveProjectConfig();
     loadProject(clipProject, clipExtent);
 
     roiState = "IDLE";
@@ -807,22 +889,56 @@ window.addEventListener("DOMContentLoaded", () => {
   // -------------------------------------------------------------------------
   // Measurement (distance / height)
   // -------------------------------------------------------------------------
-  const measureHeader = document.getElementById("measureHeader");
-  const measureCarrot = document.getElementById("measureCarrot");
-  const measureSettings = document.getElementById("measureSettings");
-  const btnMeasure = document.getElementById("btnMeasure");
-  const btnClearMeasure = document.getElementById("btnClearMeasure");
-  const measureResults = document.getElementById("measureResults");
-  const measureHoriz = document.getElementById("measureHoriz");
-  const measureVert = document.getElementById("measureVert");
-  const measure3D = document.getElementById("measure3D");
-  const measureHint = document.getElementById("measureHint");
+  // -------------------------------------------------------------------------
+  // Simple Measurement Tool
+  // -------------------------------------------------------------------------
+  const measureSimpleHeader = document.getElementById("measureSimpleHeader");
+  const measureSimpleCarrot = document.getElementById("measureSimpleCarrot");
+  const measureSimpleSettings = document.getElementById("measureSimpleSettings");
+  const btnMeasureSimple = document.getElementById("btnMeasureSimple");
+  const btnClearMeasureSimple = document.getElementById("btnClearMeasureSimple");
+  const measureSimpleResults = document.getElementById("measureSimpleResults");
+  const measureSimpleHoriz = document.getElementById("measureSimpleHoriz");
+  const measureSimpleVert = document.getElementById("measureSimpleVert");
+  const measureSimple3D = document.getElementById("measureSimple3D");
+  const measureSimpleHint = document.getElementById("measureSimpleHint");
+
+  measureSimpleHeader?.addEventListener("click", () => {
+    const show = measureSimpleSettings.style.display === "none";
+    measureSimpleSettings.style.display = show ? "block" : "none";
+    measureSimpleCarrot.textContent = show ? "▲" : "▼";
+  });
+
+  // -------------------------------------------------------------------------
+  // Path Profile Tool
+  // -------------------------------------------------------------------------
+  const profileHeader = document.getElementById("profileHeader");
+  const profileCarrot = document.getElementById("profileCarrot");
+  const profileSettings = document.getElementById("profileSettings");
+  const btnProfile = document.getElementById("btnProfile");
+  const btnClearProfile = document.getElementById("btnClearProfile");
+  const profileResults = document.getElementById("profileResults");
+  const profileHoriz = document.getElementById("profileHoriz");
+  const profileVert = document.getElementById("profileVert");
+  const profile3D = document.getElementById("profile3D");
+  const profileHint = document.getElementById("profileHint");
+
+  profileHeader?.addEventListener("click", () => {
+    const show = profileSettings.style.display === "none";
+    profileSettings.style.display = show ? "block" : "none";
+    profileCarrot.textContent = show ? "▲" : "▼";
+  });
+
+  // -------------------------------------------------------------------------
+  // Shared Drawing Logic
+  // -------------------------------------------------------------------------
   const measureSvg = document.getElementById("measureSvg");
   const measureSvgLine = document.getElementById("measureSvgLine");
   const measureSvgStart = document.getElementById("measureSvgStart");
   const measureSvgEnd = document.getElementById("measureSvgEnd");
 
   let measureState = "IDLE"; // IDLE | SELECTING | FINISHED
+  let measureMode = "NONE"; // NONE | SIMPLE | PROFILE | REDRAW
   let measureStartPoint = null; // world point (Vector3)
   let measureEndPoint = null; // world point (Vector3)
   let measureStartCoord = null; // geographic coord
@@ -830,11 +946,7 @@ window.addEventListener("DOMContentLoaded", () => {
   let measureDragScreenStart = null;
   let measureHasFirstTap = false;
 
-  measureHeader?.addEventListener("click", () => {
-    const show = measureSettings.style.display === "none";
-    measureSettings.style.display = show ? "block" : "none";
-    measureCarrot.textContent = show ? "▲" : "▼";
-  });
+
 
   // Clear the current measurement overlay + points.
   function clearMeasure() {
@@ -884,32 +996,66 @@ window.addEventListener("DOMContentLoaded", () => {
   }
   controls.addEventListener("change", updateMeasureSvg);
 
-  btnMeasure?.addEventListener("click", () => {
+  // --- Simple Measurement ---
+  btnMeasureSimple?.addEventListener("click", () => {
     measureState = "SELECTING";
+    measureMode = "SIMPLE";
     measureHasFirstTap = false;
     controls.enabled = false;
     document.body.classList.add("roi-selecting");
-    btnMeasure.classList.add("active");
-    btnMeasure.textContent = "Click to start";
-    measureHint.textContent = "Click on the map to place the start point, then drag or tap.";
-    btnClearMeasure.disabled = false;
-    measureResults.classList.remove("hidden");
+    btnMeasureSimple.classList.add("active");
+    btnMeasureSimple.textContent = "Click to start";
+    measureSimpleHint.textContent = "Click on the map to place the start point, then drag or tap.";
+    btnClearMeasureSimple.disabled = false;
+    measureSimpleResults.classList.remove("hidden");
     clearMeasure();
-    measureHoriz.textContent = "0.00";
-    measureVert.textContent = "0.00";
-    measure3D.textContent = "0.00";
+    measureSimpleHoriz.textContent = "0.00";
+    measureSimpleVert.textContent = "0.00";
+    measureSimple3D.textContent = "0.00";
   });
 
-  btnClearMeasure?.addEventListener("click", () => {
+  btnClearMeasureSimple?.addEventListener("click", () => {
     measureState = "IDLE";
+    measureMode = "NONE";
     controls.enabled = true;
     document.body.classList.remove("roi-selecting");
-    btnMeasure.classList.remove("active");
-    btnMeasure.textContent = "Measure Distance";
-    measureHint.textContent = "Click 'Measure Distance' then click and drag on the map.";
-    measureResults.classList.add("hidden");
+    btnMeasureSimple.classList.remove("active");
+    btnMeasureSimple.textContent = "Measure Distance";
+    measureSimpleHint.textContent = "Click 'Measure Distance' then click and drag on the map.";
+    measureSimpleResults.classList.add("hidden");
     clearMeasure();
-    btnClearMeasure.disabled = true;
+    btnClearMeasureSimple.disabled = true;
+  });
+
+  // --- Path Profile ---
+  btnProfile?.addEventListener("click", () => {
+    measureState = "SELECTING";
+    measureMode = "PROFILE";
+    measureHasFirstTap = false;
+    controls.enabled = false;
+    document.body.classList.add("roi-selecting");
+    btnProfile.classList.add("active");
+    btnProfile.textContent = "Click to start";
+    profileHint.textContent = "Click on the map to place the start point, then drag or tap.";
+    btnClearProfile.disabled = false;
+    profileResults.classList.remove("hidden");
+    clearMeasure();
+    profileHoriz.textContent = "0.00";
+    profileVert.textContent = "0.00";
+    profile3D.textContent = "0.00";
+  });
+
+  btnClearProfile?.addEventListener("click", () => {
+    measureState = "IDLE";
+    measureMode = "NONE";
+    controls.enabled = true;
+    document.body.classList.remove("roi-selecting");
+    btnProfile.classList.remove("active");
+    btnProfile.textContent = "Draw Path Profile";
+    profileHint.textContent = "Draw a line to generate a terrain profile graph and save report.";
+    profileResults.classList.add("hidden");
+    clearMeasure();
+    btnClearProfile.disabled = true;
   });
 
   canvas.addEventListener("mousedown", (e) => {
@@ -925,7 +1071,9 @@ window.addEventListener("DOMContentLoaded", () => {
           measureEndPoint = measureStartPoint.clone();
           measureEndCoord = measureStartCoord.clone();
           updateMeasureSvg();
-          measureHint.textContent = "Drag to measure, or tap again to set the end point.";
+          
+          if (measureMode === "SIMPLE") measureSimpleHint.textContent = "Drag to measure, or tap again to set the end point.";
+          else if (measureMode === "PROFILE") profileHint.textContent = "Drag to measure, or tap again to set the end point.";
         } else {
           measureEndPoint = picked[0].point.clone();
           measureEndCoord = picked[0].coord.clone();
@@ -952,12 +1100,16 @@ window.addEventListener("DOMContentLoaded", () => {
         const vertical = Math.abs(dz);
         const distance3D = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-        measureHoriz.textContent = horizontal.toFixed(2);
-        measureVert.textContent = vertical.toFixed(2);
-        measure3D.textContent = distance3D.toFixed(2);
-        
-        // Live update the elevation profile
-        updateElevationProfile();
+        if (measureMode === "SIMPLE") {
+          measureSimpleHoriz.textContent = horizontal.toFixed(2);
+          measureSimpleVert.textContent = vertical.toFixed(2);
+          measureSimple3D.textContent = distance3D.toFixed(2);
+        } else if (measureMode === "PROFILE") {
+          profileHoriz.textContent = horizontal.toFixed(2);
+          profileVert.textContent = vertical.toFixed(2);
+          profile3D.textContent = distance3D.toFixed(2);
+          updateElevationProfile();
+        }
       }
     }
   });
@@ -972,26 +1124,39 @@ window.addEventListener("DOMContentLoaded", () => {
         measureState = "FINISHED";
         controls.enabled = true;
         document.body.classList.remove("roi-selecting");
-        btnMeasure.classList.remove("active");
-        btnMeasure.textContent = "Measure Distance";
-        measureHint.textContent =
-          "Measurement complete. Rotate the map to see the line stick! Click 'Clear' to remove.";
+        
+        if (measureMode === "SIMPLE") {
+          btnMeasureSimple.classList.remove("active");
+          btnMeasureSimple.textContent = "Measure Distance";
+          measureSimpleHint.textContent = "Measurement complete. Rotate the map to see the line stick! Click 'Clear' to remove.";
+        } else if (measureMode === "PROFILE") {
+          btnProfile.classList.remove("active");
+          btnProfile.textContent = "Draw Path Profile";
+          profileHint.textContent = "Path Profile complete. Rotate the map to see the line stick! Click 'Clear' to remove.";
+          updateElevationProfile();
+        }
       } else {
         if (!measureHasFirstTap) {
           measureHasFirstTap = true;
-          measureHint.textContent = "First point set. Tap elsewhere to set the second point.";
+          if (measureMode === "SIMPLE") measureSimpleHint.textContent = "First point set. Tap elsewhere to set the second point.";
+          else if (measureMode === "PROFILE") profileHint.textContent = "First point set. Tap elsewhere to set the second point.";
         } else {
           measureState = "FINISHED";
           controls.enabled = true;
           document.body.classList.remove("roi-selecting");
-          btnMeasure.classList.remove("active");
-          btnMeasure.textContent = "Measure Distance";
-          measureHint.textContent =
-            "Measurement complete. Rotate the map to see the line stick! Click 'Clear' to remove.";
+          
+          if (measureMode === "SIMPLE") {
+            btnMeasureSimple.classList.remove("active");
+            btnMeasureSimple.textContent = "Measure Distance";
+            measureSimpleHint.textContent = "Measurement complete. Rotate the map to see the line stick! Click 'Clear' to remove.";
+          } else if (measureMode === "PROFILE") {
+            btnProfile.classList.remove("active");
+            btnProfile.textContent = "Draw Path Profile";
+            profileHint.textContent = "Path Profile complete. Rotate the map to see the line stick! Click 'Clear' to remove.";
+            updateElevationProfile();
+          }
         }
       }
-      // Ensure profile is finalized
-      updateElevationProfile();
     }
   });
 
@@ -1003,8 +1168,9 @@ window.addEventListener("DOMContentLoaded", () => {
   const elevationFullChartCtx = document.getElementById("elevationFullChart")?.getContext("2d");
   const elevationModal = document.getElementById("elevationModal");
   const btnCloseModal = document.getElementById("btnCloseModal");
-  const btnDownloadCsv = document.getElementById("btnDownloadCsv");
-  const btnDownloadImage = document.getElementById("btnDownloadImage");
+  const btnDownloadReport = document.getElementById("btnDownloadReport");
+  const btnSaveToSurvey = document.getElementById("btnSaveToSurvey");
+  const reportNameInput = document.getElementById("reportNameInput");
 
   let miniChart = null;
   let fullChart = null;
@@ -1124,31 +1290,204 @@ window.addEventListener("DOMContentLoaded", () => {
     elevationModal.classList.add("hidden");
   });
 
-  btnDownloadCsv?.addEventListener("click", () => {
-    if (currentProfileData.length === 0) return;
-    let csv = "Distance (m),Elevation (m),X (EPSG:3395),Y (EPSG:3395)\n";
-    currentProfileData.forEach(pt => {
-      csv += `${pt.dist.toFixed(2)},${pt.elev.toFixed(2)},${pt.x.toFixed(2)},${pt.y.toFixed(2)}\n`;
+  function generateReportPDF(reportName) {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    
+    // Professional Header Banner
+    doc.setFillColor(15, 23, 42); // slate-900
+    doc.rect(0, 0, pageWidth, 40, 'F');
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(20);
+    doc.text("POLYGON GEOSPATIAL ANALYSIS", pageWidth / 2, 22, { align: 'center' });
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor(200, 200, 200);
+    doc.text("Topographical & Elevation Report", pageWidth / 2, 30, { align: 'center' });
+    
+    // Report Metadata
+    doc.setTextColor(30, 30, 30);
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text(`Report: ${reportName}`, 15, 52);
+    
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Date of Analysis: ${new Date().toLocaleString()}`, 15, 60);
+    doc.text(`Coordinate System: EPSG:3395 (World Mercator)`, 15, 66);
+    
+    // Add Chart Image
+    const chartImg = fullChart.canvas.toDataURL('image/png');
+    doc.addImage(chartImg, 'PNG', 15, 75, 180, 80);
+    
+    // Calculate Analytical Stats
+    const dists = currentProfileData.map(d => d.dist);
+    const elevs = currentProfileData.map(d => d.elev);
+    const totalDist = Math.max(...dists);
+    
+    let surfaceDistance = 0;
+    let maxSlope = 0;
+    for (let i = 1; i < currentProfileData.length; i++) {
+      const p1 = currentProfileData[i-1];
+      const p2 = currentProfileData[i];
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      const dz = p2.elev - p1.elev;
+      const horizontalDist = Math.sqrt(dx*dx + dy*dy);
+      surfaceDistance += Math.sqrt(horizontalDist*horizontalDist + dz*dz);
+      
+      if (horizontalDist > 0) {
+        const slope = Math.abs(dz / horizontalDist) * 100;
+        if (slope > maxSlope) maxSlope = slope;
+      }
+    }
+
+    const maxElev = Math.max(...elevs);
+    const minElev = Math.min(...elevs);
+    const elevChange = maxElev - minElev;
+    const avgSlope = totalDist > 0 ? (elevChange / totalDist * 100) : 0;
+    
+    const startX = currentProfileData[0].x.toFixed(2);
+    const startY = currentProfileData[0].y.toFixed(2);
+    const endX = currentProfileData[currentProfileData.length-1].x.toFixed(2);
+    const endY = currentProfileData[currentProfileData.length-1].y.toFixed(2);
+    
+    // Tables
+    autoTable(doc, {
+      startY: 165,
+      head: [['Geographical Details', 'Coordinates (EPSG:3395)']],
+      body: [
+        ['Start Point', `X: ${startX}, Y: ${startY}`],
+        ['End Point', `X: ${endX}, Y: ${endY}`]
+      ],
+      theme: 'grid',
+      headStyles: { fillColor: [51, 65, 85] },
+      styles: { fontSize: 10, cellPadding: 5 }
     });
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.style.display = 'none';
-    a.href = url;
-    a.download = 'elevation_profile.csv';
-    document.body.appendChild(a);
-    a.click();
-    window.URL.revokeObjectURL(url);
+
+    autoTable(doc, {
+      startY: doc.lastAutoTable.finalY + 8,
+      head: [['Topographical Metrics', 'Calculated Value']],
+      body: [
+        ['Horizontal Distance (2D)', `${totalDist.toFixed(2)} m`],
+        ['Surface Distance (3D)', `${surfaceDistance.toFixed(2)} m`],
+        ['Elevation Change (\u0394)', `${elevChange.toFixed(2)} m`],
+        ['Maximum Elevation', `${maxElev.toFixed(2)} m`],
+        ['Minimum Elevation', `${minElev.toFixed(2)} m`],
+        ['Average Grade / Slope', `${avgSlope.toFixed(2)} %`],
+        ['Maximum Grade / Slope', `${maxSlope.toFixed(2)} %`]
+      ],
+      theme: 'grid',
+      headStyles: { fillColor: [15, 118, 110] }, // Teal header
+      styles: { fontSize: 10, cellPadding: 5 }
+    });
+    
+    // Footer
+    const pageHeight = doc.internal.pageSize.getHeight();
+    doc.setFontSize(9);
+    doc.setTextColor(150, 150, 150);
+    doc.text("Generated by Polygon Geospatial Viewer", pageWidth / 2, pageHeight - 10, { align: 'center' });
+    
+    return doc;
+  }
+
+  btnDownloadReport?.addEventListener("click", () => {
+    if (currentProfileData.length === 0 || !fullChart) return;
+    
+    let reportName = reportNameInput?.value.trim() || "Elevation_Profile_Report";
+    const doc = generateReportPDF(reportName);
+    doc.save(`${reportName.replace(/\s+/g, '_')}.pdf`);
   });
 
-  btnDownloadImage?.addEventListener("click", () => {
-    if (!fullChart) return;
-    const a = document.createElement('a');
-    a.href = fullChart.canvas.toDataURL('image/png');
-    a.download = 'elevation_profile.png';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+  btnSaveToSurvey?.addEventListener("click", async () => {
+    if (currentProfileData.length === 0 || !fullChart) return;
+
+    let reportName = reportNameInput?.value.trim() || "Elevation_Profile_Report";
+    const safeReportName = reportName.replace(/\s+/g, '_');
+    
+    const originalText = btnSaveToSurvey.innerHTML;
+    btnSaveToSurvey.textContent = "Saving...";
+    btnSaveToSurvey.disabled = true;
+
+    try {
+      const doc = generateReportPDF(reportName);
+      const pdfBlob = doc.output('blob');
+      
+      // Generate JSON Metadata
+      const metadata = {
+        startPoint: measureStartPoint ? { x: measureStartPoint.x, y: measureStartPoint.y, z: measureStartPoint.z } : null,
+        endPoint: measureEndPoint ? { x: measureEndPoint.x, y: measureEndPoint.y, z: measureEndPoint.z } : null,
+        startCoord: measureStartCoord ? { x: measureStartCoord.x, y: measureStartCoord.y, z: measureStartCoord.z } : null,
+        endCoord: measureEndCoord ? { x: measureEndCoord.x, y: measureEndCoord.y, z: measureEndCoord.z } : null
+      };
+      const jsonBlob = new Blob([JSON.stringify(metadata)], { type: "application/json" });
+      
+      const apiUrl = "https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url";
+      
+      // 1. Upload PDF
+      const pdfApiResponse = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: activeProject.folderName,
+          surveyId: activeProject.surveyId,
+          fileName: `${safeReportName}.pdf`
+        })
+      });
+      if (!pdfApiResponse.ok) throw new Error("Failed to get PDF upload URL from Lambda");
+      const { uploadUrl: pdfUploadUrl } = await pdfApiResponse.json();
+      const pdfUploadResponse = await fetch(pdfUploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": "application/pdf" },
+        body: pdfBlob
+      });
+      if (!pdfUploadResponse.ok) throw new Error("Failed to upload PDF to S3");
+
+      // 2. Upload JSON Metadata
+      const jsonApiResponse = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: activeProject.folderName,
+          surveyId: activeProject.surveyId,
+          fileName: `${safeReportName}.json`
+        })
+      });
+      if (!jsonApiResponse.ok) throw new Error("Failed to get JSON upload URL from Lambda");
+      const { uploadUrl: jsonUploadUrl } = await jsonApiResponse.json();
+      const jsonUploadResponse = await fetch(jsonUploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: jsonBlob
+      });
+      if (!jsonUploadResponse.ok) throw new Error("Failed to upload JSON to S3");
+
+      btnSaveToSurvey.textContent = "Saved to Survey!";
+      btnSaveToSurvey.style.background = "#10b981"; // success green
+      
+      // Refresh the reports panel automatically!
+      fetchSavedReports();
+      
+      setTimeout(() => {
+        btnSaveToSurvey.innerHTML = originalText;
+        btnSaveToSurvey.style.background = "#0ea5e9";
+        btnSaveToSurvey.disabled = false;
+      }, 3000);
+
+    } catch (err) {
+      console.error("Error saving report:", err);
+      btnSaveToSurvey.textContent = "Error Saving";
+      btnSaveToSurvey.style.background = "#ef4444"; // red
+      
+      setTimeout(() => {
+        btnSaveToSurvey.innerHTML = originalText;
+        btnSaveToSurvey.style.background = "#0ea5e9";
+        btnSaveToSurvey.disabled = false;
+      }, 3000);
+    }
   });
 
   const mode2D = document.getElementById('mode2D');
@@ -1388,4 +1727,232 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // -------------------------------------------------------------------------
+  // Saved Reports UI Logic
+  // -------------------------------------------------------------------------
+  const savedReportsHeader = document.getElementById("savedReportsHeader");
+  const reportsCarrot = document.getElementById("reportsCarrot");
+  const reportsPanelContent = document.getElementById("reportsPanelContent");
+  const reportsList = document.getElementById("reportsList");
+  const reportsListLoading = document.getElementById("reportsListLoading");
+
+  savedReportsHeader?.addEventListener("click", () => {
+    const show = reportsPanelContent.style.display === "none";
+    reportsPanelContent.style.display = show ? "block" : "none";
+    reportsCarrot.textContent = show ? "▼" : "▲";
+  });
+
+  async function fetchSavedReports() {
+    if (!reportsListLoading || !reportsList) return;
+    
+    reportsListLoading.style.display = 'block';
+    reportsListLoading.textContent = "Loading reports...";
+    reportsList.innerHTML = '';
+
+    try {
+      const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url?projectId=${activeProject.folderName}&surveyId=${activeProject.surveyId}`;
+      const response = await fetch(apiUrl, { method: "GET" });
+      
+      if (!response.ok) throw new Error("Failed to fetch reports");
+      
+      const files = await response.json();
+      reportsListLoading.style.display = 'none';
+
+      const pdfFiles = files.filter(f => f.fileName.endsWith('.pdf'));
+
+      if (pdfFiles.length === 0) {
+        reportsListLoading.style.display = 'block';
+        reportsListLoading.textContent = "No saved reports yet.";
+        return;
+      }
+
+      pdfFiles.forEach(file => {
+        const item = document.createElement("div");
+        item.className = "saved-report-item";
+        item.style.cursor = "pointer";
+        
+        const svg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`;
+        const dateStr = new Date(file.lastModified).toLocaleDateString();
+        
+        // Find corresponding JSON file
+        const jsonFile = files.find(f => f.fileName === file.fileName.replace('.pdf', '.json'));
+        const viewBtnHtml = jsonFile ? `<button class="view-path-btn" style="background: none; border: none; cursor: pointer; color: #0ea5e9; font-size: 14px;" title="View Path on Map">👁️</button>` : '';
+        
+        item.innerHTML = `
+          <input type="checkbox" class="report-checkbox" style="display: none; cursor: pointer; margin-right: 8px;" data-filename="${file.fileName}">
+          <a href="${file.url}" target="_blank" class="report-link" style="display: flex; align-items: center; flex: 1; color: inherit; text-decoration: none; overflow: hidden;">
+            ${svg} <span style="flex: 1; margin-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${file.fileName}">${file.fileName}</span>
+          </a>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            ${viewBtnHtml}
+            <span style="color: #94a3b8; font-size: 10px;">${dateStr}</span>
+          </div>
+        `;
+        
+        const viewBtn = item.querySelector('.view-path-btn');
+        if (viewBtn) {
+          viewBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            try {
+              const res = await fetch(jsonFile.url);
+              if (!res.ok) {
+                const errText = await res.text();
+                throw new Error(`HTTP ${res.status}: ${errText}`);
+              }
+              const text = await res.text();
+              let metadata;
+              try {
+                metadata = JSON.parse(text);
+              } catch (parseErr) {
+                throw new Error(`JSON Parse Error: ${parseErr.message}. Content: ${text.substring(0, 100)}`);
+              }
+              
+              if (metadata.startPoint && metadata.endPoint) {
+                 measureStartPoint = new Vector3(metadata.startPoint.x, metadata.startPoint.y, metadata.startPoint.z);
+                 measureEndPoint = new Vector3(metadata.endPoint.x, metadata.endPoint.y, metadata.endPoint.z);
+                 if (metadata.startCoord) measureStartCoord = new Coordinates(giroCrs, metadata.startCoord.x, metadata.startCoord.y, metadata.startCoord.z);
+                 if (metadata.endCoord) measureEndCoord = new Coordinates(giroCrs, metadata.endCoord.x, metadata.endCoord.y, metadata.endCoord.z);
+                 
+                 measureMode = "PROFILE";
+                 measureState = "FINISHED";
+                 updateMeasureSvg();
+                 
+                 // Expand Path Profile tool if closed
+                 if (profileSettings.style.display === "none") {
+                   profileHeader.click();
+                 }
+                 
+                 // Show the reset button
+                 btnProfile.classList.remove("active");
+                 btnProfile.textContent = "Draw Path Profile";
+                 btnClearProfile.disabled = false;
+                 
+                 // Run the live update to rebuild the graph and distances!
+                 updateElevationProfile();
+              }
+            } catch(err) {
+              console.error("Failed to load path metadata", err);
+              alert("Failed to load path metadata from S3.\nError: " + err.message);
+            }
+          });
+        }
+        
+        item.addEventListener("click", (e) => {
+          if (isReportManageMode) {
+            if (e.target.tagName.toLowerCase() !== 'input') {
+              e.preventDefault();
+              const cb = item.querySelector(".report-checkbox");
+              if (cb) cb.checked = !cb.checked;
+            }
+          }
+        });
+        
+        reportsList.appendChild(item);
+      });
+      
+      // Restore UI state if re-fetched during manage mode
+      toggleManageMode(isReportManageMode);
+      
+    } catch (err) {
+      console.error(err);
+      reportsListLoading.style.display = 'block';
+      reportsListLoading.textContent = "Error loading reports.";
+    }
+  }
+
+  // --- Professional Manage Mode Logic ---
+  let isReportManageMode = false;
+  const manageReportsBtn = document.getElementById("manageReportsBtn");
+  const cancelManageReportsBtn = document.getElementById("cancelManageReportsBtn");
+  const reportsSelectionBar = document.getElementById("reportsSelectionBar");
+  const manageReportsContainer = document.getElementById("manageReportsContainer");
+  const selectAllReports = document.getElementById("selectAllReports");
+  const deleteSelectedReportsBtn = document.getElementById("deleteSelectedReportsBtn");
+
+  function toggleManageMode(enable) {
+    isReportManageMode = enable;
+    if (manageReportsContainer) manageReportsContainer.style.display = enable ? "none" : "flex";
+    if (reportsSelectionBar) reportsSelectionBar.style.display = enable ? "flex" : "none";
+    
+    document.querySelectorAll(".report-checkbox").forEach(cb => {
+      cb.style.display = enable ? "block" : "none";
+      if (!enable) cb.checked = false;
+    });
+    document.querySelectorAll(".report-link").forEach(link => {
+      link.style.pointerEvents = enable ? "none" : "auto";
+    });
+    if (!enable && selectAllReports) selectAllReports.checked = false;
+  }
+
+  manageReportsBtn?.addEventListener("click", () => toggleManageMode(true));
+  cancelManageReportsBtn?.addEventListener("click", () => toggleManageMode(false));
+
+  selectAllReports?.addEventListener("change", (e) => {
+    const isChecked = e.target.checked;
+    document.querySelectorAll(".report-checkbox").forEach(cb => cb.checked = isChecked);
+  });
+
+  deleteSelectedReportsBtn?.addEventListener("click", async () => {
+    const selectedCbs = document.querySelectorAll(".report-checkbox:checked");
+    if (selectedCbs.length === 0) {
+      alert("No reports selected.");
+      return;
+    }
+    
+    if (confirm(`Are you sure you want to delete ${selectedCbs.length} report(s)?`)) {
+      const originalText = deleteSelectedReportsBtn.textContent;
+      deleteSelectedReportsBtn.textContent = "Deleting...";
+      deleteSelectedReportsBtn.disabled = true;
+      
+      try {
+        const deletePromises = Array.from(selectedCbs).map(cb => {
+          const fileName = cb.getAttribute("data-filename");
+          const jsonFileName = fileName.replace('.pdf', '.json');
+          const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`;
+          
+          const deletePdf = fetch(apiUrl, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              projectId: activeProject.folderName,
+              surveyId: activeProject.surveyId,
+              fileName: fileName
+            })
+          }).then(res => {
+            if (!res.ok) throw new Error(`Delete failed for ${fileName}`);
+          });
+          
+          const deleteJson = fetch(apiUrl, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              projectId: activeProject.folderName,
+              surveyId: activeProject.surveyId,
+              fileName: jsonFileName
+            })
+          }).catch(() => {}); // Ignore JSON delete failure if it didn't exist
+
+          return Promise.all([deletePdf, deleteJson]);
+        });
+        
+        await Promise.all(deletePromises);
+        
+        toggleManageMode(false);
+        fetchSavedReports();
+      } catch (err) {
+        console.error("Delete error:", err);
+        alert("Some reports failed to delete.");
+        fetchSavedReports();
+      } finally {
+        deleteSelectedReportsBtn.textContent = originalText;
+        deleteSelectedReportsBtn.disabled = false;
+      }
+    }
+  });
+
+  // Fetch immediately on load
+  fetchSavedReports();
+
 });
+

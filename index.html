@@ -80,7 +80,7 @@
   <!-- Mini Elevation Profile Graph -->
   <div id="elevationMiniContainer" class="glass-panel hidden" style="
     position: fixed;
-    top: 20px;
+    top: 90px;
     right: 20px;
     width: 300px;
     height: 180px;
@@ -121,9 +121,16 @@
     ">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
         <h2 style="margin: 0; font-size: 20px;">Elevation Profile Analysis</h2>
-        <div style="display: flex; gap: 10px;">
-          <button id="btnDownloadImage" class="btn btn-primary" style="padding: 5px 15px;">Download Image</button>
-          <button id="btnDownloadCsv" class="btn btn-outline" style="padding: 5px 15px;">Data CSV</button>
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <input type="text" id="reportNameInput" placeholder="Enter Report Name..." style="padding: 6px 10px; border-radius: 6px; border: 1px solid #475569; background: #1e293b; color: #fff; font-size: 13px; min-width: 200px; outline: none;" />
+          <button id="btnSaveToSurvey" class="btn btn-primary" style="padding: 5px 15px; display: flex; align-items: center; gap: 5px; background: #0ea5e9; border: none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+            Save to Survey
+          </button>
+          <button id="btnDownloadReport" class="btn btn-primary" style="padding: 5px 15px; display: flex; align-items: center; gap: 5px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            Download PDF Report
+          </button>
           <button id="btnCloseModal" class="btn btn-outline" style="padding: 5px 15px;">Close</button>
         </div>
       </div>
@@ -133,194 +140,298 @@
     </div>
   </div>
 
-  <!-- Right-side tool panel — ALL groups live inside here -->
-  <div class="tool-panel">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-      <h2 style="margin: 0; margin-bottom: 0;">Tooo-9</h2>
-      <button id="toggleToolPanel" style="background: none; border: none; font-size: 16px; cursor: pointer; color: var(--muted); padding: 0 5px;" title="Minimize/Expand">_</button>
+  <!-- New Icon Sidebar Layout -->
+  <div class="sidebar-layout">
+    <!-- Icon Bar -->
+    <div class="icon-sidebar">
+      <button class="icon-btn" data-target="panel-roi" title="ROI & Selection">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
+      </button>
+      <button class="icon-btn" data-target="panel-profile" title="Path Profile">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+      </button>
+      <button class="icon-btn" data-target="panel-measure" title="Measurement">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+      </button>
+      <button class="icon-btn" data-target="panel-terrain" title="Terrain Analysis">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+      </button>
     </div>
-    
-    <div id="toolPanelContent">
-      <!-- ROI Tools -->
-      <div class="group">
-        <div class="group-title">ROI Clipping</div>
-        <div class="btn-group">
-          <button id="selectROI" class="btn">Select ROI</button>
-          <button id="resetROI" class="btn btn-outline" disabled>Reset</button>
-        </div>
-        <input type="file" id="kmlUpload" accept=".kml" style="display: none;" />
-        <button id="btnUploadKml" class="btn btn-outline" style="width: 100%; margin-top: 5px; font-size: 12px; padding: 4px;">Upload KML ROI</button>
-        <div class="hint" id="roiHint">
-          Click 'Select ROI' to start drawing a rectangle.
-        </div>
-      </div>
 
-      <!-- Terrain View Settings -->
-      <div class="group">
-        <div class="group-title">Terrain View</div>
-        <div class="row">
-          <label style="display: flex; justify-content: space-between; width: 100%; font-size: 13px;">
-            3D Elevation Scale: <span id="zScaleVal">1.0x</span>
-          </label>
-          <input type="range" id="zScaleSlider" min="0" max="3" step="0.1" value="1.0" style="width: 100%; margin-top: 5px;">
-        </div>
-        <div class="hint" style="margin-top: 5px;">Lower this to 0 if houses/trees look like melted hills (flattens map).</div>
-      </div>
-
-    <!-- Measurement Tool -->
-    <div class="group">
-      <div class="group-title" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" id="measureHeader">
-        Measurement <span id="measureCarrot">▼</span>
+    <!-- Flyout Panel -->
+    <div class="flyout-panel closed" id="flyoutPanel">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+        <h2 id="flyoutTitle" style="margin: 0;">ROI Tools</h2>
+        <button id="toggleFlyoutPanel" style="background: none; border: none; font-size: 14px; cursor: pointer; color: var(--muted); padding: 0 5px;" title="Close Panel">◀</button>
       </div>
       
-      <div id="measureSettings" style="display: none; margin-top: 10px;">
-        <div class="btn-group">
-          <button id="btnMeasure" class="btn">Measure Distance</button>
-          <button id="btnClearMeasure" class="btn btn-outline" disabled>Clear</button>
-        </div>
+      <div id="toolPanelContent">
         
-        <div id="measureResults" class="hidden" style="margin-top: 12px; padding: 10px; background: rgba(13, 148, 136, 0.05); border-radius: 8px; border: 1px solid rgba(13, 148, 136, 0.2);">
-          <div style="font-size: 13px; margin-bottom: 4px;"><strong>Horizontal (2D):</strong> <span id="measureHoriz">0.00</span> m</div>
-          <div style="font-size: 13px; margin-bottom: 4px;"><strong>Vertical (Z):</strong> <span id="measureVert">0.00</span> m</div>
-          <div style="font-size: 13px;"><strong>3D Distance:</strong> <span id="measure3D">0.00</span> m</div>
-        </div>
-        <div class="hint" id="measureHint" style="margin-top: 8px;">
-          Click 'Measure Distance' then click and drag on the map.
-        </div>
-      </div>
-    </div>
-
-    <!-- Slope Heat Map Tool -->
-    <div class="group">
-      <div class="group-title" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" id="heatmapHeader">
-        Slope Heat Map <span id="heatmapCarrot">▼</span>
-      </div>
-      <div id="heatmapSettingsContainer" style="display: none; margin-top: 10px;">
-        <div class="btn-group">
-          <button id="btnEnableHeatmap" class="btn">Enable Heat Map</button>
-          <button id="btnDisableHeatmap" class="btn btn-outline" disabled>Disable</button>
-        </div>
-        <div class="hint" id="heatmapHint">Visualize terrain steepness using colors.</div>
-        
-        <div id="heatmapLoading" class="hidden" style="color: #0d9488; font-size: 13px; font-weight: 600; text-align: center; margin-top: 10px; margin-bottom: 12px; padding: 8px; background: rgba(13, 148, 136, 0.1); border-radius: 8px;">
-          <span class="spinner" style="margin-right: 6px;"></span> Generating Heat Map...
-        </div>
-        
-        <div id="heatmapSettings" class="hidden" style="margin-top: 15px;">
-            <div class="row">
-              <label style="display: flex; justify-content: space-between; width: 100%;">
-                Opacity: <span id="heatmapOpacityVal">35%</span>
-              </label>
-              <input type="range" id="heatmapOpacity" min="0" max="1" step="0.05" value="0.35" style="width: 100%; margin-top: 5px;">
+        <!-- ============================== -->
+        <!-- 1. ROI PANEL -->
+        <!-- ============================== -->
+        <div class="flyout-group hidden" id="panel-roi">
+          <!-- ROI Tools -->
+          <div class="group" style="margin-bottom: 15px;">
+            <div class="group-title" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" id="roiHeader">
+              ROI Clipping <span id="roiCarrot" style="font-size: 10px;">▼</span>
             </div>
-
-            <!-- Predefined vs Custom Toggle -->
-            <div style="margin-top: 15px; margin-bottom: 10px; display: flex; gap: 15px; font-size: 13px;">
-              <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
-                <input type="radio" name="heatmapMode" value="predefined" checked> Pre-defined
-              </label>
-              <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
-                <input type="radio" name="heatmapMode" value="haulroad"> Haul Road
-              </label>
-              <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
-                <input type="radio" name="heatmapMode" value="custom"> Custom
-              </label>
-            </div>
-  
-            <!-- Heat Map Legend (Predefined) -->
-            <div id="predefinedHeatmapUI">
-              <div class="hint" style="font-weight: bold; margin-bottom: 5px;">Slope Legend</div>
-              <div style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; margin-top: 5px;">
-                <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:green;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> 0&deg; &ndash; 15&deg; (Flat)</div>
-                <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:yellow;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> 15&deg; &ndash; 30&deg; (Moderate)</div>
-                <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:orange;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> 30&deg; &ndash; 45&deg; (Steep)</div>
-                <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:red;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> &gt; 45&deg; (Extreme)</div>
+            <div id="roiSettings" style="display: block; margin-top: 10px;">
+              <div class="btn-group">
+                <button id="selectROI" class="btn">Select ROI</button>
+                <button id="resetROI" class="btn btn-outline" disabled>Reset</button>
               </div>
-            </div>
-
-            <!-- Heat Map Legend (Haul Road) -->
-            <div id="haulroadHeatmapUI" class="hidden">
-              <div class="hint" style="font-weight: bold; margin-bottom: 5px;">Haul Road Safety</div>
-              <div style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; margin-top: 5px;">
-                <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:green;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> 0&deg; &ndash; 5&deg; (Excellent, very safe)</div>
-                <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:yellow;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> 5&deg; &ndash; 8&deg; (Good, commonly acceptable)</div>
-                <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:orange;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> 8&deg; &ndash; 10&deg; (Steep, caution required)</div>
-                <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:red;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> &gt; 10&deg; (Unsafe for regular haul roads)</div>
+              <div class="hint" id="roiHint">
+                Click 'Select ROI' to start drawing a rectangle.
               </div>
-            </div>
-
-            <!-- Custom Heat Map UI -->
-            <div id="customHeatmapUI" class="hidden">
-              <div id="customHeatmapRanges" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px;">
-                <!-- Dynamically populated rows -->
-              </div>
-              <button id="btnAddHeatmapRange" class="btn btn-outline" style="width: 100%; padding: 4px; margin-bottom: 10px; font-size: 12px;">+ Add Range</button>
-              <div id="customHeatmapError" style="color: #ef4444; font-size: 11px; margin-bottom: 10px; display: none;">Error msg</div>
-              <button id="btnApplyCustomHeatmap" class="btn" style="width: 100%; font-size: 12px;">Apply Custom Ranges</button>
             </div>
           </div>
-      </div>
-    </div>
+          
+          <!-- KML Upload -->
+          <div class="group" style="margin-bottom: 15px;">
+            <div class="group-title">KML Boundary</div>
+            <input type="file" id="kmlUpload" accept=".kml" style="display: none;" />
+            <button id="btnUploadKml" class="btn btn-outline" style="width: 100%; margin-top: 5px; font-size: 12px; padding: 4px;">Upload KML ROI</button>
+          </div>
 
-        <!-- Contours Tools -->
-    <div class="group">
-      <div class="group-title" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" id="contourHeader">
-        Contours <span id="contourCarrot">▼</span>
-      </div>
-      
-      <div id="contourSettings" style="display: none; margin-top: 10px;">
-        <div class="btn-group">
-          <button id="btnEnableContours" class="btn">Enable Contours</button>
-          <button id="btnDisableContours" class="btn btn-outline" disabled>Disable Contours</button>
-        </div>
-        
-        <div id="contourLoading" class="hidden" style="color: #0d9488; font-size: 13px; font-weight: 600; text-align: center; margin-bottom: 12px; padding: 8px; background: rgba(13, 148, 136, 0.1); border-radius: 8px;">
-          <span class="spinner" style="margin-right: 6px;"></span> Generating Contours...
-        </div>
-        
-        <div class="row" style="margin-top: 6px;">
-          <label>Preset</label>
-          <select id="contourPreset" class="input" style="width: 120px;">
-            <option value="custom">Custom</option>
-            <option value="survey">Survey (1m/5m)</option>
-            <option value="mining" selected>Mining (2m/10m)</option>
-            <option value="overview">Overview (10m/50m)</option>
-          </select>
+          <!-- Terrain View Settings -->
+          <div class="group">
+            <div class="group-title">Terrain Exaggeration</div>
+            <div class="row">
+              <label style="display: flex; justify-content: space-between; width: 100%; font-size: 13px;">
+                3D Elevation Scale: <span id="zScaleVal">1.0x</span>
+              </label>
+              <input type="range" id="zScaleSlider" min="0" max="3" step="0.1" value="1.0" style="width: 100%; margin-top: 5px;">
+            </div>
+            <div class="hint" style="margin-top: 5px;">Lower this to 0 if houses/trees look like melted hills (flattens map).</div>
+          </div>
         </div>
 
-        <div class="row">
-          <label>Minor Interval (m)</label>
-          <input id="contourInterval" type="number" value="2" min="0.1" step="0.5" class="input" style="width: 60px;">
-        </div>
-        
-        <div class="row">
-          <label>Major Interval (m)</label>
-          <input id="majorInterval" type="number" value="10" min="1" step="1" class="input" style="width: 60px;">
+        <!-- ============================== -->
+        <!-- 2. PATH PROFILE PANEL -->
+        <!-- ============================== -->
+        <div class="flyout-group hidden" id="panel-profile">
+          <!-- Path Profile Tool -->
+          <div class="group" style="margin-bottom: 15px;">
+            <div class="group-title" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" id="profileHeader">
+              Path Profile <span id="profileCarrot">▼</span>
+            </div>
+            
+            <div id="profileSettings" style="display: block; margin-top: 10px;">
+              <div class="btn-group">
+                <button id="btnProfile" class="btn">Draw Path Profile</button>
+                <button id="btnClearProfile" class="btn btn-outline" disabled>Clear</button>
+              </div>
+              
+              <div id="profileResults" class="hidden" style="margin-top: 12px; padding: 10px; background: rgba(14, 165, 233, 0.05); border-radius: 8px; border: 1px solid rgba(14, 165, 233, 0.2);">
+                <div style="font-size: 13px; margin-bottom: 4px;"><strong>Horizontal (2D):</strong> <span id="profileHoriz">0.00</span> m</div>
+                <div style="font-size: 13px; margin-bottom: 4px;"><strong>Vertical (Z):</strong> <span id="profileVert">0.00</span> m</div>
+                <div style="font-size: 13px;"><strong>3D Distance:</strong> <span id="profile3D">0.00</span> m</div>
+              </div>
+              <div class="hint" id="profileHint" style="margin-top: 8px;">
+                Draw a line to generate a terrain profile graph and save report.
+              </div>
+            </div>
+          </div>
+
+          <!-- Saved Reports Group -->
+          <div class="group">
+            <div class="group-title" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" id="savedReportsHeader">
+              <div style="display: flex; align-items: center; gap: 8px; color: #0ea5e9;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                Saved Paths
+              </div>
+              <span id="reportsCarrot" style="font-size: 10px;">▼</span>
+            </div>
+            
+            <div id="reportsPanelContent" style="margin-top: 10px; display: block;">
+              <div id="manageReportsContainer" style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
+                <button id="manageReportsBtn" style="background: none; border: none; color: #0ea5e9; font-size: 11px; font-weight: 600; cursor: pointer; padding: 4px; text-decoration: underline;">Manage</button>
+              </div>
+              <div id="reportsSelectionBar" style="display: none; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 12px; background: #f8fafc; border: 1px solid var(--panel-border); padding: 6px 10px; border-radius: 6px;">
+                <div style="display: flex; align-items: center;">
+                   <input type="checkbox" id="selectAllReports" style="margin-right: 6px; cursor: pointer; accent-color: var(--purple-primary);">
+                   <label for="selectAllReports" style="cursor: pointer; user-select: none; font-weight: 500; color: var(--text);">Select All</label>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                   <button id="deleteSelectedReportsBtn" style="background: #ef4444; border: none; color: white; border-radius: 4px; padding: 4px 10px; font-size: 11px; font-weight: 600; cursor: pointer; transition: background 0.2s;">Delete</button>
+                   <button id="cancelManageReportsBtn" style="background: transparent; border: 1px solid var(--panel-border); color: var(--text); border-radius: 4px; padding: 4px 10px; font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.2s;">Cancel</button>
+                </div>
+              </div>
+              <div id="reportsListLoading" style="color: #94a3b8; font-size: 12px; text-align: center; padding: 10px 0;">Loading reports...</div>
+              <div id="reportsList" style="display: flex; flex-direction: column; gap: 8px; max-height: 250px; overflow-y: auto; padding-right: 4px;">
+                <!-- Reports injected here -->
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div class="row">
-          <label>Line Color</label>
-          <input id="contourColor" type="color" value="#ffffff" class="input-color">
+        <!-- ============================== -->
+        <!-- 3. MEASUREMENT PANEL -->
+        <!-- ============================== -->
+        <div class="flyout-group hidden" id="panel-measure">
+          <!-- Simple Measurement Tool -->
+          <div class="group">
+            <div class="group-title" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" id="measureSimpleHeader">
+              Measurement <span id="measureSimpleCarrot">▼</span>
+            </div>
+            
+            <div id="measureSimpleSettings" style="display: block; margin-top: 10px;">
+              <div class="btn-group">
+                <button id="btnMeasureSimple" class="btn">Measure Distance</button>
+                <button id="btnClearMeasureSimple" class="btn btn-outline" disabled>Clear</button>
+              </div>
+              
+              <div id="measureSimpleResults" class="hidden" style="margin-top: 12px; padding: 10px; background: rgba(13, 148, 136, 0.05); border-radius: 8px; border: 1px solid rgba(13, 148, 136, 0.2);">
+                <div style="font-size: 13px; margin-bottom: 4px;"><strong>Horizontal (2D):</strong> <span id="measureSimpleHoriz">0.00</span> m</div>
+                <div style="font-size: 13px; margin-bottom: 4px;"><strong>Vertical (Z):</strong> <span id="measureSimpleVert">0.00</span> m</div>
+                <div style="font-size: 13px;"><strong>3D Distance:</strong> <span id="measureSimple3D">0.00</span> m</div>
+              </div>
+              <div class="hint" id="measureSimpleHint" style="margin-top: 8px;">
+                Click 'Measure Distance' then click and drag on the map.
+              </div>
+            </div>
+          </div>
         </div>
+
+        <!-- ============================== -->
+        <!-- 4. TERRAIN ANALYSIS PANEL -->
+        <!-- ============================== -->
+        <div class="flyout-group hidden" id="panel-terrain">
+          <!-- Slope Heat Map Tool -->
+          <div class="group" style="margin-bottom: 15px;">
+            <div class="group-title" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" id="heatmapHeader">
+              Slope Heat Map <span id="heatmapCarrot">▼</span>
+            </div>
+            <div id="heatmapSettingsContainer" style="display: block; margin-top: 10px;">
+              <div class="btn-group">
+                <button id="btnEnableHeatmap" class="btn">Enable Heat Map</button>
+                <button id="btnDisableHeatmap" class="btn btn-outline" disabled>Disable</button>
+              </div>
+              <div class="hint" id="heatmapHint">Visualize terrain steepness using colors.</div>
+              
+              <div id="heatmapLoading" class="hidden" style="color: #0d9488; font-size: 13px; font-weight: 600; text-align: center; margin-top: 10px; margin-bottom: 12px; padding: 8px; background: rgba(13, 148, 136, 0.1); border-radius: 8px;">
+                <span class="spinner" style="margin-right: 6px;"></span> Generating Heat Map...
+              </div>
+              
+              <div id="heatmapSettings" class="hidden" style="margin-top: 15px;">
+                  <div class="row">
+                    <label style="display: flex; justify-content: space-between; width: 100%;">
+                      Opacity: <span id="heatmapOpacityVal">35%</span>
+                    </label>
+                    <input type="range" id="heatmapOpacity" min="0" max="1" step="0.05" value="0.35" style="width: 100%; margin-top: 5px;">
+                  </div>
+
+                  <!-- Predefined vs Custom Toggle -->
+                  <div style="margin-top: 15px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; font-size: 13px;">
+                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                      <input type="radio" name="heatmapMode" value="predefined" checked> Pre-defined
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                      <input type="radio" name="heatmapMode" value="haulroad"> Haul Road
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                      <input type="radio" name="heatmapMode" value="custom"> Custom
+                    </label>
+                  </div>
         
-        <div class="row">
-          <label>Line Width</label>
-          <input id="contourWidth" type="number" value="1" min="0.5" step="0.5" class="input" style="width: 60px;">
+                  <!-- Heat Map Legend (Predefined) -->
+                  <div id="predefinedHeatmapUI">
+                    <div class="hint" style="font-weight: bold; margin-bottom: 5px;">Slope Legend</div>
+                    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; margin-top: 5px;">
+                      <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:green;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> 0&deg; &ndash; 15&deg; (Flat)</div>
+                      <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:yellow;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> 15&deg; &ndash; 30&deg; (Moderate)</div>
+                      <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:orange;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> 30&deg; &ndash; 45&deg; (Steep)</div>
+                      <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:red;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> &gt; 45&deg; (Extreme)</div>
+                    </div>
+                  </div>
+
+                  <!-- Heat Map Legend (Haul Road) -->
+                  <div id="haulroadHeatmapUI" class="hidden">
+                    <div class="hint" style="font-weight: bold; margin-bottom: 5px;">Haul Road Safety</div>
+                    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; margin-top: 5px;">
+                      <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:green;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> 0&deg; &ndash; 5&deg; (Excellent, very safe)</div>
+                      <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:yellow;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> 5&deg; &ndash; 8&deg; (Good, commonly acceptable)</div>
+                      <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:orange;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> 8&deg; &ndash; 10&deg; (Steep, caution required)</div>
+                      <div style="display: flex; align-items: center;"><div style="width:16px;height:16px;background:red;margin-right:8px;border-radius:3px; border:1px solid rgba(255,255,255,0.2);"></div> &gt; 10&deg; (Unsafe for regular haul roads)</div>
+                    </div>
+                  </div>
+
+                  <!-- Custom Heat Map UI -->
+                  <div id="customHeatmapUI" class="hidden">
+                    <div id="customHeatmapRanges" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px;">
+                      <!-- Dynamically populated rows -->
+                    </div>
+                    <button id="btnAddHeatmapRange" class="btn btn-outline" style="width: 100%; padding: 4px; margin-bottom: 10px; font-size: 12px;">+ Add Range</button>
+                    <div id="customHeatmapError" style="color: #ef4444; font-size: 11px; margin-bottom: 10px; display: none;">Error msg</div>
+                    <button id="btnApplyCustomHeatmap" class="btn" style="width: 100%; font-size: 12px;">Apply Custom Ranges</button>
+                  </div>
+                </div>
+            </div>
+          </div>
+
+          <!-- Contours Tools -->
+          <div class="group">
+            <div class="group-title" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" id="contourHeader">
+              Contours <span id="contourCarrot">▼</span>
+            </div>
+            
+            <div id="contourSettings" style="display: block; margin-top: 10px;">
+              <div class="btn-group">
+                <button id="btnEnableContours" class="btn">Enable Contours</button>
+                <button id="btnDisableContours" class="btn btn-outline" disabled>Disable Contours</button>
+              </div>
+              
+              <div id="contourLoading" class="hidden" style="color: #0d9488; font-size: 13px; font-weight: 600; text-align: center; margin-bottom: 12px; padding: 8px; background: rgba(13, 148, 136, 0.1); border-radius: 8px;">
+                <span class="spinner" style="margin-right: 6px;"></span> Generating Contours...
+              </div>
+              
+              <div class="row" style="margin-top: 6px;">
+                <label>Preset</label>
+                <select id="contourPreset" class="input" style="width: 120px;">
+                  <option value="custom">Custom</option>
+                  <option value="survey">Survey (1m/5m)</option>
+                  <option value="mining" selected>Mining (2m/10m)</option>
+                  <option value="overview">Overview (10m/50m)</option>
+                </select>
+              </div>
+
+              <div class="row">
+                <label>Minor Interval (m)</label>
+                <input id="contourInterval" type="number" value="2" min="0.1" step="0.5" class="input" style="width: 60px;">
+              </div>
+              
+              <div class="row">
+                <label>Major Interval (m)</label>
+                <input id="majorInterval" type="number" value="10" min="1" step="1" class="input" style="width: 60px;">
+              </div>
+
+              <div class="row">
+                <label>Line Color</label>
+                <input id="contourColor" type="color" value="#ffffff" class="input-color">
+              </div>
+              
+              <div class="row">
+                <label>Line Width</label>
+                <input id="contourWidth" type="number" value="1" min="0.5" step="0.5" class="input" style="width: 60px;">
+              </div>
+              
+              <div class="row">
+                <label>Opacity</label>
+                <input id="contourOpacity" type="range" value="0.8" min="0" max="1" step="0.1" style="flex: 1; margin-left: 10px;">
+                <span id="contourOpacityVal" style="width: 30px; text-align: right;">0.8</span>
+              </div>
+              
+              <div class="hint" style="margin-top: 8px;">
+                Terrain Range: <span id="contourRange">Loading...</span>
+              </div>
+            </div>
+          </div>
         </div>
-        
-        <div class="row">
-          <label>Opacity</label>
-          <input id="contourOpacity" type="range" value="0.8" min="0" max="1" step="0.1" style="flex: 1; margin-left: 10px;">
-          <span id="contourOpacityVal" style="width: 30px; text-align: right;">0.8</span>
-        </div>
-        
-        <div class="hint" style="margin-top: 8px;">
-          Terrain Range: <span id="contourRange">Loading...</span>
-        </div>
-      </div>
-    </div>
-    </div><!-- /#toolPanelContent -->
-  </div><!-- /.tool-panel -->
+
+      </div><!-- /#toolPanelContent -->
+    </div><!-- /.flyout-panel -->
+  </div><!-- /.sidebar-layout -->
 
 
   <!-- ROI Metrics -->

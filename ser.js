@@ -938,7 +938,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const measureSvgEnd = document.getElementById("measureSvgEnd");
 
   let measureState = "IDLE"; // IDLE | SELECTING | FINISHED
-  let measureMode = "NONE"; // NONE | SIMPLE | PROFILE | REDRAW
+  let measureMode = "NONE"; // NONE | SIMPLE | PROFILE | REDRAW | VOLUME
   let measureStartPoint = null; // world point (Vector3)
   let measureEndPoint = null; // world point (Vector3)
   let measureStartCoord = null; // geographic coord
@@ -946,7 +946,12 @@ window.addEventListener("DOMContentLoaded", () => {
   let measureDragScreenStart = null;
   let measureHasFirstTap = false;
 
-
+  // Volume state
+  let volumePoints = []; // Array of { point: Vector3, coord: Coordinates }
+  let volumeMousePoint = null; // Vector3
+  const volumeSvg = document.getElementById("volumeSvg");
+  const volumePolygonSvg = document.getElementById("volumePolygonOverlay");
+  const volumeVerticesSvg = document.getElementById("volumeVerticesOverlay");
 
   // Clear the current measurement overlay + points.
   function clearMeasure() {
@@ -996,6 +1001,51 @@ window.addEventListener("DOMContentLoaded", () => {
   }
   controls.addEventListener("change", updateMeasureSvg);
 
+  // Redraw volume polygon
+  function updateVolumeSvg() {
+    if ((measureMode === "VOLUME" || measureState === "FINISHED_VOLUME") && volumePoints.length > 0) {
+      let pointsAttr = "";
+      if (volumeVerticesSvg) volumeVerticesSvg.innerHTML = "";
+      
+      // Add confirmed points
+      for (const p of volumePoints) {
+        const screenP = projectToScreen(p.point);
+        if (screenP.z <= 1) {
+          pointsAttr += `${screenP.x},${screenP.y} `;
+          
+          if (volumeVerticesSvg) {
+            const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            circle.setAttribute("cx", screenP.x);
+            circle.setAttribute("cy", screenP.y);
+            circle.setAttribute("r", "3");
+            circle.setAttribute("fill", "#0ea5e9");
+            volumeVerticesSvg.appendChild(circle);
+          }
+        }
+      }
+      
+      // Add mouse point if actively drawing
+      if (measureState === "SELECTING" && volumeMousePoint) {
+        const screenP = projectToScreen(volumeMousePoint);
+        if (screenP.z <= 1) {
+          pointsAttr += `${screenP.x},${screenP.y}`;
+        }
+      }
+      
+      if (volumePolygonSvg) {
+        volumePolygonSvg.style.display = "block";
+        volumePolygonSvg.setAttribute("points", pointsAttr.trim());
+      }
+      if (volumeVerticesSvg) volumeVerticesSvg.style.display = "block";
+      if (volumeSvg) volumeSvg.style.display = "block";
+    } else {
+      if (volumePolygonSvg) volumePolygonSvg.style.display = "none";
+      if (volumeVerticesSvg) volumeVerticesSvg.style.display = "none";
+      if (volumeSvg) volumeSvg.style.display = "none";
+    }
+  }
+  controls.addEventListener("change", updateVolumeSvg);
+
   // --- Simple Measurement ---
   btnMeasureSimple?.addEventListener("click", () => {
     measureState = "SELECTING";
@@ -1043,6 +1093,7 @@ window.addEventListener("DOMContentLoaded", () => {
     profileHoriz.textContent = "0.00";
     profileVert.textContent = "0.00";
     profile3D.textContent = "0.00";
+    if (elevationMiniContainer) elevationMiniContainer.classList.add("hidden");
   });
 
   btnClearProfile?.addEventListener("click", () => {
@@ -1055,16 +1106,107 @@ window.addEventListener("DOMContentLoaded", () => {
     profileHint.textContent = "Draw a line to generate a terrain profile graph and save report.";
     profileResults.classList.add("hidden");
     clearMeasure();
+    if (elevationMiniContainer) elevationMiniContainer.classList.add("hidden");
     btnClearProfile.disabled = true;
+  });
+
+  // --- Volume Analysis ---
+  const volumeHeader = document.getElementById("volumeHeader");
+  const volumeSettings = document.getElementById("volumeSettings");
+  const btnDrawVolume = document.getElementById("btnDrawVolume");
+  const btnClearVolume = document.getElementById("btnClearVolume");
+  const btnFinishVolume = document.getElementById("btnFinishVolume");
+  const volumeHint = document.getElementById("volumeHint");
+  const volumeMiniContainer = document.getElementById("volumeMiniContainer");
+
+  btnDrawVolume?.addEventListener("click", () => {
+    measureState = "SELECTING";
+    measureMode = "VOLUME";
+    controls.enabled = false;
+    document.body.classList.add("roi-selecting");
+    btnDrawVolume.classList.add("active");
+    btnDrawVolume.textContent = "Click to place points";
+    if (volumeHint) volumeHint.textContent = "Click points on the map. Click Finish when done.";
+    if (btnClearVolume) btnClearVolume.disabled = false;
+    if (btnFinishVolume) btnFinishVolume.classList.remove("hidden");
+    
+    // Lock to Top-Down 2D
+    const minPol = controls.minPolarAngle;
+    const maxPol = controls.maxPolarAngle;
+    controls.minPolarAngle = 0;
+    controls.maxPolarAngle = 0;
+    controls.update();
+    controls.minPolarAngle = minPol;
+    controls.maxPolarAngle = maxPol;
+
+    volumePoints = [];
+    volumeMousePoint = null;
+    updateVolumeSvg();
+    if (volumeMiniContainer) volumeMiniContainer.classList.add("hidden");
+  });
+
+  btnClearVolume?.addEventListener("click", () => {
+    measureState = "IDLE";
+    measureMode = "NONE";
+    controls.enabled = true;
+    document.body.classList.remove("roi-selecting");
+    if (btnDrawVolume) {
+      btnDrawVolume.classList.remove("active");
+      btnDrawVolume.textContent = "Draw Volume Area";
+    }
+    if (btnFinishVolume) btnFinishVolume.classList.add("hidden");
+    if (volumeHint) volumeHint.textContent = "Click 'Draw Volume Area' to lock view to 2D. Then click points on the map to build a polygon.";
+    
+    volumePoints = [];
+    volumeMousePoint = null;
+    updateVolumeSvg();
+    if (volumeMiniContainer) volumeMiniContainer.classList.add("hidden");
+    if (btnClearVolume) btnClearVolume.disabled = true;
+  });
+
+  btnFinishVolume?.addEventListener("click", () => {
+    if (measureMode !== "VOLUME") return;
+    if (volumePoints.length < 3) {
+      alert("Please draw at least 3 points for a volume polygon.");
+      return;
+    }
+    measureState = "FINISHED_VOLUME";
+    controls.enabled = true;
+    document.body.classList.remove("roi-selecting");
+    if (btnDrawVolume) {
+      btnDrawVolume.classList.remove("active");
+      btnDrawVolume.textContent = "Draw Volume Area";
+    }
+    if (btnFinishVolume) btnFinishVolume.classList.add("hidden");
+    if (volumeHint) volumeHint.textContent = "Volume Analysis complete. Click 'Clear' to remove.";
+    volumeMousePoint = null;
+    updateVolumeSvg();
+    calculateVolumeMetrics();
+  });
+
+  canvas.addEventListener("dblclick", (e) => {
+    if (measureState === "SELECTING" && measureMode === "VOLUME") {
+      if (btnFinishVolume) btnFinishVolume.click();
+    }
   });
 
   canvas.addEventListener("mousedown", (e) => {
     if (measureState === "SELECTING") {
+      
       const rect = canvas.getBoundingClientRect();
       const mouse = new Vector2(e.clientX - rect.left, e.clientY - rect.top);
       measureDragScreenStart = { x: e.clientX, y: e.clientY };
       const picked = map.pick(mouse);
       if (picked && picked.length > 0) {
+        if (measureMode === "VOLUME") {
+          volumePoints.push({
+            point: picked[0].point.clone(),
+            coord: picked[0].coord.clone()
+          });
+          updateVolumeSvg();
+          return;
+        }
+
         if (!measureStartPoint) {
           measureStartPoint = picked[0].point.clone();
           measureStartCoord = picked[0].coord.clone();
@@ -1084,14 +1226,22 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   canvas.addEventListener("mousemove", (e) => {
-    if (measureState === "SELECTING" && measureStartPoint) {
+    if (measureState === "SELECTING") {
       const rect = canvas.getBoundingClientRect();
       const mouse = new Vector2(e.clientX - rect.left, e.clientY - rect.top);
       const picked = map.pick(mouse);
+      
       if (picked && picked.length > 0) {
-        measureEndPoint = picked[0].point.clone();
-        measureEndCoord = picked[0].coord.clone();
-        updateMeasureSvg();
+        if (measureMode === "VOLUME") {
+          volumeMousePoint = picked[0].point.clone();
+          updateVolumeSvg();
+          return;
+        }
+        
+        if (measureStartPoint) {
+          measureEndPoint = picked[0].point.clone();
+          measureEndCoord = picked[0].coord.clone();
+          updateMeasureSvg();
 
         const dx = measureEndCoord.x - measureStartCoord.x;
         const dy = measureEndCoord.y - measureStartCoord.y;
@@ -1110,6 +1260,7 @@ window.addEventListener("DOMContentLoaded", () => {
           profile3D.textContent = distance3D.toFixed(2);
           updateElevationProfile();
         }
+        } // End if (measureStartPoint)
       }
     }
   });
@@ -1197,36 +1348,126 @@ window.addEventListener("DOMContentLoaded", () => {
       plugins: { legend: { display: false } },
       scales: {
         x: { 
-          title: { display: true, text: 'Distance (m)', color: '#fff' },
-          ticks: { color: '#ccc' },
-          grid: { color: 'rgba(255,255,255,0.1)' }
+          title: { display: true, text: 'Distance (m)', color: '#1e293b' },
+          ticks: { color: '#64748b' },
+          grid: { color: '#e2e8f0' }
         },
         y: { 
-          title: { display: true, text: 'Elevation (m)', color: '#fff' },
-          ticks: { color: '#ccc' },
-          grid: { color: 'rgba(255,255,255,0.1)' }
+          title: { display: true, text: 'Elevation (m)', color: '#1e293b' },
+          ticks: { color: '#64748b' },
+          grid: { color: '#e2e8f0' }
         }
       }
     };
 
     miniChart = new Chart(elevationMiniChartCtx, {
       type: 'line',
-      data: { labels: [], datasets: [{ data: [], borderColor: '#00ff88', backgroundColor: 'rgba(0, 255, 136, 0.2)', fill: true, tension: 0.1, pointRadius: 0, borderWidth: 3 }] },
+      data: { labels: [], datasets: [{ data: [], borderColor: '#5e19ea', backgroundColor: 'rgba(94, 25, 234, 0.15)', fill: true, tension: 0.1, pointRadius: 0, borderWidth: 3 }] },
       options: {
         ...commonOptions,
         scales: {
           x: { display: false },
-          y: { ticks: { color: '#ccc', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,0.1)' } }
+          y: { ticks: { color: '#64748b', font: { size: 9 } }, grid: { color: '#e2e8f0' } }
         }
       }
     });
 
     fullChart = new Chart(elevationFullChartCtx, {
       type: 'line',
-      data: { labels: [], datasets: [{ label: 'Elevation', data: [], borderColor: '#00ff88', backgroundColor: 'rgba(0, 255, 136, 0.2)', fill: true, tension: 0.1, pointRadius: 2, pointHoverRadius: 5, borderWidth: 3 }] },
+      data: { labels: [], datasets: [{ label: 'Elevation', data: [], borderColor: '#5e19ea', backgroundColor: 'rgba(94, 25, 234, 0.15)', fill: true, tension: 0.1, pointRadius: 2, pointHoverRadius: 5, borderWidth: 3 }] },
       options: commonOptions,
       plugins: [customBgPlugin]
     });
+  }
+
+  function calculateVolumeMetrics() {
+    if (volumePoints.length < 3) return;
+
+    // 1. Calculate 3D Perimeter and Average Reference Elevation
+    let perimeter = 0;
+    let sumElevation = 0;
+    const coords = volumePoints.map(p => p.coord);
+    
+    for (let i = 0; i < coords.length; i++) {
+      const p1 = coords[i];
+      const p2 = coords[(i + 1) % coords.length];
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      
+      const sample1 = map.getElevationFast(p1.x, p1.y);
+      const z1 = sample1 ? sample1.elevation : 0;
+      
+      const sample2 = map.getElevationFast(p2.x, p2.y);
+      const z2 = sample2 ? sample2.elevation : 0;
+      
+      const dz = z2 - z1;
+      perimeter += Math.sqrt(dx * dx + dy * dy + dz * dz);
+      sumElevation += z1;
+    }
+    
+    const referenceElevation = sumElevation / coords.length;
+
+    // 2. Calculate 2D Area (Shoelace Formula)
+    let area2D = 0;
+    for (let i = 0; i < coords.length; i++) {
+      const p1 = coords[i];
+      const p2 = coords[(i + 1) % coords.length];
+      area2D += p1.x * p2.y - p2.x * p1.y;
+    }
+    area2D = Math.abs(area2D) / 2;
+
+    // 3. Grid Sampling for Volume
+    let minX = Infinity, minY = Infinity;
+    let maxX = -Infinity, maxY = -Infinity;
+    
+    for (const c of coords) {
+      if (c.x < minX) minX = c.x;
+      if (c.x > maxX) maxX = c.x;
+      if (c.y < minY) minY = c.y;
+      if (c.y > maxY) maxY = c.y;
+    }
+
+    const gridStep = 1.0; // 1 meter grid
+    let cutVolume = 0;
+    let fillVolume = 0;
+    
+    // Ray-casting point in polygon
+    function pointInPolygon(px, py, poly) {
+      let isInside = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const xi = poly[i].x, yi = poly[i].y;
+        const xj = poly[j].x, yj = poly[j].y;
+        const intersect = ((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+        if (intersect) isInside = !isInside;
+      }
+      return isInside;
+    }
+
+    for (let x = minX; x <= maxX; x += gridStep) {
+      for (let y = minY; y <= maxY; y += gridStep) {
+        if (pointInPolygon(x, y, coords)) {
+          const sample = map.getElevationFast(x, y);
+          const z = sample ? sample.elevation : 0;
+          const diff = referenceElevation - z;
+          
+          if (diff > 0) {
+            cutVolume += diff * (gridStep * gridStep); // Pit
+          } else {
+            fillVolume += Math.abs(diff) * (gridStep * gridStep); // Stockpile
+          }
+        }
+      }
+    }
+
+    // 4. Update UI
+    document.getElementById("volMiniArea").textContent = area2D.toLocaleString(undefined, {maximumFractionDigits: 2}) + " m²";
+    document.getElementById("volMiniPerim").textContent = perimeter.toLocaleString(undefined, {maximumFractionDigits: 2}) + " m";
+    document.getElementById("volMiniCut").textContent = cutVolume.toLocaleString(undefined, {maximumFractionDigits: 2}) + " m³";
+    document.getElementById("volMiniFill").textContent = fillVolume.toLocaleString(undefined, {maximumFractionDigits: 2}) + " m³";
+    
+    if (volumeMiniContainer) {
+      volumeMiniContainer.classList.remove("hidden");
+    }
   }
 
   function updateElevationProfile() {
@@ -1284,6 +1525,12 @@ window.addEventListener("DOMContentLoaded", () => {
     fullChart.data.labels = miniChart.data.labels;
     fullChart.data.datasets[0].data = miniChart.data.datasets[0].data;
     fullChart.update();
+  });
+  
+  const closeMiniChartBtn = document.getElementById("closeMiniChartBtn");
+  closeMiniChartBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (elevationMiniContainer) elevationMiniContainer.classList.add("hidden");
   });
 
   btnCloseModal?.addEventListener("click", () => {
@@ -1953,6 +2200,294 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Fetch immediately on load
   fetchSavedReports();
+
+  // -------------------------------------------------------------------------
+  // VOLUME SAVING AND FOLDERS LOGIC
+  // -------------------------------------------------------------------------
+  const btnSaveVolume = document.getElementById("btnSaveVolume");
+  const volumeSaveModal = document.getElementById("volumeSaveModal");
+  const btnCancelVolSave = document.getElementById("btnCancelVolSave");
+  const btnConfirmVolSave = document.getElementById("btnConfirmVolSave");
+  const volSaveName = document.getElementById("volSaveName");
+  const volSaveFolder = document.getElementById("volSaveFolder");
+  const btnNewVolFolder = document.getElementById("btnNewVolFolder");
+  const closeVolumeMiniBtn = document.getElementById("closeVolumeMiniBtn");
+
+  const savedVolumesHeader = document.getElementById("savedVolumesHeader");
+  const volumesCarrot = document.getElementById("volumesCarrot");
+  const volumesPanelContent = document.getElementById("volumesPanelContent");
+  const volumesList = document.getElementById("volumesList");
+  const volumesListLoading = document.getElementById("volumesListLoading");
+
+  let isVolumeManageMode = false;
+  
+  // Pre-fetch volumes on load so the panel is ready instantly
+  fetchSavedVolumes();
+
+  closeVolumeMiniBtn?.addEventListener("click", () => {
+    if (volumeMiniContainer) volumeMiniContainer.classList.add("hidden");
+  });
+
+  btnSaveVolume?.addEventListener("click", () => {
+    if (volumeSaveModal) {
+      volumeSaveModal.classList.remove("hidden");
+      volSaveName.value = "";
+      volSaveName.focus();
+    }
+  });
+
+  btnCancelVolSave?.addEventListener("click", () => {
+    if (volumeSaveModal) volumeSaveModal.classList.add("hidden");
+  });
+
+  btnNewVolFolder?.addEventListener("click", () => {
+    const newFolder = prompt("Enter new folder name (e.g. Stockpiles, CutBlocks):");
+    if (newFolder && newFolder.trim()) {
+      const folderName = newFolder.trim();
+      const opt = document.createElement("option");
+      opt.value = folderName;
+      opt.textContent = folderName;
+      volSaveFolder.appendChild(opt);
+      volSaveFolder.value = folderName;
+    }
+  });
+
+  btnConfirmVolSave?.addEventListener("click", async () => {
+    const name = volSaveName.value.trim();
+    const folder = volSaveFolder.value;
+    if (!name) {
+      alert("Please enter a volume name.");
+      return;
+    }
+    btnConfirmVolSave.disabled = true;
+    btnConfirmVolSave.textContent = "Saving...";
+
+    try {
+      if (!activeProject) throw new Error("No active project");
+
+      const data = {
+        name,
+        folder,
+        timestamp: new Date().toISOString(),
+        area2D: document.getElementById("volMiniArea").textContent,
+        perimeter: document.getElementById("volMiniPerim").textContent,
+        cutVolume: document.getElementById("volMiniCut").textContent,
+        fillVolume: document.getElementById("volMiniFill").textContent,
+        points: volumePoints.map(p => ({ x: p.coord.x, y: p.coord.y, z: p.coord.z }))
+      };
+
+      const jsonStr = JSON.stringify(data, null, 2);
+      const safeName = name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+      const fileName = `${folder}/${safeName}_${Date.now()}.json`;
+      
+      const response = await fetch(`https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: activeProject.folderName,
+          surveyId: activeProject.surveyId,
+          type: "volumes",
+          fileName: fileName
+        })
+      });
+
+      if (!response.ok) throw new Error("Failed to get upload URL");
+      const { uploadUrl } = await response.json();
+
+      const putRes = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: jsonStr
+      });
+
+      if (!putRes.ok) throw new Error("Failed to upload JSON to S3");
+
+      if (volumeSaveModal) volumeSaveModal.classList.add("hidden");
+      alert("Volume saved successfully!");
+      fetchSavedVolumes();
+    } catch (err) {
+      console.error("Error saving volume", err);
+      alert("Error saving volume: " + err.message);
+    } finally {
+      btnConfirmVolSave.disabled = false;
+      btnConfirmVolSave.textContent = "Save";
+    }
+  });
+
+  // Toggle saved volumes panel
+  savedVolumesHeader?.addEventListener("click", () => {
+    if (volumesPanelContent.style.display === "none" || !volumesPanelContent.style.display) {
+      volumesPanelContent.style.display = "block";
+      volumesCarrot.textContent = "▼";
+    } else {
+      volumesPanelContent.style.display = "none";
+      volumesCarrot.textContent = "▶";
+    }
+  });
+
+  async function fetchSavedVolumes() {
+    if (!volumesListLoading || !volumesList) return;
+    
+    volumesListLoading.style.display = 'block';
+    volumesListLoading.textContent = "Loading volumes...";
+    volumesList.innerHTML = '';
+
+    try {
+      if (!activeProject) throw new Error("No active project");
+      const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url?projectId=${activeProject.folderName}&surveyId=${activeProject.surveyId}&type=volumes`;
+      const response = await fetch(apiUrl, { method: "GET" });
+      
+      if (!response.ok) throw new Error("Failed to fetch volumes");
+      
+      const files = await response.json();
+      volumesListLoading.style.display = 'none';
+
+      // We only care about JSON files for volumes
+      const jsonFiles = files.filter(f => f.fileName.endsWith('.json'));
+
+      if (jsonFiles.length === 0) {
+        volumesListLoading.style.display = 'block';
+        volumesListLoading.textContent = "No saved volumes yet.";
+        return;
+      }
+
+      // Group by folder
+      const folders = {};
+      jsonFiles.forEach(f => {
+        const parts = f.fileName.split('/');
+        let folderName = "General";
+        
+        // If there's a folder in the path (e.g., "Pits/my_vol.json"), use it
+        if (parts.length > 1) {
+            folderName = parts[0];
+        }
+        
+        if (!folders[folderName]) folders[folderName] = [];
+        folders[folderName].push(f);
+      });
+
+      // Render Folders
+      Object.keys(folders).sort().forEach(folderName => {
+        const folderGroup = document.createElement("div");
+        
+        const fHeader = document.createElement("div");
+        fHeader.className = "folder-header";
+        const folderSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
+        fHeader.innerHTML = `<span style="display: flex; align-items: center; gap: 6px;">${folderSvg} ${folderName}</span><span style="font-size: 10px;">▼</span>`;
+        
+        const fContent = document.createElement("div");
+        fContent.className = "folder-content";
+        
+        fHeader.addEventListener("click", () => {
+          const isHidden = fContent.style.display === "none";
+          fContent.style.display = isHidden ? "flex" : "none";
+          fHeader.querySelector("span:last-child").textContent = isHidden ? "▼" : "▶";
+        });
+
+        folders[folderName].sort((a,b) => new Date(b.lastModified) - new Date(a.lastModified)).forEach(f => {
+            const item = document.createElement("div");
+            item.className = "report-item";
+            item.style.padding = "6px 8px";
+            
+            // Nice formatting for name
+            const niceName = f.fileName.split('/').pop().replace(/_[0-9]+\.json$/, '').replace(/_/g, ' ');
+
+            item.innerHTML = `
+              <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                <div style="display: flex; align-items: center;">
+                  <input type="checkbox" class="volume-checkbox" value="${f.fileName}" style="display: none; margin-right: 8px; cursor: pointer; accent-color: var(--purple-primary);">
+                  <div style="display: flex; flex-direction: column;">
+                    <span style="font-weight: 500; font-size: 13px; text-transform: capitalize;">${niceName}</span>
+                    <span style="font-size: 10px; color: #64748b;">${new Date(f.lastModified).toLocaleDateString()}</span>
+                  </div>
+                </div>
+                <button class="btn-outline view-vol-btn" data-url="${f.url}" style="padding: 2px 8px; font-size: 11px;">View</button>
+              </div>
+            `;
+
+            item.querySelector('.view-vol-btn').addEventListener("click", async (e) => {
+              if (isVolumeManageMode) return;
+              e.stopPropagation();
+              const btn = e.currentTarget;
+              const originalText = btn.textContent;
+              btn.textContent = "Loading...";
+              
+              try {
+                const res = await fetch(f.url);
+                const metadata = await res.json();
+                
+                measureMode = "VOLUME";
+                measureState = "FINISHED_VOLUME";
+                
+                // Reconstruct points
+                volumePoints = metadata.points.map(p => ({
+                    coord: new Coordinates(giroCrs, p.x, p.y, p.z),
+                    point: new Vector3(p.x, p.y, p.z)
+                }));
+                
+                // Center camera on polygon center
+                let cx=0, cy=0;
+                for(let p of volumePoints) { cx+=p.coord.x; cy+=p.coord.y; }
+                cx/=volumePoints.length; cy/=volumePoints.length;
+                
+                const centerWorld = new Vector3(cx, cy, activeProject.zOffset || 0);
+                controls.target.copy(centerWorld);
+                controls.update();
+
+                updateVolumeSvg();
+                
+                document.getElementById("volMiniArea").textContent = metadata.area2D;
+                document.getElementById("volMiniPerim").textContent = metadata.perimeter;
+                document.getElementById("volMiniCut").textContent = metadata.cutVolume;
+                document.getElementById("volMiniFill").textContent = metadata.fillVolume;
+                
+                if (volumeMiniContainer) volumeMiniContainer.classList.remove("hidden");
+              } catch(err) {
+                console.error("Failed to load volume metadata", err);
+                alert("Failed to load volume details.");
+              } finally {
+                btn.textContent = originalText;
+              }
+            });
+            
+            fContent.appendChild(item);
+        });
+
+        folderGroup.appendChild(fHeader);
+        folderGroup.appendChild(fContent);
+        volumesList.appendChild(folderGroup);
+      });
+    } catch (err) {
+      console.error(err);
+      volumesListLoading.style.display = 'block';
+      volumesListLoading.textContent = "Error loading volumes.";
+    }
+  }
+
+  // Manage Volumes UI
+  const manageVolumesBtn = document.getElementById("manageVolumesBtn");
+  const volumesSelectionBar = document.getElementById("volumesSelectionBar");
+  const cancelManageVolumesBtn = document.getElementById("cancelManageVolumesBtn");
+  const deleteSelectedVolumesBtn = document.getElementById("deleteSelectedVolumesBtn");
+
+  manageVolumesBtn?.addEventListener("click", () => {
+    isVolumeManageMode = true;
+    manageVolumesBtn.style.display = "none";
+    volumesSelectionBar.style.display = "flex";
+    document.querySelectorAll('.volume-checkbox').forEach(cb => cb.style.display = 'block');
+    document.querySelectorAll('.view-vol-btn').forEach(btn => btn.style.display = 'none');
+  });
+
+  cancelManageVolumesBtn?.addEventListener("click", () => {
+    isVolumeManageMode = false;
+    manageVolumesBtn.style.display = "block";
+    volumesSelectionBar.style.display = "none";
+    document.querySelectorAll('.volume-checkbox').forEach(cb => {
+        cb.style.display = 'none';
+        cb.checked = false;
+    });
+    document.querySelectorAll('.view-vol-btn').forEach(btn => btn.style.display = 'block');
+  });
 
 });
 

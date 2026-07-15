@@ -77,64 +77,148 @@
     <path id="kmlLine" fill="none" stroke="#ff0044" stroke-width="3" filter="url(#kmlGlow)" stroke-linejoin="round" d=""></path>
   </svg>
 
-  <!-- Mini Elevation Profile Graph -->
-  <div id="elevationMiniContainer" class="glass-panel hidden" style="
+  <!-- Volume SVG Overlay -->
+  <svg id="volumeSvg" style="
+    display: none;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 11;
+  ">
+    <!-- Volume Polygon Overlay -->
+    <polygon id="volumePolygonOverlay" fill="rgba(14, 165, 233, 0.3)" stroke="#0ea5e9" stroke-width="2" stroke-dasharray="4" filter="url(#kmlGlow)" stroke-linejoin="round" points=""></polygon>
+    <!-- Volume Polygon Vertices -->
+    <g id="volumeVerticesOverlay"></g>
+  </svg>
+
+    <!-- Mini Elevation Profile Graph -->
+  <div id="elevationMiniContainer" class="hidden" style="
     position: fixed;
     top: 90px;
     right: 20px;
     width: 300px;
     height: 180px;
-    padding: 10px;
+    z-index: 1000;
+    pointer-events: auto;
     cursor: pointer;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: var(--shadow);
     transition: transform 0.2s, box-shadow 0.2s;
-    z-index: 50;
-    display: flex;
-    flex-direction: column;
-  ">
-    <div style="font-size: 12px; font-weight: 600; margin-bottom: 5px; color: #fff; display: flex; justify-content: space-between;">
-      <span>Elevation Profile</span>
-      <span style="font-size: 10px; opacity: 0.7;">Click to expand</span>
+  " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 25px 50px -12px rgba(0,0,0,0.15)';" onmouseout="this.style.transform='none'; this.style.boxShadow='var(--shadow)';">
+    <div style="font-size: 11px; font-weight: bold; margin-bottom: 5px; color: var(--muted); display: flex; justify-content: space-between;">
+      <span>ELEVATION PROFILE <span style="font-weight: normal; opacity: 0.7; text-transform: lowercase;">(click to expand)</span></span>
+      <span id="closeMiniChartBtn" style="cursor: pointer; pointer-events: auto; color: var(--muted);">&times;</span>
     </div>
-    <div style="flex: 1; position: relative;">
+    <div style="position: relative; height: 130px; width: 100%;">
       <canvas id="elevationMiniChart"></canvas>
     </div>
   </div>
 
+  <!-- Volume Analysis Mini Container -->
+  <div id="volumeMiniContainer" class="hidden" style="
+    position: fixed;
+    top: 90px;
+    right: 20px;
+    width: 280px;
+    z-index: 1000;
+    pointer-events: auto;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: var(--shadow);
+  ">
+    <div style="font-size: 11px; font-weight: bold; margin-bottom: 10px; color: var(--muted); display: flex; justify-content: space-between;">
+      <span>VOLUME ANALYSIS</span>
+      <span id="closeVolumeMiniBtn" style="cursor: pointer; color: var(--muted);">&times;</span>
+    </div>
+    
+    <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 15px;">
+      <div style="display: flex; justify-content: space-between;">
+        <span style="color: var(--muted); font-size: 13px;">Area (2D):</span>
+        <span id="volMiniArea" style="font-weight: 600; color: var(--text);">0.00 m²</span>
+      </div>
+      <div style="display: flex; justify-content: space-between;">
+        <span style="color: var(--muted); font-size: 13px;">Perimeter:</span>
+        <span id="volMiniPerim" style="font-weight: 600; color: var(--text);">0.00 m</span>
+      </div>
+      <div style="display: flex; justify-content: space-between; margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--panel-border);">
+        <span style="color: #ef4444; font-size: 13px; font-weight: bold;">Cut Vol (Pit):</span>
+        <span id="volMiniCut" style="font-weight: 600; color: #ef4444;">0.00 m³</span>
+      </div>
+      <div style="display: flex; justify-content: space-between;">
+        <span style="color: #10b981; font-size: 13px; font-weight: bold;">Fill Vol (Stockpile):</span>
+        <span id="volMiniFill" style="font-weight: 600; color: #10b981;">0.00 m³</span>
+      </div>
+    </div>
+
+    <div style="border-top: 1px solid var(--panel-border); padding-top: 15px;">
+      <div style="font-size: 11px; font-weight: bold; margin-bottom: 12px; color: var(--muted);">SAVE VOLUME</div>
+      <div style="margin-bottom: 12px; display: flex; align-items: center;">
+        <label style="color: var(--muted); font-size: 12px; font-weight: 500; width: 50px;">Name</label>
+        <input type="text" id="volSaveName" class="input" placeholder="e.g. Pit A" style="flex: 1; padding: 6px 8px; border: 1px solid var(--panel-border); border-radius: 6px; color: var(--text); background: white;">
+      </div>
+      <div style="margin-bottom: 12px; display: flex; align-items: center;">
+        <label style="color: var(--muted); font-size: 12px; font-weight: 500; width: 50px;">Folder</label>
+        <div style="display: flex; gap: 6px; flex: 1;">
+          <select id="volSaveFolder" class="input" style="flex: 1; padding: 6px; background: white; color: var(--text); border: 1px solid var(--panel-border); border-radius: 6px; font-size: 13px;">
+            <option value="General">General</option>
+            <option value="Pits">Pits</option>
+            <option value="Stockpiles">Stockpiles</option>
+          </select>
+          <button id="btnNewVolFolder" class="btn-outline" style="padding: 6px 10px; font-size: 12px; white-space: nowrap; border: 1px solid var(--panel-border); color: var(--text); background: white; border-radius: 6px;">+ New</button>
+        </div>
+      </div>
+      <button id="btnConfirmVolSave" class="btn" style="width: 100%; margin-top: 8px; background: var(--purple-primary); border: none; color: white; font-weight: 600; padding: 8px; border-radius: 6px; box-shadow: 0 4px 12px rgba(94, 25, 234, 0.3); transition: all 0.2s; cursor: pointer;">Save Volume</button>
+    </div>
+  </div>
+
+  <!-- Camera Controls -->
   <!-- Full Elevation Profile Modal -->
   <div id="elevationModal" class="hidden" style="
     position: fixed;
     top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(0, 0, 0, 0.7);
-    z-index: 100;
+    background: rgba(30, 41, 59, 0.4);
+    z-index: 2000;
     display: flex;
     align-items: center;
     justify-content: center;
-    backdrop-filter: blur(5px);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
   ">
-    <div class="glass-panel" style="
-      width: 80%;
-      height: 70%;
+    <div style="
+      width: 85%;
+      height: 80%;
       display: flex;
       flex-direction: column;
-      padding: 20px;
+      padding: 24px;
       position: relative;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      color: var(--text);
     ">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-        <h2 style="margin: 0; font-size: 20px;">Elevation Profile Analysis</h2>
-        <div style="display: flex; gap: 10px; align-items: center;">
-          <input type="text" id="reportNameInput" placeholder="Enter Report Name..." style="padding: 6px 10px; border-radius: 6px; border: 1px solid #475569; background: #1e293b; color: #fff; font-size: 13px; min-width: 200px; outline: none;" />
-          <button id="btnSaveToSurvey" class="btn btn-primary" style="padding: 5px 15px; display: flex; align-items: center; gap: 5px; background: #0ea5e9; border: none;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h2 style="margin: 0; font-size: 22px; font-weight: 600; color: var(--text); letter-spacing: -0.02em;">Elevation Profile Analysis</h2>
+        <div style="display: flex; gap: 12px; align-items: center;">
+          <input type="text" id="reportNameInput" placeholder="Enter Report Name..." style="padding: 8px 12px; border-radius: 8px; border: 1px solid var(--panel-border); background: white; color: var(--text); font-size: 13px; min-width: 200px; outline: none; transition: border-color 0.2s;" onfocus="this.style.borderColor='var(--purple-primary)'" onblur="this.style.borderColor='var(--panel-border)'" />
+          <button id="btnSaveToSurvey" class="btn" style="padding: 8px 16px; display: flex; align-items: center; gap: 6px; background: var(--purple-primary); border: none; color: white; font-weight: 500; border-radius: 8px; box-shadow: 0 4px 12px rgba(94, 25, 234, 0.25); cursor: pointer;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
             Save to Survey
           </button>
-          <button id="btnDownloadReport" class="btn btn-primary" style="padding: 5px 15px; display: flex; align-items: center; gap: 5px;">
+          <button id="btnDownloadReport" class="btn btn-outline" style="padding: 8px 16px; display: flex; align-items: center; gap: 6px; border-radius: 8px; border: 1px solid var(--panel-border); color: var(--text); background: white; font-weight: 500; cursor: pointer;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-            Download PDF Report
+            Download PDF
           </button>
-          <button id="btnCloseModal" class="btn btn-outline" style="padding: 5px 15px;">Close</button>
+          <button id="btnCloseModal" class="btn btn-outline" style="padding: 8px 16px; border-radius: 8px; border: 1px solid var(--panel-border); color: var(--text); background: white; font-weight: 500; margin-left: 8px; cursor: pointer;">Close</button>
         </div>
       </div>
-      <div style="flex: 1; position: relative; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px;">
+      <div style="flex: 1; position: relative; background: #f8fafc; border: 1px solid var(--panel-border); border-radius: 12px; padding: 20px;">
         <canvas id="elevationFullChart"></canvas>
       </div>
     </div>
@@ -155,6 +239,9 @@
       </button>
       <button class="icon-btn" data-target="panel-terrain" title="Terrain Analysis">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+      </button>
+      <button class="icon-btn" data-target="panel-volume" title="Volume Analysis">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
       </button>
     </div>
 
@@ -424,6 +511,61 @@
               
               <div class="hint" style="margin-top: 8px;">
                 Terrain Range: <span id="contourRange">Loading...</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============================== -->
+        <!-- 5. VOLUME ANALYSIS PANEL -->
+        <!-- ============================== -->
+        <div class="flyout-group hidden" id="panel-volume">
+          <!-- Volume Draw Tool -->
+          <div class="group" style="margin-bottom: 15px;">
+            <div class="group-title" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" id="volumeHeader">
+              Volume Analysis <span id="volumeCarrot">▼</span>
+            </div>
+            
+            <div id="volumeSettings" style="display: block; margin-top: 10px;">
+              <div class="btn-group">
+                <button id="btnDrawVolume" class="btn">Draw Volume Area</button>
+                <button id="btnClearVolume" class="btn btn-outline" disabled>Clear</button>
+              </div>
+              <button id="btnFinishVolume" class="btn hidden" style="width: 100%; margin-top: 10px; background: #10b981; border: none; color: white;">Finish Drawing</button>
+              
+              <div class="hint" id="volumeHint" style="margin-top: 8px;">
+                Click 'Draw Volume Area' to lock view to 2D. Then click points on the map to build a polygon.
+              </div>
+            </div>
+          </div>
+
+          <!-- Saved Volumes Group -->
+          <div class="group">
+            <div class="group-title" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" id="savedVolumesHeader">
+              <div style="display: flex; align-items: center; gap: 8px; color: #0ea5e9;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                Saved Volumes
+              </div>
+              <span id="volumesCarrot" style="font-size: 10px;">▼</span>
+            </div>
+            
+            <div id="volumesPanelContent" style="margin-top: 10px; display: block;">
+              <div id="manageVolumesContainer" style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
+                <button id="manageVolumesBtn" style="background: none; border: none; color: #0ea5e9; font-size: 11px; font-weight: 600; cursor: pointer; padding: 4px; text-decoration: underline;">Manage</button>
+              </div>
+              <div id="volumesSelectionBar" style="display: none; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 12px; background: #f8fafc; border: 1px solid var(--panel-border); padding: 6px 10px; border-radius: 6px;">
+                <div style="display: flex; align-items: center;">
+                   <input type="checkbox" id="selectAllVolumes" style="margin-right: 6px; cursor: pointer; accent-color: var(--purple-primary);">
+                   <label for="selectAllVolumes" style="cursor: pointer; user-select: none; font-weight: 500; color: var(--text);">Select All</label>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                   <button id="deleteSelectedVolumesBtn" style="background: #ef4444; border: none; color: white; border-radius: 4px; padding: 4px 10px; font-size: 11px; font-weight: 600; cursor: pointer; transition: background 0.2s;">Delete</button>
+                   <button id="cancelManageVolumesBtn" style="background: transparent; border: 1px solid var(--panel-border); color: var(--text); border-radius: 4px; padding: 4px 10px; font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.2s;">Cancel</button>
+                </div>
+              </div>
+              <div id="volumesListLoading" style="color: #94a3b8; font-size: 12px; text-align: center; padding: 10px 0;">Loading volumes...</div>
+              <div id="volumesList" style="display: flex; flex-direction: column; gap: 8px; max-height: 250px; overflow-y: auto; padding-right: 4px;">
+                <!-- Volume folders injected here -->
               </div>
             </div>
           </div>

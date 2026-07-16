@@ -166,6 +166,102 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* ── Features Accordion Premium Styles ── */
+.feature-accordion-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--text);
+  background: rgba(248, 250, 252, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(94, 25, 234, 0.1);
+  padding: 8px 12px;
+  border-radius: 8px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+}
+
+.feature-accordion-header:hover {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(94, 25, 234, 0.3);
+  box-shadow: 0 4px 12px rgba(94, 25, 234, 0.08);
+  transform: translateY(-1px);
+}
+
+.feature-draw-btn {
+  background: linear-gradient(135deg, #5e19ea, #8b5cf6);
+  color: #ffffff;
+  border: none;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(94, 25, 234, 0.4);
+  transition: all 0.2s;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.feature-draw-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(94, 25, 234, 0.6);
+}
+
+/* Premium View Badge */
+.view-feat-badge {
+  background: rgba(94, 25, 234, 0.1);
+  color: var(--purple-primary);
+  border: 1px solid rgba(94, 25, 234, 0.2);
+  padding: 3px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.view-feat-badge:hover {
+  background: var(--purple-primary);
+  color: white;
+  box-shadow: 0 2px 8px rgba(94, 25, 234, 0.3);
+}
+
+/* ── Right Sidebar Layout ── */
+.sidebar-layout.right {
+  left: auto !important;
+  right: 10px !important;
+  top: 150px !important;
+  height: auto !important;
+  flex-direction: row-reverse;
+}
+.sidebar-layout.right .icon-sidebar {
+  height: auto !important;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+.sidebar-layout.right .flyout-panel.right {
+  border-radius: 16px 0 0 16px;
+  margin-left: 0;
+  margin-right: -10px;
+  padding-left: 16px;
+  padding-right: 24px;
+  transform-origin: right center;
+  height: auto !important;
+  max-height: calc(100vh - 180px);
+}
+.sidebar-layout.right .flyout-panel.right.closed {
+  transform: translateX(110%);
+}
+
 
 
 .saved-report-item {

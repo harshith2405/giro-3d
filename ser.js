@@ -274,8 +274,8 @@ controls.maxPolarAngle = Math.PI / 2.1;
 
 const flyoutPanel = document.getElementById('flyoutPanel');
   const toggleFlyoutPanel = document.getElementById('toggleFlyoutPanel');
-  const iconBtns = document.querySelectorAll('.icon-btn');
-  const flyoutGroups = document.querySelectorAll('.flyout-group');
+  const iconBtns = document.querySelectorAll('.left-icon-btn');
+  const flyoutGroups = document.querySelectorAll('.left-group');
   const flyoutTitle = document.getElementById('flyoutTitle');
 
   // Helper to close flyout
@@ -325,7 +325,36 @@ const flyoutPanel = document.getElementById('flyoutPanel');
   });
 
 
-instance.view.setControls(controls);
+  // --- Features Panel Draw Buttons ---
+  const btnDrawFeaturePoint = document.getElementById('btnDrawFeaturePoint');
+  const btnDrawFeatureLine = document.getElementById('btnDrawFeatureLine');
+  const btnDrawFeaturePolygon = document.getElementById('btnDrawFeaturePolygon');
+
+  btnDrawFeaturePoint?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    measureState = "SELECTING_POINT";
+    measureMode = "POINT";
+    controls.enabled = false;
+    document.body.classList.add("roi-selecting");
+    pointDrawPoint = null;
+    pointDrawCoord = null;
+    if(pointSvg) pointSvg.style.display = 'none';
+    if(pointMiniContainer) pointMiniContainer.classList.add('hidden');
+  });
+
+  btnDrawFeatureLine?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const realBtn = document.getElementById('btnProfile');
+    if (realBtn) realBtn.click();
+  });
+
+  btnDrawFeaturePolygon?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const realBtn = document.getElementById('btnDrawVolume');
+    if (realBtn) realBtn.click();
+  });
+
+  instance.view.setControls(controls);
 
 console.log("Giro3D initialized");
 
@@ -937,12 +966,27 @@ window.addEventListener("DOMContentLoaded", () => {
   const measureSvgStart = document.getElementById("measureSvgStart");
   const measureSvgEnd = document.getElementById("measureSvgEnd");
 
-  let measureState = "IDLE"; // IDLE | SELECTING | FINISHED
-  let measureMode = "NONE"; // NONE | SIMPLE | PROFILE | REDRAW | VOLUME
-  let measureStartPoint = null; // world point (Vector3)
-  let measureEndPoint = null; // world point (Vector3)
-  let measureStartCoord = null; // geographic coord
-  let measureEndCoord = null; // geographic coord
+  // Point DOM Elements
+  const pointSvg = document.getElementById("pointSvg");
+  const pointSvgMarker = document.getElementById("pointSvgMarker");
+  const pointMiniContainer = document.getElementById("pointMiniContainer");
+  const closePointMiniBtn = document.getElementById("closePointMiniBtn");
+  const pointMiniLon = document.getElementById("pointMiniLon");
+  const pointMiniLat = document.getElementById("pointMiniLat");
+  const pointMiniElev = document.getElementById("pointMiniElev");
+  const pointSaveName = document.getElementById("pointSaveName");
+  const btnConfirmPointSave = document.getElementById("btnConfirmPointSave");
+
+  let measureState = "IDLE"; // IDLE | SELECTING | FINISHED | FINISHED_VOLUME | FINISHED_POINT
+  let measureMode = "NONE"; // NONE | SIMPLE | PROFILE | REDRAW | VOLUME | POINT
+  let measureStartPoint = null;
+  let measureEndPoint = null;
+  let measureStartCoord = null;
+  let measureEndCoord = null;
+  
+  // Point Draw specific variables
+  let pointDrawPoint = null;
+  let pointDrawCoord = null; // geographic coord
   let measureDragScreenStart = null;
   let measureHasFirstTap = false;
 
@@ -974,14 +1018,9 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Redraw the measurement line so it "sticks" to the terrain as the camera moves.
   function updateMeasureSvg() {
-    if (
-      (measureState === "SELECTING" || measureState === "FINISHED") &&
-      measureStartPoint &&
-      measureEndPoint
-    ) {
+    if ((measureMode === "SIMPLE" || measureMode === "PROFILE") && measureStartPoint && measureEndPoint) {
       const start = projectToScreen(measureStartPoint);
       const end = projectToScreen(measureEndPoint);
-      // Hide if either endpoint is behind the camera.
       if (start.z > 1 || end.z > 1) {
         measureSvg.style.display = "none";
         return;
@@ -997,6 +1036,21 @@ window.addEventListener("DOMContentLoaded", () => {
       measureSvgEnd.setAttribute("cy", end.y);
     } else if (measureSvg) {
       measureSvg.style.display = "none";
+    }
+  }
+
+  function updatePointSvg() {
+    if ((measureMode === "POINT" || measureState === "FINISHED_POINT") && pointDrawPoint && pointSvg) {
+      const p = projectToScreen(pointDrawPoint);
+      if (p.z > 1) {
+        pointSvg.style.display = "none";
+        return;
+      }
+      pointSvgMarker.setAttribute("cx", p.x);
+      pointSvgMarker.setAttribute("cy", p.y);
+      pointSvg.style.display = "block";
+    } else if (pointSvg) {
+      pointSvg.style.display = "none";
     }
   }
   controls.addEventListener("change", updateMeasureSvg);
@@ -1191,6 +1245,33 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   canvas.addEventListener("mousedown", (e) => {
+    if (measureMode === "POINT" && measureState === "SELECTING_POINT") {
+      const rect = canvas.getBoundingClientRect();
+      const mouse = new Vector2(e.clientX - rect.left, e.clientY - rect.top);
+      const picked = map.pick(mouse);
+      if (picked && picked.length > 0) {
+        pointDrawPoint = picked[0].point.clone();
+        pointDrawCoord = picked[0].coord.clone();
+        measureState = "FINISHED_POINT";
+        controls.enabled = true;
+        document.body.classList.remove("roi-selecting");
+        
+        if (pointMiniContainer) {
+          pointMiniContainer.classList.remove("hidden");
+          const pCoord = pointDrawCoord.as(proj4('EPSG:4326'));
+          pointMiniLon.textContent = pCoord.x.toFixed(6) + "°";
+          pointMiniLat.textContent = pCoord.y.toFixed(6) + "°";
+          pointMiniElev.textContent = pointDrawPoint.z.toFixed(2) + " m";
+          if (pointSaveName) {
+            pointSaveName.value = "";
+            pointSaveName.focus();
+          }
+        }
+        updatePointSvg();
+      }
+      return;
+    }
+
     if (measureState === "SELECTING") {
       
       const rect = canvas.getBoundingClientRect();
@@ -2490,4 +2571,9 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
 });
+
+
+
+
+
 

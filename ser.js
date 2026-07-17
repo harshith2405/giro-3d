@@ -2492,7 +2492,7 @@ window.addEventListener("DOMContentLoaded", () => {
             body: JSON.stringify({
               projectId: activeProject.folderName,
               surveyId: activeProject.surveyId,
-              type: 'reports/rois', // For features we might have different types, wait! 
+              type: 'rois', // For features we might have different types, wait! 
               fileName: fileName
             })
           }).then(res => {
@@ -2646,7 +2646,7 @@ window.addEventListener("DOMContentLoaded", () => {
         body: JSON.stringify({
           projectId: activeProject.folderName,
           surveyId: activeProject.surveyId,
-          type: "reports/volumes",
+          type: "volumes",
           fileName: fileName
         })
       });
@@ -2724,7 +2724,7 @@ window.addEventListener("DOMContentLoaded", () => {
       const response = await fetch(`https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "reports/rois", fileName })
+        body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "rois", fileName })
       });
       if (!response.ok) throw new Error("Failed to get upload URL");
       const { uploadUrl } = await response.json();
@@ -2803,8 +2803,8 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!confirm(`Delete this item? This cannot be undone.`)) return;
     try {
       await deleteFile(type, fileName);
-      if (type === 'reports/rois') fetchSavedRois();
-      else if (type === 'reports/volumes') fetchSavedVolumes();
+      if (type === 'rois') fetchSavedRois();
+      else if (type === 'volumes') fetchSavedVolumes();
     } catch(err) {
       console.error('Delete error:', err);
       alert('Failed to delete: ' + err.message);
@@ -2843,7 +2843,7 @@ window.addEventListener("DOMContentLoaded", () => {
     featuresListRois.innerHTML = '<i style="color: var(--muted); padding: 4px;">Loading...</i>';
     try {
       if (!activeProject) return;
-      const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url?projectId=${activeProject.folderName}&surveyId=${activeProject.surveyId}&type=reports/rois`;
+      const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url?projectId=${activeProject.folderName}&surveyId=${activeProject.surveyId}&type=rois`;
       const response = await fetch(apiUrl, { method: "GET", cache: "no-store" });
       if (!response.ok) throw new Error("Failed to fetch ROIs");
       const files = await response.json();
@@ -2865,7 +2865,7 @@ window.addEventListener("DOMContentLoaded", () => {
             <button class="btn-action-icon view" onclick="loadRoiArea('${file.url}')" title="View">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
             </button>
-            <button class="btn-action-icon delete" style="display: none;" onclick="deleteFileByUrl('${file.url}', 'reports/rois', '${file.fileName}')" title="Delete">
+            <button class="btn-action-icon delete" style="display: none;" onclick="deleteFileByUrl('${file.url}', 'rois', '${file.fileName}')" title="Delete">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
             </button>
           </div>
@@ -2887,7 +2887,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
     try {
       if (!activeProject) throw new Error("No active project");
-      const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url?projectId=${activeProject.folderName}&surveyId=${activeProject.surveyId}&type=reports/volumes`;
+      const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url?projectId=${activeProject.folderName}&surveyId=${activeProject.surveyId}&type=volumes`;
       const response = await fetch(apiUrl, { method: "GET", cache: "no-store" });
       
       if (!response.ok) throw new Error("Failed to fetch volumes");
@@ -2988,7 +2988,7 @@ window.addEventListener("DOMContentLoaded", () => {
                   method: "POST", headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
                     projectId: activeProject.folderName, surveyId: activeProject.surveyId,
-                    type: "reports/volumes", fileName: file.fileName
+                    type: "volumes", fileName: file.fileName
                   })
                 });
                 if (!putUrlRes.ok) throw new Error("Failed upload url");
@@ -3197,7 +3197,7 @@ window.addEventListener("DOMContentLoaded", () => {
             body: JSON.stringify({
               projectId: activeProject.folderName,
               surveyId: activeProject.surveyId,
-              type: 'reports/volumes',
+              type: 'volumes',
               fileName: cb.value
             })
           }).then(res => { if (!res.ok) throw new Error("Fail"); });
@@ -3279,8 +3279,8 @@ window.addEventListener("DOMContentLoaded", () => {
             }).catch(() => {});
           }
 
-          let fileType = 'reports/rois';
-          if (cb.classList.contains('volume-checkbox')) fileType = 'reports/volumes';
+          let fileType = 'rois';
+          if (cb.classList.contains('volume-checkbox')) fileType = 'volumes';
           if (cb.classList.contains('report-checkbox')) fileType = 'reports'; // Assuming reports is the type for profiles
 
           const mainPromise = fetch(API_BASE, {
@@ -3397,6 +3397,30 @@ setupManageToggle("manageFeaturesBtn", "#panel-features", "isFeatureManageMode")
           });
         }
       
+  const btnResetMap = document.getElementById("btnResetMap");
+  btnResetMap?.addEventListener("click", () => {
+    // 1. Clear UI states
+    if (typeof resetRoiState === "function") resetRoiState();
+    
+    // 2. Clear ROIs
+    if (typeof roiSvg !== "undefined" && roiSvg) roiSvg.style.display = "none";
+    if (typeof roiPolyPoints !== "undefined") roiPolyPoints = [];
+    if (typeof updateRoiPolySvg === 'function') updateRoiPolySvg();
+    
+    // 3. Clear KML boundary
+    if (typeof kmlWorldPoints !== "undefined") kmlWorldPoints = [];
+    if (typeof updateKmlSvg === "function") updateKmlSvg();
+
+    // 4. Clear Measurements
+    if (typeof clearMeasure === "function") clearMeasure();
+
+    // 5. Reload full unclipped project (this resets the camera to top-down default)
+    if (typeof loadProject === "function" && typeof activeProject !== "undefined" && activeProject) {
+      loadProject(activeProject, null);
+    }
+  });
+
+
   const btnResetMap = document.getElementById("btnResetMap");
   btnResetMap?.addEventListener("click", () => {
     // 1. Clear UI states

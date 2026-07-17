@@ -25,7 +25,7 @@ HttpConfiguration.setOptions(window.location.origin, { cache: "no-store" });
 
 const giroCrs = new CoordinateSystem("EPSG:3395");
 
-import { Vector3, Vector2, Color, DoubleSide } from "three";
+import { Vector3, Vector2, Color, DoubleSide, Plane } from "three";
 import { MapControls } from "three/examples/jsm/controls/MapControls.js";
 
 // ---------------------------------------------------------------------------
@@ -622,6 +622,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // ROI (Region Of Interest) rectangle clipping
   // -------------------------------------------------------------------------
   const selectROI = document.getElementById("selectROI");
+  const btnDrawPolyRoi = document.getElementById("btnDrawPolyRoi");
   const resetROI = document.getElementById("resetROI");
   const roiHeader = document.getElementById("roiHeader");
   const roiSettings = document.getElementById("roiSettings");
@@ -662,8 +663,8 @@ window.addEventListener("DOMContentLoaded", () => {
     roiEnd = null;
     document.body.classList.remove("roi-selecting");
     selectROI.classList.remove("active");
-    selectROI.textContent = "Select ROI";
-    roiHint.textContent = "Click 'Select ROI' to start drawing a rectangle.";
+    // Removed selectROI.textContent replacement so SVG isn't destroyed
+    if (roiHint) roiHint.textContent = "Click 'Select ROI' to start drawing a rectangle.";
     if (roiMetrics) roiMetrics.classList.add("hidden");
     controls.enabled = true;
   }
@@ -674,13 +675,28 @@ window.addEventListener("DOMContentLoaded", () => {
     controls.enabled = false;
     document.body.classList.add("roi-selecting");
     selectROI.classList.add("active");
-    roiHint.textContent = "Click and drag on the terrain to draw a clipping rectangle.";
+    if (roiHint) roiHint.textContent = "Click and drag on the terrain to draw a clipping rectangle.";
     resetROI.disabled = false;
   });
 
+  btnDrawPolyRoi?.addEventListener("click", startRoiPolyDrawing);
+
+  function startRoiPolyDrawing() {
+    measureState = "SELECTING";
+    measureMode = "ROI_POLY";
+    controls.enabled = false;
+    document.body.classList.add("roi-selecting");
+    roiPolyPoints = [];
+    roiPolyMousePoint = null;
+    updateRoiPolySvg();
+    if (roiMiniContainer) roiMiniContainer.classList.add("hidden");
+  }
+
+  document.getElementById("btnDrawFeatureRoi")?.addEventListener("click", startRoiPolyDrawing);
+
   resetROI?.addEventListener("click", () => {
     resetRoiState();
-    roiSvg.style.display = "none";
+    if (roiSvg) roiSvg.style.display = "none";
     
     // Clear KML boundary
     kmlWorldPoints = [];
@@ -810,7 +826,7 @@ window.addEventListener("DOMContentLoaded", () => {
     const height = bottom - top;
 
     if (width < 3 || height < 3) {
-      roiSvg.style.display = "none";
+      if (roiSvg) roiSvg.style.display = "none";
       return;
     }
 
@@ -839,7 +855,7 @@ window.addEventListener("DOMContentLoaded", () => {
       .map(([cx, cy]) => `<circle cx="${cx}" cy="${cy}" r="4"/>`)
       .join("");
 
-    roiSvg.style.display = "block";
+    if (roiSvg) roiSvg.style.display = "block";
   }
 
   // Update perimeter / area readout from the world-space ROI rectangle.
@@ -888,7 +904,7 @@ window.addEventListener("DOMContentLoaded", () => {
   canvas.addEventListener("mouseup", () => {
     if (roiState !== "SELECTING" || !roiDragging) return;
     roiDragging = false;
-    roiSvg.style.display = "none";
+    if (roiSvg) roiSvg.style.display = "none";
     if (!roiStart || !roiEnd) {
       resetRoiState();
       return;
@@ -909,10 +925,10 @@ window.addEventListener("DOMContentLoaded", () => {
     roiState = "IDLE";
     document.body.classList.remove("roi-selecting");
     selectROI.classList.remove("active");
-    selectROI.textContent = "Select ROI";
+    // Removed selectROI.textContent replacement so SVG isn't destroyed
     controls.enabled = true;
     resetROI.disabled = false;
-    roiHint.textContent = "Terrain clipped! Click 'Reset' to restore the full view.";
+    if (roiHint) roiHint.textContent = "Terrain clipped! Click 'Reset' to restore the full view.";
   });
 
   // -------------------------------------------------------------------------
@@ -991,7 +1007,15 @@ window.addEventListener("DOMContentLoaded", () => {
   let measureHasFirstTap = false;
 
   // Volume state
-  let volumePoints = []; // Array of { point: Vector3, coord: Coordinates }
+  let volumePoints = [];
+  let roiPolyPoints = [];
+  let roiPolyMousePoint = null;
+  const roiMiniContainer = document.getElementById("roiMiniContainer");
+  const closeRoiMiniBtn = document.getElementById("closeRoiMiniBtn");
+  const roiSaveName = document.getElementById("roiSaveName");
+  const btnConfirmRoiSave = document.getElementById("btnConfirmRoiSave");
+  const featuresListRois = document.getElementById("featuresListRois");
+ // Array of { point: Vector3, coord: Coordinates }
   let volumeMousePoint = null; // Vector3
   const volumeSvg = document.getElementById("volumeSvg");
   const volumePolygonSvg = document.getElementById("volumePolygonOverlay");
@@ -1056,6 +1080,144 @@ window.addEventListener("DOMContentLoaded", () => {
   controls.addEventListener("change", updateMeasureSvg);
 
   // Redraw volume polygon
+  
+  function updateRoiPolySvg() {
+    if ((measureMode === "ROI_POLY" || measureState === "FINISHED_ROI_POLY") && roiPolyPoints.length > 0) {
+      let pointsAttr = "";
+      if (volumeVerticesSvg) volumeVerticesSvg.innerHTML = "";
+      
+      for (const p of roiPolyPoints) {
+        const screenP = projectToScreen(p.point);
+        if (screenP.z <= 1) {
+          pointsAttr += `${screenP.x},${screenP.y} `;
+          if (volumeVerticesSvg) {
+            const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            circle.setAttribute("cx", screenP.x);
+            circle.setAttribute("cy", screenP.y);
+            circle.setAttribute("r", "4");
+            circle.setAttribute("fill", "#ffff00");
+            circle.setAttribute("stroke", "#000");
+            circle.setAttribute("stroke-width", "1.5");
+            volumeVerticesSvg.appendChild(circle);
+          }
+        }
+      }
+      if (roiPolyMousePoint && measureState === "SELECTING") {
+        const screenM = projectToScreen(roiPolyMousePoint);
+        if (screenM.z <= 1) pointsAttr += `${screenM.x},${screenM.y} `;
+      } else if (measureState === "FINISHED_ROI_POLY" && roiPolyPoints.length > 2) {
+        const screen0 = projectToScreen(roiPolyPoints[0].point);
+        if (screen0.z <= 1) pointsAttr += `${screen0.x},${screen0.y}`;
+      }
+      
+      if (volumePolygonSvg) {
+        volumePolygonSvg.setAttribute("points", pointsAttr.trim());
+        volumePolygonSvg.setAttribute("fill", "rgba(139, 92, 246, 0.2)");
+        volumePolygonSvg.setAttribute("stroke", "#8b5cf6");
+        volumePolygonSvg.style.display = "block";
+      }
+      if (volumeVerticesSvg) volumeVerticesSvg.style.display = "block";
+      if (volumeSvg) volumeSvg.style.display = "block";
+    }
+  }
+  controls.addEventListener("change", updateRoiPolySvg);
+
+  function calculateRoiPolyMetrics() {
+    if (roiPolyPoints.length < 3) return { area: 0, perimeter: 0 };
+    let area = 0, perimeter = 0;
+    for (let i = 0; i < roiPolyPoints.length; i++) {
+      const p1 = roiPolyPoints[i].coord;
+      const p2 = roiPolyPoints[(i + 1) % roiPolyPoints.length].coord;
+      area += p1.x * p2.y - p2.x * p1.y;
+      perimeter += Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    }
+    area = Math.abs(area) / 2;
+    if (roiArea) roiArea.textContent = area.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    if (roiPerimeter) roiPerimeter.textContent = perimeter.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    if (roiMetrics) roiMetrics.classList.remove("hidden");
+    return { area, perimeter };
+  }
+
+  function applyRoiPolyClipping() {
+    if (roiPolyPoints.length < 3) return;
+    
+    // 1. Bounding box uses geographic coords (for the Extent / data loading)
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const p of roiPolyPoints) {
+      if (p.coord.x < minX) minX = p.coord.x;
+      if (p.coord.x > maxX) maxX = p.coord.x;
+      if (p.coord.y < minY) minY = p.coord.y;
+      if (p.coord.y > maxY) maxY = p.coord.y;
+    }
+    
+    // 2. Load the project restricted to the bounding box
+    const clipExtent = new Extent(giroCrs, minX, maxX, minY, maxY);
+    const clipProject = activeProject || getActiveProjectConfig();
+    
+    updateStatus("Clipping Terrain to Polygon ROI...");
+    
+    loadProject(clipProject, clipExtent).then(() => {
+        if (!map) return;
+        
+        // CRITICAL: Use geographic coords (coord.x/y) for plane math, but center them
+        // first to bring values near zero (avoids float32 precision loss at ~8.5M meters).
+        const numPoints = roiPolyPoints.length;
+        let cx = 0, cy = 0;
+        for (const p of roiPolyPoints) { cx += p.coord.x; cy += p.coord.y; }
+        cx /= numPoints; cy /= numPoints;
+        
+        // Compute centered 2D points
+        const pts2d = roiPolyPoints.map(p => ({ x: p.coord.x - cx, y: p.coord.y - cy }));
+        
+        // Determine winding order (signed area in centered coords)
+        let signedArea = 0;
+        for (let i = 0; i < numPoints; i++) {
+          const p1 = pts2d[i];
+          const p2 = pts2d[(i + 1) % numPoints];
+          signedArea += (p1.x * p2.y - p2.x * p1.y);
+        }
+        const isCCW = signedArea > 0;
+        
+        const planes = [];
+        for (let i = 0; i < numPoints; i++) {
+          const p1 = pts2d[i];
+          const p2 = pts2d[(i + 1) % numPoints];
+          
+          const dx = p2.x - p1.x;
+          const dy = p2.y - p1.y;
+          
+          // Compute inward-facing normal
+          let nx = isCCW ? dy : -dy;
+          let ny = isCCW ? -dx : dx;
+          
+          const length = Math.hypot(nx, ny);
+          if (length === 0) continue;
+          nx /= length;
+          ny /= length;
+          
+          // Plane normal (vertical plane, no Z clipping)
+          const normal = new Vector3(nx, ny, 0);
+          // Plane constant in centered space
+          const constant = -(nx * p1.x + ny * p1.y);
+          
+          planes.push(new Plane(normal, constant));
+        }
+        
+        // Translate planes back: since Three.js positions are NOT centered at (cx,cy),
+        // we need to account for the fact that our planes were built in centered coords.
+        // The plane equation is: n.dot(P - center) + c = 0 => n.dot(P) + (c - n.dot(center)) = 0
+        // But Three.js scene uses local coords from map.worldToLocal, so we convert center:
+        const mapCenter = map.worldToLocal(new Vector3(cx, cy, 0));
+        for (const plane of planes) {
+          plane.constant -= plane.normal.dot(mapCenter);
+        }
+        
+        map.clippingPlanes = planes;
+        updateRoiPolySvg();
+    });
+  }
+
+
   function updateVolumeSvg() {
     if ((measureMode === "VOLUME" || measureState === "FINISHED_VOLUME") && volumePoints.length > 0) {
       let pointsAttr = "";
@@ -1092,7 +1254,7 @@ window.addEventListener("DOMContentLoaded", () => {
       }
       if (volumeVerticesSvg) volumeVerticesSvg.style.display = "block";
       if (volumeSvg) volumeSvg.style.display = "block";
-    } else {
+    } else if (measureMode !== "ROI_POLY" && measureState !== "FINISHED_ROI_POLY") {
       if (volumePolygonSvg) volumePolygonSvg.style.display = "none";
       if (volumeVerticesSvg) volumeVerticesSvg.style.display = "none";
       if (volumeSvg) volumeSvg.style.display = "none";
@@ -1242,6 +1404,20 @@ window.addEventListener("DOMContentLoaded", () => {
     if (measureState === "SELECTING" && measureMode === "VOLUME") {
       if (btnFinishVolume) btnFinishVolume.click();
     }
+    if (measureState === "SELECTING" && measureMode === "ROI_POLY") {
+      if (roiPolyPoints.length < 3) {
+        alert("Please draw at least 3 points for a polygon ROI.");
+        return;
+      }
+      measureState = "FINISHED_ROI_POLY";
+      controls.enabled = true;
+      document.body.classList.remove("roi-selecting");
+      roiPolyMousePoint = null;
+      updateRoiPolySvg();
+      calculateRoiPolyMetrics();
+      applyRoiPolyClipping();
+      if (roiMiniContainer) roiMiniContainer.classList.remove("hidden");
+    }
   });
 
   canvas.addEventListener("mousedown", (e) => {
@@ -1279,7 +1455,12 @@ window.addEventListener("DOMContentLoaded", () => {
       measureDragScreenStart = { x: e.clientX, y: e.clientY };
       const picked = map.pick(mouse);
       if (picked && picked.length > 0) {
-        if (measureMode === "VOLUME") {
+        if (measureMode === "ROI_POLY") {
+          roiPolyPoints.push({ point: picked[0].point.clone(), coord: picked[0].coord.clone() });
+          updateRoiPolySvg();
+          return;
+        }
+        if (measureMode === "VOLUME" /* handled */) {
           volumePoints.push({
             point: picked[0].point.clone(),
             coord: picked[0].coord.clone()
@@ -1316,6 +1497,11 @@ window.addEventListener("DOMContentLoaded", () => {
         if (measureMode === "VOLUME") {
           volumeMousePoint = picked[0].point.clone();
           updateVolumeSvg();
+          return;
+        }
+        if (measureMode === "ROI_POLY") {
+          roiPolyMousePoint = picked[0].point.clone();
+          updateRoiPolySvg();
           return;
         }
         
@@ -1762,7 +1948,7 @@ window.addEventListener("DOMContentLoaded", () => {
         body: JSON.stringify({
           projectId: activeProject.folderName,
           surveyId: activeProject.surveyId,
-          fileName: `${safeReportName}.pdf`
+          type: "reports", fileName: `${safeReportName}.pdf`
         })
       });
       if (!pdfApiResponse.ok) throw new Error("Failed to get PDF upload URL from Lambda");
@@ -1781,7 +1967,7 @@ window.addEventListener("DOMContentLoaded", () => {
         body: JSON.stringify({
           projectId: activeProject.folderName,
           surveyId: activeProject.surveyId,
-          fileName: `${safeReportName}.json`
+          type: "reports", fileName: `${safeReportName}.json`
         })
       });
       if (!jsonApiResponse.ok) throw new Error("Failed to get JSON upload URL from Lambda");
@@ -2071,126 +2257,187 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   async function fetchSavedReports() {
-    if (!reportsListLoading || !reportsList) return;
-    
-    reportsListLoading.style.display = 'block';
-    reportsListLoading.textContent = "Loading reports...";
-    reportsList.innerHTML = '';
+    if (reportsListLoading) reportsListLoading.style.display = 'block';
+    if (reportsListLoading) reportsListLoading.textContent = "Loading profiles...";
+    if (featuresListLines) featuresListLines.innerHTML = '<i style="color: var(--muted); padding: 4px;">Loading profiles...</i>';
+    if (reportsList) reportsList.innerHTML = '';
 
     try {
-      const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url?projectId=${activeProject.folderName}&surveyId=${activeProject.surveyId}`;
-      const response = await fetch(apiUrl, { method: "GET" });
+      const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url?projectId=${activeProject.folderName}&surveyId=${activeProject.surveyId}&type=reports`;
+      const response = await fetch(apiUrl, { method: "GET", cache: "no-store" });
       
       if (!response.ok) throw new Error("Failed to fetch reports");
       
       const files = await response.json();
-      reportsListLoading.style.display = 'none';
+      if (reportsListLoading) reportsListLoading.style.display = 'none';
 
       const pdfFiles = files.filter(f => f.fileName.endsWith('.pdf'));
+      const jsonFiles = files.filter(f => f.fileName.endsWith('.json'));
 
       if (pdfFiles.length === 0) {
-        reportsListLoading.style.display = 'block';
-        reportsListLoading.textContent = "No saved reports yet.";
+        if (reportsList) reportsList.innerHTML = '<i style="color: var(--muted); padding: 4px;">No official profiles saved yet.</i>';
+        if (featuresListLines) featuresListLines.innerHTML = '<i style="color: var(--muted); padding: 4px;">No profiles drawn yet.</i>';
         return;
       }
 
-      pdfFiles.forEach(file => {
-        const item = document.createElement("div");
-        item.className = "saved-report-item";
-        item.style.cursor = "pointer";
-        
-        const svg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`;
-        const dateStr = new Date(file.lastModified).toLocaleDateString();
-        
-        // Find corresponding JSON file
-        const jsonFile = files.find(f => f.fileName === file.fileName.replace('.pdf', '.json'));
-        const viewBtnHtml = jsonFile ? `<button class="view-path-btn" style="background: none; border: none; cursor: pointer; color: #0ea5e9; font-size: 14px;" title="View Path on Map">👁️</button>` : '';
-        
-        item.innerHTML = `
-          <input type="checkbox" class="report-checkbox" style="display: none; cursor: pointer; margin-right: 8px;" data-filename="${file.fileName}">
-          <a href="${file.url}" target="_blank" class="report-link" style="display: flex; align-items: center; flex: 1; color: inherit; text-decoration: none; overflow: hidden;">
-            ${svg} <span style="flex: 1; margin-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${file.fileName}">${file.fileName}</span>
-          </a>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            ${viewBtnHtml}
-            <span style="color: #94a3b8; font-size: 10px;">${dateStr}</span>
-          </div>
-        `;
-        
-        const viewBtn = item.querySelector('.view-path-btn');
-        if (viewBtn) {
-          viewBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            e.preventDefault();
-            try {
-              const res = await fetch(jsonFile.url);
-              if (!res.ok) {
-                const errText = await res.text();
-                throw new Error(`HTTP ${res.status}: ${errText}`);
-              }
-              const text = await res.text();
-              let metadata;
-              try {
-                metadata = JSON.parse(text);
-              } catch (parseErr) {
-                throw new Error(`JSON Parse Error: ${parseErr.message}. Content: ${text.substring(0, 100)}`);
-              }
-              
-              if (metadata.startPoint && metadata.endPoint) {
-                 measureStartPoint = new Vector3(metadata.startPoint.x, metadata.startPoint.y, metadata.startPoint.z);
-                 measureEndPoint = new Vector3(metadata.endPoint.x, metadata.endPoint.y, metadata.endPoint.z);
-                 if (metadata.startCoord) measureStartCoord = new Coordinates(giroCrs, metadata.startCoord.x, metadata.startCoord.y, metadata.startCoord.z);
-                 if (metadata.endCoord) measureEndCoord = new Coordinates(giroCrs, metadata.endCoord.x, metadata.endCoord.y, metadata.endCoord.z);
-                 
-                 measureMode = "PROFILE";
-                 measureState = "FINISHED";
-                 updateMeasureSvg();
-                 
-                 // Expand Path Profile tool if closed
-                 if (profileSettings.style.display === "none") {
-                   profileHeader.click();
-                 }
-                 
-                 // Show the reset button
-                 btnProfile.classList.remove("active");
-                 btnProfile.textContent = "Draw Path Profile";
-                 btnClearProfile.disabled = false;
-                 
-                 // Run the live update to rebuild the graph and distances!
-                 updateElevationProfile();
-              }
-            } catch(err) {
-              console.error("Failed to load path metadata", err);
-              alert("Failed to load path metadata from S3.\nError: " + err.message);
-            }
-          });
+      // Fetch metadata for isOfficial flag
+      const itemsPromises = pdfFiles.map(async pdfFile => {
+        const baseName = pdfFile.fileName.replace('.pdf', '');
+        const jsonFile = jsonFiles.find(j => j.fileName === `${baseName}.json`);
+        let metadata = { isOfficial: false };
+        if (jsonFile) {
+          try {
+             const _url = jsonFile.url;
+          const _cacheBuster = _url.includes('?') ? `&t=${Date.now()}` : `?t=${Date.now()}`;
+          const res = await fetch(_url + _cacheBuster, { cache: 'no-store' });
+             metadata = await res.json();
+          } catch(e) {}
         }
-        
-        item.addEventListener("click", (e) => {
-          if (isReportManageMode) {
-            if (e.target.tagName.toLowerCase() !== 'input') {
-              e.preventDefault();
-              const cb = item.querySelector(".report-checkbox");
-              if (cb) cb.checked = !cb.checked;
-            }
-          }
-        });
-        
-        reportsList.appendChild(item);
+        return { pdfFile, jsonFile, metadata };
       });
       
+      let items = await Promise.all(itemsPromises);
+      items = items.sort((a,b) => new Date(b.pdfFile.lastModified) - new Date(a.pdfFile.lastModified));
+
+      let hasOfficial = false;
+      if (reportsList) reportsList.innerHTML = '';
+      if (featuresListLines) featuresListLines.innerHTML = '';
+
+      items.forEach(({ pdfFile, jsonFile, metadata }) => {
+        const createItem = (isDump) => {
+          const item = document.createElement("div");
+          item.className = "saved-report-item";
+          
+          
+          
+          const svg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`;
+          const dateStr = new Date(pdfFile.lastModified).toLocaleDateString();
+          
+          const viewBtnHtml = jsonFile ? `<button class="btn-action-icon view view-path-btn" title="View Path on Map"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg> View</button>` : '';
+          
+          let promoteBtnHtml = '';
+          if (isDump && metadata.isOfficial === false && jsonFile) {
+            promoteBtnHtml = `<button class="btn-action-icon promote-btn" title="Save as Official Profile"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg> Save</button>`;
+          }
+
+          item.innerHTML = `
+            
+            <a href="${pdfFile.url}" target="_blank" class="report-link" style="display: flex; align-items: center; flex: 1; color: inherit; text-decoration: none; overflow: hidden;">
+              ${svg} <span style="flex: 1; margin-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${pdfFile.fileName}">${pdfFile.fileName.split('/').pop().replace('.pdf', '')}</span>
+            </a>
+            <div style="display: flex; align-items: center; gap: 4px;">
+              ${promoteBtnHtml}
+              ${viewBtnHtml}
+              <span style="color: #94a3b8; font-size: 10px;">${dateStr}</span>
+            </div>
+          `;
+          
+          const viewBtn = item.querySelector('.view-path-btn');
+          if (viewBtn) {
+            viewBtn.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              try {
+                const _url = jsonFile.url;
+          const _cacheBuster = _url.includes('?') ? `&t=${Date.now()}` : `?t=${Date.now()}`;
+          const res = await fetch(_url + _cacheBuster, { cache: 'no-store' });
+                const text = await res.text();
+                const m = JSON.parse(text);
+                
+                if (m.startPoint && m.endPoint) {
+                   measureStartPoint = new Vector3(m.startPoint.x, m.startPoint.y, m.startPoint.z);
+                   measureEndPoint = new Vector3(m.endPoint.x, m.endPoint.y, m.endPoint.z);
+                   if (m.startCoord) measureStartCoord = new Coordinates(giroCrs, m.startCoord.x, m.startCoord.y, m.startCoord.z);
+                   if (m.endCoord) measureEndCoord = new Coordinates(giroCrs, m.endCoord.x, m.endCoord.y, m.endCoord.z);
+                   
+                   measureMode = "PROFILE";
+                   measureState = "FINISHED";
+                   updateMeasureSvg();
+                   
+                   // Expand Path Profile tool if closed
+                   if (profileSettings.style.display === "none") {
+                     profileHeader.click();
+                   }
+                   
+                   btnProfile.classList.remove("active");
+                   btnProfile.textContent = "Draw Path Profile";
+                   btnClearProfile.disabled = false;
+                   
+                   updateElevationProfile();
+                }
+              } catch(err) {
+                alert("Failed to load path metadata from S3.\nError: " + err.message);
+              }
+            });
+          }
+          
+          const promoteBtn = item.querySelector('.promote-btn');
+          if (promoteBtn) {
+            promoteBtn.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              promoteBtn.disabled = true;
+              promoteBtn.style.opacity = "0.5";
+              try {
+                metadata.isOfficial = true;
+                const jsonStr = JSON.stringify(metadata, null, 2);
+                const putUrlRes = await fetch(`https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`, {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    projectId: activeProject.folderName, surveyId: activeProject.surveyId,
+                    type: "reports", fileName: jsonFile.fileName
+                  })
+                });
+                if (!putUrlRes.ok) throw new Error("Failed upload url");
+                const { uploadUrl } = await putUrlRes.json();
+                
+                await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: jsonStr });
+                fetchSavedReports(); // Refresh both lists!
+              } catch(err) {
+                alert("Failed to promote: " + err.message);
+                promoteBtn.disabled = false;
+                promoteBtn.style.opacity = "1";
+              }
+            });
+          }
+
+          item.addEventListener("click", (e) => {
+            if (isReportManageMode) {
+              if (e.target.tagName.toLowerCase() !== 'input') {
+                e.preventDefault();
+                const cb = item.querySelector(".report-checkbox");
+                if (cb) cb.checked = !cb.checked;
+              }
+            }
+          });
+          
+          return item;
+        };
+        
+                  if (metadata.isOfficial !== false) {
+            hasOfficial = true;
+            if (reportsList) reportsList.appendChild(createItem(false));
+          } else {
+            if (featuresListLines) featuresListLines.appendChild(createItem(true));
+          }
+      });
+      
+      if (!hasOfficial && reportsList) {
+        reportsList.innerHTML = '<i style="color: var(--muted); padding: 4px;">No official profiles saved yet.</i>';
+      }
+      
       // Restore UI state if re-fetched during manage mode
-      toggleManageMode(isReportManageMode);
+      if (typeof toggleManageMode === 'function') toggleManageMode(isReportManageMode);
       
     } catch (err) {
       console.error(err);
-      reportsListLoading.style.display = 'block';
-      reportsListLoading.textContent = "Error loading reports.";
+      if (reportsList) reportsList.innerHTML = '<i style="color: #ef4444; padding: 4px;">Error loading profiles.</i>';
+      if (featuresListLines) featuresListLines.innerHTML = '<i style="color: #ef4444; padding: 4px;">Error loading profiles.</i>';
     }
   }
 
   // --- Professional Manage Mode Logic ---
-  let isReportManageMode = false;
+  
   const manageReportsBtn = document.getElementById("manageReportsBtn");
   const cancelManageReportsBtn = document.getElementById("cancelManageReportsBtn");
   const reportsSelectionBar = document.getElementById("reportsSelectionBar");
@@ -2208,7 +2455,7 @@ window.addEventListener("DOMContentLoaded", () => {
       if (!enable) cb.checked = false;
     });
     document.querySelectorAll(".report-link").forEach(link => {
-      link.style.pointerEvents = enable ? "none" : "auto";
+      link.pointerEvents = enable ? "none" : "auto";
     });
     if (!enable && selectAllReports) selectAllReports.checked = false;
   }
@@ -2245,6 +2492,7 @@ window.addEventListener("DOMContentLoaded", () => {
             body: JSON.stringify({
               projectId: activeProject.folderName,
               surveyId: activeProject.surveyId,
+              type: 'reports/rois', // For features we might have different types, wait! 
               fileName: fileName
             })
           }).then(res => {
@@ -2300,7 +2548,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const volumesList = document.getElementById("volumesList");
   const volumesListLoading = document.getElementById("volumesListLoading");
 
-  let isVolumeManageMode = false;
+  
   
   // Pre-fetch volumes on load so the panel is ready instantly
   fetchSavedVolumes();
@@ -2321,16 +2569,47 @@ window.addEventListener("DOMContentLoaded", () => {
     if (volumeSaveModal) volumeSaveModal.classList.add("hidden");
   });
 
-  btnNewVolFolder?.addEventListener("click", () => {
-    const newFolder = prompt("Enter new folder name (e.g. Stockpiles, CutBlocks):");
-    if (newFolder && newFolder.trim()) {
-      const folderName = newFolder.trim();
-      const opt = document.createElement("option");
-      opt.value = folderName;
-      opt.textContent = folderName;
-      volSaveFolder.appendChild(opt);
-      volSaveFolder.value = folderName;
-    }
+  btnNewVolFolder?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    
+    // Custom prompt to bypass iframe restrictions
+    const promptDiv = document.createElement("div");
+    promptDiv.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;pointer-events:auto;";
+    promptDiv.innerHTML = `
+      <div style="background:white;padding:20px;border-radius:8px;box-shadow:0 10px 25px rgba(0,0,0,0.2);width:300px;">
+        <div style="font-weight:bold;margin-bottom:10px;color:#333;">New Folder</div>
+        <input type="text" id="customPromptInput" placeholder="e.g. Stockpiles" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;margin-bottom:15px;pointer-events:auto;user-select:text;">
+        <div style="display:flex;justify-content:flex-end;gap:10px;">
+          <button id="customPromptCancel" style="padding:6px 12px;border:none;background:#eee;border-radius:4px;cursor:pointer;">Cancel</button>
+          <button id="customPromptOk" style="padding:6px 12px;border:none;background:#0ea5e9;color:white;border-radius:4px;cursor:pointer;">OK</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(promptDiv);
+    
+    const input = document.getElementById("customPromptInput");
+    setTimeout(() => input.focus(), 10);
+    
+    const cleanup = () => { if (promptDiv.parentNode) promptDiv.parentNode.removeChild(promptDiv); };
+    
+    document.getElementById("customPromptCancel").addEventListener("click", cleanup);
+    document.getElementById("customPromptOk").addEventListener("click", () => {
+      const newFolder = input.value.trim();
+      if (newFolder) {
+        ['volSaveFolder', 'roiSaveFolder', 'reportSaveFolder'].forEach(id => {
+          const select = document.getElementById(id);
+          if (select) {
+            const opt = document.createElement("option");
+            opt.value = newFolder;
+            opt.textContent = newFolder;
+            select.appendChild(opt);
+            if (id === 'volSaveFolder') select.value = newFolder;
+          }
+        });
+      }
+      cleanup();
+    });
   });
 
   btnConfirmVolSave?.addEventListener("click", async () => {
@@ -2367,7 +2646,7 @@ window.addEventListener("DOMContentLoaded", () => {
         body: JSON.stringify({
           projectId: activeProject.folderName,
           surveyId: activeProject.surveyId,
-          type: "volumes",
+          type: "reports/volumes",
           fileName: fileName
         })
       });
@@ -2406,174 +2685,739 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  async function fetchSavedVolumes() {
-    if (!volumesListLoading || !volumesList) return;
+  
+  closeRoiMiniBtn?.addEventListener("click", () => {
+    if (roiMiniContainer) roiMiniContainer.classList.add("hidden");
+    roiPolyPoints = [];
+    if (volumePolygonSvg) volumePolygonSvg.style.display = "none";
+    if (volumeVerticesSvg) volumeVerticesSvg.style.display = "none";
+    if (volumeSvg) volumeSvg.style.display = "none";
+    if (roiMetrics) roiMetrics.classList.add("hidden");
+    measureMode = "IDLE";
+    measureState = "IDLE";
+    if (activeProject) loadProject(activeProject, null);
+  });
+
+  btnConfirmRoiSave?.addEventListener("click", async () => {
+    const name = roiSaveName.value.trim();
+    if (!name) { alert("Please enter an ROI name."); return; }
     
-    volumesListLoading.style.display = 'block';
-    volumesListLoading.textContent = "Loading volumes...";
-    volumesList.innerHTML = '';
+    btnConfirmRoiSave.disabled = true;
+    btnConfirmRoiSave.textContent = "Saving...";
+    
+    try {
+      if (!activeProject) throw new Error("No active project");
+      const metrics = calculateRoiPolyMetrics();
+      
+      const data = {
+        name,
+        timestamp: new Date().toISOString(),
+        area2D: metrics.area,
+        perimeter: metrics.perimeter,
+        points: roiPolyPoints.map(p => ({ x: p.coord.x, y: p.coord.y, z: p.coord.z }))
+      };
+      
+      const jsonStr = JSON.stringify(data, null, 2);
+      const safeName = name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+      const fileName = `General/${safeName}_${Date.now()}.json`;
+      
+      const response = await fetch(`https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "reports/rois", fileName })
+      });
+      if (!response.ok) throw new Error("Failed to get upload URL");
+      const { uploadUrl } = await response.json();
+      
+      const putRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: jsonStr });
+      if (!putRes.ok) throw new Error("Failed to upload JSON to S3");
+      
+      if (roiMiniContainer) roiMiniContainer.classList.add("hidden");
+      alert("ROI saved successfully!");
+      fetchSavedRois();
+    } catch (err) {
+      console.error(err);
+      alert("Error saving ROI: " + err.message);
+    } finally {
+      btnConfirmRoiSave.disabled = false;
+      btnConfirmRoiSave.textContent = "Save ROI";
+    }
+  });
+
+  window.loadRoiArea = async function(url) {
+    try {
+      clearAllLeftPanelState();
+      const res = await fetch(url);
+      const data = await res.json();
+      roiPolyPoints = data.points.map(pt => ({
+        coord: new Coordinates(giroCrs, pt.x, pt.y, pt.z),
+        point: new Vector3(pt.x, pt.y, pt.z)
+      }));
+      
+      measureMode = "ROI_POLY";
+      measureState = "FINISHED_ROI_POLY";
+      roiPolyMousePoint = null;
+      updateRoiPolySvg();
+      applyRoiPolyClipping();
+      
+      if (roiArea) roiArea.textContent = (data.area2D || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+      if (roiPerimeter) roiPerimeter.textContent = (data.perimeter || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+      if (roiMetrics) roiMetrics.classList.remove("hidden");
+      
+      // Center camera
+      if (roiPolyPoints.length > 0) {
+        let cx = 0, cy = 0;
+        roiPolyPoints.forEach(p => { cx += p.coord.x; cy += p.coord.y; });
+        cx /= roiPolyPoints.length; cy /= roiPolyPoints.length;
+        const center = new Vector3(cx, cy - 1000, (activeProject.zOffset || 0) + 1500);
+        instance.view.camera.position.copy(center);
+        controls.target.copy(new Vector3(cx, cy, activeProject.zOffset || 0));
+        controls.update();
+      }
+    } catch (err) {
+      console.error("Error loading ROI", err);
+    }
+  };
+
+  // -------------------------------------------------------------------------
+  // Generic file delete utility - works for rois, volumes, shapes, lines, points
+  // API requires fileName in JSON body (same as reports delete)
+  // -------------------------------------------------------------------------
+  const API_BASE = "https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url";
+
+  async function deleteFile(type, fileName) {
+    const res = await fetch(API_BASE, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectId: activeProject.folderName,
+        surveyId: activeProject.surveyId,
+        type: type,
+        fileName: fileName
+      })
+    });
+    if (!res.ok) throw new Error('Delete failed: ' + res.status);
+  }
+
+  window.deleteFileByUrl = async function(url, type, fileName) {
+    if (!confirm(`Delete this item? This cannot be undone.`)) return;
+    try {
+      await deleteFile(type, fileName);
+      if (type === 'reports/rois') fetchSavedRois();
+      else if (type === 'reports/volumes') fetchSavedVolumes();
+    } catch(err) {
+      console.error('Delete error:', err);
+      alert('Failed to delete: ' + err.message);
+    }
+  };
+
+  // -------------------------------------------------------------------------
+  // Left Panel Exclusive State: only one feature can be active at a time
+  // -------------------------------------------------------------------------
+  function clearAllLeftPanelState() {
+    // Clear Volume info
+    if (volumeMiniContainer) volumeMiniContainer.classList.add('hidden');
+    volumePoints = [];
+    if (typeof updateVolumeSvg === 'function') updateVolumeSvg();
+
+    // Clear Elevation / Path chart
+    if (elevationMiniContainer) elevationMiniContainer.classList.add('hidden');
+
+    // Clear Point info
+    if (pointMiniContainer) pointMiniContainer.classList.add('hidden');
+
+    // Clear ROI Poly
+    if (roiMiniContainer) roiMiniContainer.classList.add('hidden');
+    roiPolyPoints = [];
+    if (typeof updateRoiPolySvg === 'function') updateRoiPolySvg();
+
+    // Reset measure state
+    measureMode = 'IDLE';
+    measureState = 'IDLE';
+    controls.enabled = true;
+    document.body.classList.remove('roi-selecting');
+  }
+
+  async function fetchSavedRois() {
+    if (!featuresListRois) return;
+    featuresListRois.innerHTML = '<i style="color: var(--muted); padding: 4px;">Loading...</i>';
+    try {
+      if (!activeProject) return;
+      const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url?projectId=${activeProject.folderName}&surveyId=${activeProject.surveyId}&type=reports/rois`;
+      const response = await fetch(apiUrl, { method: "GET", cache: "no-store" });
+      if (!response.ok) throw new Error("Failed to fetch ROIs");
+      const files = await response.json();
+      const jsonFiles = files.filter(f => f.fileName.endsWith('.json'));
+      if (jsonFiles.length === 0) {
+        featuresListRois.innerHTML = '<i style="color: var(--muted); padding: 4px;">No ROI areas saved yet.</i>';
+        return;
+      }
+      featuresListRois.innerHTML = '';
+      for (const file of jsonFiles) {
+        const item = document.createElement("div");
+        item.className = "saved-report-item";
+        item.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #8b5cf6;"><polygon points="12 2 22 8.5 18 20 6 20 2 8.5 12 2"></polygon></svg>
+            <span style="font-weight: 500; font-size: 13px; color: var(--text);">${file.fileName.split('/').pop().replace('.json', '')}</span>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-action-icon view" onclick="loadRoiArea('${file.url}')" title="View">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            </button>
+            <button class="btn-action-icon delete" style="display: none;" onclick="deleteFileByUrl('${file.url}', 'reports/rois', '${file.fileName}')" title="Delete">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            </button>
+          </div>
+        `;
+        featuresListRois.appendChild(item);
+      }
+    } catch(err) {
+      featuresListRois.innerHTML = '<i style="color: #ef4444; padding: 4px;">Failed to load ROIs.</i>';
+    }
+  }
+
+  async function fetchSavedVolumes() {
+    const volumesList = document.getElementById("volumesList");
+    const featuresListPolygons = document.getElementById("featuresListPolygons");
+    const volumesListLoading = document.getElementById("volumesListLoading");
+
+    if (volumesList) volumesList.innerHTML = '';
+    if (featuresListPolygons) featuresListPolygons.innerHTML = '';
 
     try {
       if (!activeProject) throw new Error("No active project");
-      const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url?projectId=${activeProject.folderName}&surveyId=${activeProject.surveyId}&type=volumes`;
-      const response = await fetch(apiUrl, { method: "GET" });
+      const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url?projectId=${activeProject.folderName}&surveyId=${activeProject.surveyId}&type=reports/volumes`;
+      const response = await fetch(apiUrl, { method: "GET", cache: "no-store" });
       
       if (!response.ok) throw new Error("Failed to fetch volumes");
       
       const files = await response.json();
-      volumesListLoading.style.display = 'none';
+      if (volumesListLoading) volumesListLoading.style.display = 'none';
 
-      // We only care about JSON files for volumes
       const jsonFiles = files.filter(f => f.fileName.endsWith('.json'));
 
       if (jsonFiles.length === 0) {
-        volumesListLoading.style.display = 'block';
-        volumesListLoading.textContent = "No saved volumes yet.";
+        if (volumesList) volumesList.innerHTML = '<i style="color: var(--muted); padding: 4px;">No official volumes yet.</i>';
+        if (featuresListPolygons) featuresListPolygons.innerHTML = '<i style="color: var(--muted); padding: 4px;">No volumes drawn yet.</i>';
         return;
       }
 
       // Group by folder
-      const folders = {};
-      jsonFiles.forEach(f => {
-        const parts = f.fileName.split('/');
-        let folderName = "General";
-        
-        // If there's a folder in the path (e.g., "Pits/my_vol.json"), use it
-        if (parts.length > 1) {
-            folderName = parts[0];
-        }
-        
-        if (!folders[folderName]) folders[folderName] = [];
-        folders[folderName].push(f);
-      });
+      const officialFolders = {};
+      const dumpFolders = {};
 
-      // Render Folders
-      Object.keys(folders).sort().forEach(folderName => {
+      for (let file of jsonFiles) {
+        try {
+          const _url = file.url;
+          const _cacheBuster = _url.includes('?') ? `&t=${Date.now()}` : `?t=${Date.now()}`;
+          const res = await fetch(_url + _cacheBuster, { cache: 'no-store' });
+          if (!res.ok) continue;
+          const metadata = await res.json();
+          const folderName = metadata.folder || "General";
+          
+          if (metadata.isOfficial !== false) {
+            if (!officialFolders[folderName]) officialFolders[folderName] = [];
+            officialFolders[folderName].push({ file, metadata });
+          } else {
+            if (!dumpFolders[folderName]) dumpFolders[folderName] = [];
+            dumpFolders[folderName].push({ file, metadata });
+          }
+          
+        } catch (e) {
+          console.error("Error parsing volume json", e);
+        }
+      }
+
+      const renderFolder = (folderName, folderItems, isDump, targetContainer) => {
         const folderGroup = document.createElement("div");
+        folderGroup.className = "folder-group";
         
         const fHeader = document.createElement("div");
         fHeader.className = "folder-header";
-        const folderSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
-        fHeader.innerHTML = `<span style="display: flex; align-items: center; gap: 6px;">${folderSvg} ${folderName}</span><span style="font-size: 10px;">▼</span>`;
+        fHeader.innerHTML = `<span><i class="folder-icon">📂</i> ${folderName}</span><span>▼</span>`;
         
         const fContent = document.createElement("div");
         fContent.className = "folder-content";
-        
         fHeader.addEventListener("click", () => {
           const isHidden = fContent.style.display === "none";
-          fContent.style.display = isHidden ? "flex" : "none";
-          fHeader.querySelector("span:last-child").textContent = isHidden ? "▼" : "▶";
+          fContent.style.display = isHidden ? "block" : "none";
+          fHeader.querySelector("span:last-child").style.transform = isHidden ? "rotate(0deg)" : "rotate(-90deg)";
         });
 
-        folders[folderName].sort((a,b) => new Date(b.lastModified) - new Date(a.lastModified)).forEach(f => {
-            const item = document.createElement("div");
-            item.className = "report-item";
-            item.style.padding = "6px 8px";
-            
-            // Nice formatting for name
-            const niceName = f.fileName.split('/').pop().replace(/_[0-9]+\.json$/, '').replace(/_/g, ' ');
+        folderItems.forEach(({ file, metadata }) => {
+          const item = document.createElement("div");
+          item.className = "saved-report-item";
+          
+          
+          const niceName = file.fileName.split('/').pop().replace(/_[0-9]+\.json$/, '').replace(/_/g, ' ');
+          
+          let promoteBtnHtml = '';
+          if (isDump && metadata.isOfficial === false) {
+            promoteBtnHtml = `<button class="btn-outline promote-btn" style="padding: 4px 6px; display: flex; align-items: center; gap: 4px; font-size: 11px; border-radius: 4px; margin-right: 4px; color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.05); transition: all 0.2s; cursor: pointer;" title="Save as Official Volume"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg> Save</button>`;
+          }
 
-            item.innerHTML = `
-              <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-                <div style="display: flex; align-items: center;">
-                  <input type="checkbox" class="volume-checkbox" value="${f.fileName}" style="display: none; margin-right: 8px; cursor: pointer; accent-color: var(--purple-primary);">
-                  <div style="display: flex; flex-direction: column;">
-                    <span style="font-weight: 500; font-size: 13px; text-transform: capitalize;">${niceName}</span>
-                    <span style="font-size: 10px; color: #64748b;">${new Date(f.lastModified).toLocaleDateString()}</span>
-                  </div>
+          item.innerHTML = `
+            <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+              <div style="display: flex; align-items: center; flex: 1; min-width: 0;">
+                
+                <div style="display: flex; flex-direction: column; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <span style="font-weight: 500; font-size: 13px; text-transform: capitalize; overflow: hidden; text-overflow: ellipsis;">${niceName}</span>
+                  <span style="font-size: 10px; color: #64748b;">${new Date(file.lastModified).toLocaleDateString()}</span>
                 </div>
-                <button class="btn-outline view-vol-btn" data-url="${f.url}" style="padding: 2px 8px; font-size: 11px;">View</button>
               </div>
-            `;
+              <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+                ${promoteBtnHtml}
+                <button class="btn-outline view-vol-btn" style="padding: 4px 6px; display: flex; align-items: center; gap: 4px; font-size: 11px; border-radius: 4px; color: #0ea5e9; border: 1px solid rgba(14, 165, 233, 0.3); background: rgba(14, 165, 233, 0.05); transition: all 0.2s; cursor: pointer;" title="View Volume on Map"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg> View</button>
+                <button class="btn-outline delete-vol-btn" style="padding: 4px 6px; display: flex; align-items: center; gap: 4px; font-size: 11px; border-radius: 4px; color: #ef4444; border: 1px solid rgba(239,68,68,0.3); background: rgba(239,68,68,0.05); transition: all 0.2s; cursor: pointer;" title="Delete Volume"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
+              </div>
+            </div>
+          `;
 
-            item.querySelector('.view-vol-btn').addEventListener("click", async (e) => {
-              if (isVolumeManageMode) return;
+          const promoteBtn = item.querySelector('.promote-btn');
+          if (promoteBtn) {
+            promoteBtn.addEventListener('click', async (e) => {
               e.stopPropagation();
-              const btn = e.currentTarget;
-              const originalText = btn.textContent;
-              btn.textContent = "Loading...";
-              
+              e.preventDefault();
+              promoteBtn.disabled = true;
+              promoteBtn.style.opacity = "0.5";
               try {
-                const res = await fetch(f.url);
-                const metadata = await res.json();
+                metadata.isOfficial = true;
+                const jsonStr = JSON.stringify(metadata, null, 2);
+                const putUrlRes = await fetch(`https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`, {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    projectId: activeProject.folderName, surveyId: activeProject.surveyId,
+                    type: "reports/volumes", fileName: file.fileName
+                  })
+                });
+                if (!putUrlRes.ok) throw new Error("Failed upload url");
+                const { uploadUrl } = await putUrlRes.json();
                 
-                measureMode = "VOLUME";
-                measureState = "FINISHED_VOLUME";
-                
-                // Reconstruct points
-                volumePoints = metadata.points.map(p => ({
-                    coord: new Coordinates(giroCrs, p.x, p.y, p.z),
-                    point: new Vector3(p.x, p.y, p.z)
-                }));
-                
-                // Center camera on polygon center
-                let cx=0, cy=0;
-                for(let p of volumePoints) { cx+=p.coord.x; cy+=p.coord.y; }
-                cx/=volumePoints.length; cy/=volumePoints.length;
-                
-                const centerWorld = new Vector3(cx, cy, activeProject.zOffset || 0);
-                controls.target.copy(centerWorld);
-                controls.update();
-
-                updateVolumeSvg();
-                
-                document.getElementById("volMiniArea").textContent = metadata.area2D;
-                document.getElementById("volMiniPerim").textContent = metadata.perimeter;
-                document.getElementById("volMiniCut").textContent = metadata.cutVolume;
-                document.getElementById("volMiniFill").textContent = metadata.fillVolume;
-                
-                if (volumeMiniContainer) volumeMiniContainer.classList.remove("hidden");
+                await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: jsonStr });
+                fetchSavedVolumes(); // Refresh both lists!
               } catch(err) {
-                console.error("Failed to load volume metadata", err);
-                alert("Failed to load volume details.");
-              } finally {
-                btn.textContent = originalText;
+                alert("Failed to promote: " + err.message);
+                promoteBtn.disabled = false;
+                promoteBtn.style.opacity = "1";
               }
             });
-            
-            fContent.appendChild(item);
-        });
+          }
 
+          const deleteVolBtn = item.querySelector('.delete-vol-btn');
+          if (deleteVolBtn) {
+            deleteVolBtn.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              if (!confirm(`Delete "${niceName}"? This cannot be undone.`)) return;
+              try {
+                const delUrlRes = await fetch(API_BASE, {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    projectId: activeProject.folderName,
+                    surveyId: activeProject.surveyId,
+                    fileName: file.fileName
+                  })
+                });
+                if (!delUrlRes.ok) throw new Error('Delete failed');
+                fetchSavedVolumes();
+              } catch(err) {
+                alert('Failed to delete: ' + err.message);
+              }
+            });
+          }
+
+          item.querySelector('.view-vol-btn').addEventListener("click", async (e) => {
+            if (window.isVolumeManageMode) return;
+            e.stopPropagation();
+            const btn = e.currentTarget;
+            const originalText = btn.textContent;
+            btn.textContent = "Loading...";
+            
+            try {
+              clearAllLeftPanelState();
+              measureMode = "VOLUME";
+              measureState = "FINISHED_VOLUME";
+              
+              
+              volumePoints = metadata.points.map(p => ({
+                  coord: new Coordinates(giroCrs, p.x, p.y, p.z),
+                  point: new Vector3(p.x, p.y, p.z)
+              }));
+              
+              let cx=0, cy=0;
+              for(let p of volumePoints) { cx+=p.coord.x; cy+=p.coord.y; }
+              cx/=volumePoints.length; cy/=volumePoints.length;
+              
+              const centerWorld = new Vector3(cx, cy, activeProject.zOffset || 0);
+              controls.target.copy(centerWorld);
+              controls.update();
+
+              updateVolumeSvg();
+              
+              document.getElementById("volMiniArea").textContent = metadata.area2D;
+              document.getElementById("volMiniPerim").textContent = metadata.perimeter;
+              document.getElementById("volMiniCut").textContent = metadata.cutVolume;
+              document.getElementById("volMiniFill").textContent = metadata.fillVolume;
+              
+              if (volumeMiniContainer) {
+                volumeMiniContainer.classList.remove("hidden");
+              }
+              
+              // Open Volumes tool if closed
+              if (volumesPanelContent && volumesPanelContent.style.display === "none") {
+                savedVolumesHeader.click();
+              }
+              
+              btnClearVolume.disabled = false;
+              
+            } catch(err) {
+              console.error("Failed to load volume metadata", err);
+              alert("Failed to load volume details.");
+            } finally {
+              btn.textContent = originalText;
+            }
+          });
+          
+          item.addEventListener("click", (e) => {
+            if (typeof isVolumeManageMode !== 'undefined' && isVolumeManageMode) {
+              if (e.target.tagName.toLowerCase() !== 'input') {
+                e.preventDefault();
+                const cb = item.querySelector(".volume-checkbox");
+                if (cb) cb.checked = !cb.checked;
+              }
+            }
+          });
+          
+          fContent.appendChild(item);
+        });
+        
         folderGroup.appendChild(fHeader);
         folderGroup.appendChild(fContent);
-        volumesList.appendChild(folderGroup);
+        targetContainer.appendChild(folderGroup);
+      };
+
+      let hasDump = false;
+      Object.keys(dumpFolders).sort().forEach(folderName => {
+        if (featuresListPolygons) renderFolder(folderName, dumpFolders[folderName], true, featuresListPolygons);
+        hasDump = true;
       });
+      if (!hasDump && featuresListPolygons) {
+        featuresListPolygons.innerHTML = '<i style="color: var(--muted); padding: 4px;">No volumes drawn yet.</i>';
+      }
+      
+      let hasOfficial = false;
+      Object.keys(officialFolders).sort().forEach(folderName => {
+        if (volumesList) renderFolder(folderName, officialFolders[folderName], false, volumesList);
+        hasOfficial = true;
+      });
+      if (!hasOfficial && volumesList) {
+        volumesList.innerHTML = '<i style="color: var(--muted); padding: 4px;">No official volumes yet.</i>';
+      }
+
+      // Restore UI state if re-fetched during manage mode
+      if (typeof toggleVolumeManageMode === 'function') toggleVolumeManageMode(typeof isVolumeManageMode !== 'undefined' ? isVolumeManageMode : false);
+
     } catch (err) {
       console.error(err);
-      volumesListLoading.style.display = 'block';
-      volumesListLoading.textContent = "Error loading volumes.";
+      if (volumesList) volumesList.innerHTML = '<i style="color: #ef4444; padding: 4px;">Error loading volumes.</i>';
+      if (featuresListPolygons) featuresListPolygons.innerHTML = '<i style="color: #ef4444; padding: 4px;">Error loading volumes.</i>';
     }
   }
 
-  // Manage Volumes UI
+  // Left Panel Features Accordions
+  const toggleAccordion = (headerId, listId, carrotId) => {
+    const header = document.getElementById(headerId);
+    const list = document.getElementById(listId);
+    const carrot = document.getElementById(carrotId);
+    if (!header || !list || !carrot) return;
+    
+    header.addEventListener("click", () => {
+      const isHidden = list.style.display === "none";
+      list.style.display = isHidden ? "flex" : "none";
+      carrot.style.transform = isHidden ? "rotate(0deg)" : "rotate(-90deg)";
+      carrot.style.transition = "transform 0.2s";
+    });
+  };
+
+  toggleAccordion("featuresPointsHeader", "featuresListPoints", "featuresPointsCarrot");
+  toggleAccordion("featuresRoisHeader", "featuresListRois", "featuresRoisCarrot");
+  toggleAccordion("featuresLinesHeader", "featuresListLines", "featuresLinesCarrot");
+  toggleAccordion("featuresPolygonsHeader", "featuresListPolygons", "featuresPolygonsCarrot");
+
+  // -------------------------------------------------------------------------
+  // Volumes Manage Mode Logic
+  // -------------------------------------------------------------------------
   const manageVolumesBtn = document.getElementById("manageVolumesBtn");
-  const volumesSelectionBar = document.getElementById("volumesSelectionBar");
   const cancelManageVolumesBtn = document.getElementById("cancelManageVolumesBtn");
+  const volumesSelectionBar = document.getElementById("volumesSelectionBar");
+  const manageVolumesContainer = document.getElementById("manageVolumesContainer");
+  const selectAllVolumes = document.getElementById("selectAllVolumes");
   const deleteSelectedVolumesBtn = document.getElementById("deleteSelectedVolumesBtn");
 
-  manageVolumesBtn?.addEventListener("click", () => {
-    isVolumeManageMode = true;
-    manageVolumesBtn.style.display = "none";
-    volumesSelectionBar.style.display = "flex";
-    document.querySelectorAll('.volume-checkbox').forEach(cb => cb.style.display = 'block');
-    document.querySelectorAll('.view-vol-btn').forEach(btn => btn.style.display = 'none');
+  window.toggleVolumeManageMode = function(enable) {
+    isVolumeManageMode = enable;
+    if (manageVolumesContainer) manageVolumesContainer.style.display = enable ? "none" : "flex";
+    if (volumesSelectionBar) volumesSelectionBar.style.display = enable ? "flex" : "none";
+    
+    document.querySelectorAll(".volume-checkbox").forEach(cb => {
+      cb.style.display = enable ? "block" : "none";
+      if (!enable) cb.checked = false;
+    });
+    // Disable view clicks
+    document.querySelectorAll("#volumesList .saved-report-item").forEach(item => {
+      const viewBtn = item.querySelector(".view-vol-btn");
+      if (viewBtn) viewBtn.style.pointerEvents = enable ? "none" : "auto";
+      item.style.cursor = enable ? "pointer" : "default";
+    });
+    if (!enable && selectAllVolumes) selectAllVolumes.checked = false;
+  };
+
+  manageVolumesBtn?.addEventListener("click", () => window.toggleVolumeManageMode(true));
+  cancelManageVolumesBtn?.addEventListener("click", () => window.toggleVolumeManageMode(false));
+  selectAllVolumes?.addEventListener("change", (e) => {
+    document.querySelectorAll(".volume-checkbox").forEach(cb => cb.checked = e.target.checked);
   });
 
-  cancelManageVolumesBtn?.addEventListener("click", () => {
-    isVolumeManageMode = false;
-    manageVolumesBtn.style.display = "block";
-    volumesSelectionBar.style.display = "none";
-    document.querySelectorAll('.volume-checkbox').forEach(cb => {
-        cb.style.display = 'none';
-        cb.checked = false;
+  deleteSelectedVolumesBtn?.addEventListener("click", async () => {
+    const selectedCbs = document.querySelectorAll(".volume-checkbox:checked");
+    if (selectedCbs.length === 0) {
+      alert("No volumes selected.");
+      return;
+    }
+    if (confirm(`Are you sure you want to delete ${selectedCbs.length} volume(s)?`)) {
+      const originalText = deleteSelectedVolumesBtn.textContent;
+      deleteSelectedVolumesBtn.textContent = "Deleting...";
+      deleteSelectedVolumesBtn.disabled = true;
+      try {
+        const deletePromises = Array.from(selectedCbs).map(cb => {
+          return fetch(API_BASE, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              projectId: activeProject.folderName,
+              surveyId: activeProject.surveyId,
+              type: 'reports/volumes',
+              fileName: cb.value
+            })
+          }).then(res => { if (!res.ok) throw new Error("Fail"); });
+        });
+        await Promise.all(deletePromises);
+        window.toggleVolumeManageMode(false);
+        fetchSavedVolumes();
+      } catch (err) {
+        alert("Some volumes failed to delete.");
+        fetchSavedVolumes();
+      } finally {
+        deleteSelectedVolumesBtn.textContent = originalText;
+        deleteSelectedVolumesBtn.disabled = false;
+      }
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Features Manage Mode Logic
+  // -------------------------------------------------------------------------
+  
+  const manageFeaturesBtn = document.getElementById("manageFeaturesBtn");
+  const cancelManageFeaturesBtn = document.getElementById("cancelManageFeaturesBtn");
+  const featuresSelectionBar = document.getElementById("featuresSelectionBar");
+  const manageFeaturesContainer = document.getElementById("manageFeaturesContainer");
+  const deleteSelectedFeaturesBtn = document.getElementById("deleteSelectedFeaturesBtn");
+
+  function toggleFeatureManageMode(enable) {
+    isFeatureManageMode = enable;
+    if (manageFeaturesContainer) manageFeaturesContainer.style.display = enable ? "none" : "flex";
+    if (featuresSelectionBar) featuresSelectionBar.style.display = enable ? "flex" : "none";
+    
+    document.querySelectorAll("#panel-features .feature-checkbox").forEach(cb => {
+      cb.style.display = enable ? "block" : "none";
+      if (!enable) cb.checked = false;
     });
-    document.querySelectorAll('.view-vol-btn').forEach(btn => btn.style.display = 'block');
+    document.querySelectorAll("#panel-features .saved-report-item").forEach(item => {
+      const buttons = item.querySelectorAll("button");
+      buttons.forEach(b => b.style.pointerEvents = enable ? "none" : "auto");
+      item.style.cursor = enable ? "pointer" : "default";
+    });
+  }
+
+  manageFeaturesBtn?.addEventListener("click", () => toggleFeatureManageMode(true));
+  cancelManageFeaturesBtn?.addEventListener("click", () => toggleFeatureManageMode(false));
+
+  // Add click to toggle checkbox anywhere on the row in features list
+  document.addEventListener("click", (e) => {
+    if (isFeatureManageMode) {
+      const item = e.target.closest("#panel-features .saved-report-item");
+      if (item && e.target.tagName.toLowerCase() !== 'input') {
+        e.preventDefault();
+        const cb = item.querySelector(".feature-checkbox");
+        if (cb) cb.checked = !cb.checked;
+      }
+    }
+  });
+
+  deleteSelectedFeaturesBtn?.addEventListener("click", async () => {
+    const selectedCbs = document.querySelectorAll("#panel-features .feature-checkbox:checked");
+    if (selectedCbs.length === 0) {
+      alert("No features selected.");
+      return;
+    }
+    if (confirm(`Are you sure you want to delete ${selectedCbs.length} feature(s)?`)) {
+      const originalText = deleteSelectedFeaturesBtn.textContent;
+      deleteSelectedFeaturesBtn.textContent = "Deleting...";
+      deleteSelectedFeaturesBtn.disabled = true;
+      try {
+        const deletePromises = Array.from(selectedCbs).map(cb => {
+          let fileName = cb.dataset.filename || cb.value || cb.getAttribute('data-filename');
+          // For reports/profiles, we also need to delete the JSON
+          let extraPromise = null;
+          if (fileName.endsWith('.pdf')) {
+             extraPromise = fetch(API_BASE, {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, fileName: fileName.replace('.pdf', '.json') })
+            }).catch(() => {});
+          }
+
+          let fileType = 'reports/rois';
+          if (cb.classList.contains('volume-checkbox')) fileType = 'reports/volumes';
+          if (cb.classList.contains('report-checkbox')) fileType = 'reports'; // Assuming reports is the type for profiles
+
+          const mainPromise = fetch(API_BASE, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              projectId: activeProject.folderName,
+              surveyId: activeProject.surveyId,
+              type: fileType,
+              fileName: fileName
+            })
+          }).then(res => { if (!res.ok) throw new Error("Fail"); });
+          
+          return extraPromise ? Promise.all([mainPromise, extraPromise]) : mainPromise;
+        });
+        
+        await Promise.all(deletePromises);
+        toggleFeatureManageMode(false);
+        // Refresh all lists
+        fetchSavedRois();
+        fetchSavedVolumes();
+        fetchSavedReports();
+      } catch (err) {
+        alert("Some features failed to delete.");
+        fetchSavedRois();
+        fetchSavedVolumes();
+        fetchSavedReports();
+      } finally {
+        deleteSelectedFeaturesBtn.textContent = originalText;
+        deleteSelectedFeaturesBtn.disabled = false;
+      }
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Unified Manage Mode Logic (iOS Style)
+  // -------------------------------------------------------------------------
+  
+  function setupManageToggle(btnId, containerSelector, isManageVarName) {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    
+    window[isManageVarName] = false;
+    
+    btn.addEventListener("click", () => {
+      window[isManageVarName] = !window[isManageVarName];
+      const isManage = window[isManageVarName];
+      
+      btn.textContent = isManage ? "Done" : "Manage";
+      
+      document.querySelectorAll(`${containerSelector} .btn-action-icon.delete`).forEach(delBtn => {
+        delBtn.style.display = isManage ? "flex" : "none";
+      });
+      
+      document.querySelectorAll(`${containerSelector} .btn-action-icon.view, ${containerSelector} .btn-action-icon.promote-btn, ${containerSelector} .report-link`).forEach(otherBtn => {
+        otherBtn.style.pointerEvents = isManage ? "none" : "auto";
+        otherBtn.style.opacity = isManage ? "0.5" : "1";
+      });
+    });
+  }
+
+  setupManageToggle("manageReportsBtn", "#reportsList", "isReportManageMode");
+  setupManageToggle("manageVolumesBtn", "#volumesList", "isVolumeManageMode");
+  
+    // Stop 3D Map from swallowing key events on inputs
+    ['volSaveName', 'roiSaveName', 'volSaveFolder', 'reportNameInput'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener('keydown', e => e.stopPropagation());
+        el.addEventListener('keyup', e => e.stopPropagation());
+        el.addEventListener('keypress', e => e.stopPropagation());
+      }
+    });
+
+
+setupManageToggle("manageFeaturesBtn", "#panel-features", "isFeatureManageMode");
+  
+
+  const btnResetMap = document.getElementById("btnResetMap");
+  btnResetMap?.addEventListener("click", () => {
+    // 1. Clear UI states
+    if (typeof resetRoiState === "function") resetRoiState();
+    
+    // 2. Clear ROIs
+    if (typeof roiSvg !== "undefined" && roiSvg) roiSvg.style.display = "none";
+    if (typeof roiPolyPoints !== "undefined") roiPolyPoints = [];
+    if (typeof updateRoiPolySvg === 'function') updateRoiPolySvg();
+    
+    // 3. Clear KML boundary
+    if (typeof kmlWorldPoints !== "undefined") kmlWorldPoints = [];
+    if (typeof updateKmlSvg === "function") updateKmlSvg();
+
+    // 4. Clear Measurements
+    if (typeof clearMeasure === "function") clearMeasure();
+
+    // 5. Reload full unclipped project (this resets the camera to top-down default)
+    if (typeof loadProject === "function" && typeof activeProject !== "undefined" && activeProject) {
+      loadProject(activeProject, null);
+    }
   });
 
 });
 
+      // AGY_AGGRESSIVE_FOCUS: Stop 3D Map from swallowing events on inputs and force focus
+      ['volSaveName', 'roiSaveName', 'reportNameInput'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.addEventListener('keydown', e => e.stopPropagation());
+          el.addEventListener('keyup', e => e.stopPropagation());
+          el.addEventListener('keypress', e => e.stopPropagation());
+          el.addEventListener('pointerdown', e => {
+              e.stopPropagation();
+              setTimeout(() => el.focus(), 10);
+          });
+        }
+      
+  const btnResetMap = document.getElementById("btnResetMap");
+  btnResetMap?.addEventListener("click", () => {
+    // 1. Clear UI states
+    if (typeof resetRoiState === "function") resetRoiState();
+    
+    // 2. Clear ROIs
+    if (typeof roiSvg !== "undefined" && roiSvg) roiSvg.style.display = "none";
+    if (typeof roiPolyPoints !== "undefined") roiPolyPoints = [];
+    if (typeof updateRoiPolySvg === 'function') updateRoiPolySvg();
+    
+    // 3. Clear KML boundary
+    if (typeof kmlWorldPoints !== "undefined") kmlWorldPoints = [];
+    if (typeof updateKmlSvg === "function") updateKmlSvg();
 
+    // 4. Clear Measurements
+    if (typeof clearMeasure === "function") clearMeasure();
 
+    // 5. Reload full unclipped project (this resets the camera to top-down default)
+    if (typeof loadProject === "function" && typeof activeProject !== "undefined" && activeProject) {
+      loadProject(activeProject, null);
+    }
+  });
 
-
-
+});

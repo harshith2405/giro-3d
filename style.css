@@ -216,6 +216,15 @@ body {
 }
 
 /* Premium View Badge */
+.btn-outline {
+  background: transparent;
+  color: var(--primary);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  pointer-events: auto !important;
+  position: relative;
+  z-index: 10000;
+}
+
 .view-feat-badge {
   background: rgba(94, 25, 234, 0.1);
   color: var(--purple-primary);
@@ -666,16 +675,20 @@ body {
 }
 
 .input {
-  padding: 6px 10px;
-  border: 1px solid var(--panel-border);
-  border-radius: 6px;
-  font-size: 13px;
-  font-family: "Roboto", sans-serif;
-  color: var(--text);
-  background: #f8fafc;
-  outline: none;
-  transition: border-color 0.2s ease;
-}
+    padding: 6px 10px;
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: "Roboto", sans-serif;
+    color: var(--text);
+    background: #f8fafc;
+    outline: none;
+    transition: border-color 0.2s ease;
+    pointer-events: auto !important;
+    user-select: text !important;
+    position: relative;
+    z-index: 10000;
+  }
 
 .input:focus {
   border-color: var(--purple-primary);
@@ -731,3 +744,40 @@ body {
   gap: 4px;
   margin-bottom: 8px;
 }
+
+/* Manage Mode Buttons */
+.btn-manage-trigger {
+  background: none; border: none; color: var(--purple-primary); font-size: 11px; font-weight: 600; cursor: pointer; padding: 4px; transition: all 0.2s; border-radius: 4px;
+}
+.btn-manage-trigger:hover {
+  background: var(--purple-bg); text-decoration: none;
+}
+.manage-selection-bar {
+  display: none; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 12px; background: #f8fafc; border: 1px solid var(--panel-border); padding: 6px 10px; border-radius: 6px;
+}
+.btn-manage-cancel {
+  background: transparent; border: 1px solid var(--panel-border); color: var(--text); border-radius: 4px; padding: 4px 10px; font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.2s;
+}
+.btn-manage-cancel:hover {
+  background: #f1f5f9;
+}
+.btn-manage-delete {
+  background: #ef4444; border: 1px solid #ef4444; color: white; border-radius: 4px; padding: 4px 10px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 4px rgba(239, 68, 68, 0.2);
+}
+.btn-manage-delete:hover {
+  background: #dc2626; border-color: #dc2626;
+}
+.btn-manage-delete:disabled {
+  opacity: 0.6; cursor: not-allowed;
+}
+
+
+/* Individual Item Action Buttons */
+.btn-action-icon {
+  background: rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.05); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 4px; transition: all 0.2s; color: var(--muted);
+}
+.btn-action-icon:hover {
+  background: #f1f5f9; border-color: #cbd5e1;
+}
+.btn-action-icon.view:hover { color: #0ea5e9; background: rgba(14, 165, 233, 0.1); border-color: rgba(14, 165, 233, 0.2); }
+.btn-action-icon.delete:hover { color: #ef4444; background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.2); }

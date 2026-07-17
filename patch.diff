@@ -1,0 +1,161 @@
+diff --git a/ser.js b/ser.js
+index 8c3d927..8dceb1d 100644
+--- a/ser.js
++++ b/ser.js
+@@ -25,7 +25,7 @@ HttpConfiguration.setOptions(window.location.origin, { cache: "no-store" });
+ 
+ const giroCrs = new CoordinateSystem("EPSG:3395");
+ 
+-import { Vector3, Vector2, Color, DoubleSide } from "three";
++import { Vector3, Vector2, Color, DoubleSide, Plane } from "three";
+ import { MapControls } from "three/examples/jsm/controls/MapControls.js";
+ 
+ // ---------------------------------------------------------------------------
+@@ -356,6 +356,7 @@ const flyoutPanel = document.getElementById('flyoutPanel');
+ 
+   instance.view.setControls(controls);
+ 
++
+ console.log("Giro3D initialized");
+ 
+ // ---------------------------------------------------------------------------
+@@ -661,9 +662,7 @@ window.addEventListener("DOMContentLoaded", () => {
+     roiStart = null;
+     roiEnd = null;
+     document.body.classList.remove("roi-selecting");
+-    selectROI.classList.remove("active");
+-    selectROI.textContent = "Select ROI";
+-    roiHint.textContent = "Click 'Select ROI' to start drawing a rectangle.";
++    if (selectROI) selectROI.classList.remove("active");
+     if (roiMetrics) roiMetrics.classList.add("hidden");
+     controls.enabled = true;
+   }
+@@ -674,10 +673,13 @@ window.addEventListener("DOMContentLoaded", () => {
+     controls.enabled = false;
+     document.body.classList.add("roi-selecting");
+     selectROI.classList.add("active");
+-    roiHint.textContent = "Click and drag on the terrain to draw a clipping rectangle.";
+     resetROI.disabled = false;
+   });
+ 
++  closeRoiMiniBtn?.addEventListener("click", () => {
++    if (roiMiniContainer) roiMiniContainer.classList.add("hidden");
++  });
++
+   resetROI?.addEventListener("click", () => {
+     resetRoiState();
+     roiSvg.style.display = "none";
+@@ -686,6 +688,23 @@ window.addEventListener("DOMContentLoaded", () => {
+     kmlWorldPoints = [];
+     if (typeof updateKmlSvg === "function") updateKmlSvg();
+ 
++    // Clear Polygon ROI clipping planes
++    if (map) {
++      map.traverse((child) => {
++        if (child.isMesh && child.material) {
++          child.material.clippingPlanes = [];
++          child.material.needsUpdate = true;
++        }
++      });
++    }
++    polyRoiPlanes = [];
++    polyRoiPoints = [];
++    polyRoiMousePoint = null;
++    if (btnDrawPolyRoi) btnDrawPolyRoi.classList.remove('active');
++    if (volumePolygonSvg) volumePolygonSvg.style.display = "none";
++    if (volumeVerticesSvg) volumeVerticesSvg.style.display = "none";
++    if (volumeSvg) volumeSvg.style.display = "none";
++
+     loadProject(activeProject, null); // reload full extent (un-clipped)
+     resetROI.disabled = true;
+   });
+@@ -966,6 +985,16 @@ window.addEventListener("DOMContentLoaded", () => {
+   const measureSvgStart = document.getElementById("measureSvgStart");
+   const measureSvgEnd = document.getElementById("measureSvgEnd");
+ 
++  const btnDrawPolyRoi = document.getElementById("btnDrawPolyRoi");
++  const roiMiniContainer = document.getElementById("roiMiniContainer");
++  const closeRoiMiniBtn = document.getElementById("closeRoiMiniBtn");
++  const roiSaveName = document.getElementById("roiSaveName");
++  const btnConfirmRoiSave = document.getElementById("btnConfirmRoiSave");
++  const featuresListRois = document.getElementById("featuresListRois");
++  const btnDrawFeatureRoi = document.getElementById("btnDrawFeatureRoi");
++  const featuresRoisHeader = document.getElementById("featuresRoisHeader");
++  const featuresRoisCarrot = document.getElementById("featuresRoisCarrot");
++
+   // Point DOM Elements
+   const pointSvg = document.getElementById("pointSvg");
+   const pointSvgMarker = document.getElementById("pointSvgMarker");
+@@ -983,6 +1012,11 @@ window.addEventListener("DOMContentLoaded", () => {
+   let measureEndPoint = null;
+   let measureStartCoord = null;
+   let measureEndCoord = null;
++
++  // Poly ROI specific variables
++  let polyRoiPoints = [];
++  let polyRoiPlanes = [];
++  let polyRoiMousePoint = null;
+   
+   // Point Draw specific variables
+   let pointDrawPoint = null;
+@@ -1057,12 +1091,19 @@ window.addEventListener("DOMContentLoaded", () => {
+ 
+   // Redraw volume polygon
+   function updateVolumeSvg() {
+-    if ((measureMode === "VOLUME" || measureState === "FINISHED_VOLUME") && volumePoints.length > 0) {
++    const isVolume = (measureMode === "VOLUME" || measureState === "FINISHED_VOLUME");
++    const isPolyRoi = (measureMode === "POLYGON_ROI");
++    const activePoints = isPolyRoi ? polyRoiPoints : volumePoints;
++    const activeMousePoint = isPolyRoi ? polyRoiMousePoint : volumeMousePoint;
++    const vertexColor = isPolyRoi ? "#0ea5e9" : "#f59e0b";
++    const isDrawing = isPolyRoi ? (measureState === "SELECTING_POINT") : (measureState === "SELECTING");
++
++    if ((isVolume || isPolyRoi) && activePoints.length > 0) {
+       let pointsAttr = "";
+       if (volumeVerticesSvg) volumeVerticesSvg.innerHTML = "";
+       
+       // Add confirmed points
+-      for (const p of volumePoints) {
++      for (const p of activePoints) {
+         const screenP = projectToScreen(p.point);
+         if (screenP.z <= 1) {
+           pointsAttr += ${$}screenP.x}, ;
+@@ -1072,15 +1113,15 @@ window.addEventListener("DOMContentLoaded", () => {
+             circle.setAttribute("cx", screenP.x);
+             circle.setAttribute("cy", screenP.y);
+             circle.setAttribute("r", "3");
+-            circle.setAttribute("fill", "#0ea5e9");
++            circle.setAttribute("fill", vertexColor);
+             volumeVerticesSvg.appendChild(circle);
+           }
+         }
+       }
+       
+       // Add mouse point if actively drawing
+-      if (measureState === "SELECTING" && volumeMousePoint) {
+-        const screenP = projectToScreen(volumeMousePoint);
++      if (isDrawing && activeMousePoint) {
++        const screenP = projectToScreen(activeMousePoint);
+         if (screenP.z <= 1) {
+           pointsAttr += ${$}screenP.x},;
+         }
+@@ -1089,10 +1130,18 @@ window.addEventListener("DOMContentLoaded", () => {
+       if (volumePolygonSvg) {
+         volumePolygonSvg.style.display = "block";
+         volumePolygonSvg.setAttribute("points", pointsAttr.trim());
++        // Use different stroke color for poly ROI
++        if (isPolyRoi) {
++          volumePolygonSvg.setAttribute("stroke", "#0ea5e9");
++          volumePolygonSvg.setAttribute("fill", "rgba(14, 165, 233, 0.15)");
++        } else {
++          volumePolygonSvg.setAttribute("stroke", "#0ea5e9");
++          volumePolygonSvg.setAttribute("fill", "rgba(14, 165, 233, 0.3)");
++        }
+       }
+       if (volumeVerticesSvg) volumeVerticesSvg.style.display = "block";
+       if (volumeSvg) volumeSvg.style.display = "block";
+-    } else {
++    } else if (!isVolume && !isPolyRoi) {
+       if (volumePolygonSvg) volumePolygonSvg.style.display = "none";
+       if (volumeVerticesSvg) volumeVerticesSvg.style.display = "none";
+       if (volumeSvg) volumeSvg.style.display = "none";

@@ -302,6 +302,11 @@ const flyoutPanel = document.getElementById('flyoutPanel');
       iconBtns.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       
+      // Reset left panel drawing/measure state when switching left tabs
+      if (typeof clearAllLeftPanelState === 'function') {
+        clearAllLeftPanelState();
+      }
+      
       // Update groups
       flyoutGroups.forEach(g => g.classList.remove('active', 'hidden'));
       flyoutGroups.forEach(g => {
@@ -344,12 +349,14 @@ const flyoutPanel = document.getElementById('flyoutPanel');
 
   btnDrawFeatureLine?.addEventListener('click', (e) => {
     e.stopPropagation();
+    window._nextDrawIsDump = true;
     const realBtn = document.getElementById('btnProfile');
     if (realBtn) realBtn.click();
   });
 
   btnDrawFeaturePolygon?.addEventListener('click', (e) => {
     e.stopPropagation();
+    window._nextDrawIsDump = true;
     const realBtn = document.getElementById('btnDrawVolume');
     if (realBtn) realBtn.click();
   });
@@ -1295,6 +1302,8 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // --- Path Profile ---
   btnProfile?.addEventListener("click", () => {
+    window.isDumpDraw = window._nextDrawIsDump === true;
+    window._nextDrawIsDump = false;
     measureState = "SELECTING";
     measureMode = "PROFILE";
     measureHasFirstTap = false;
@@ -1336,6 +1345,8 @@ window.addEventListener("DOMContentLoaded", () => {
   const volumeMiniContainer = document.getElementById("volumeMiniContainer");
 
   btnDrawVolume?.addEventListener("click", () => {
+    window.isDumpDraw = window._nextDrawIsDump === true;
+    window._nextDrawIsDump = false;
     measureState = "SELECTING";
     measureMode = "VOLUME";
     controls.enabled = false;
@@ -1932,6 +1943,7 @@ window.addEventListener("DOMContentLoaded", () => {
       
       // Generate JSON Metadata
       const metadata = {
+        isOfficial: !window.isDumpDraw,
         startPoint: measureStartPoint ? { x: measureStartPoint.x, y: measureStartPoint.y, z: measureStartPoint.z } : null,
         endPoint: measureEndPoint ? { x: measureEndPoint.x, y: measureEndPoint.y, z: measureEndPoint.z } : null,
         startCoord: measureStartCoord ? { x: measureStartCoord.x, y: measureStartCoord.y, z: measureStartCoord.z } : null,
@@ -2417,6 +2429,7 @@ window.addEventListener("DOMContentLoaded", () => {
                   if (metadata.isOfficial !== false) {
             hasOfficial = true;
             if (reportsList) reportsList.appendChild(createItem(false));
+            if (featuresListLines) featuresListLines.appendChild(createItem(true));
           } else {
             if (featuresListLines) featuresListLines.appendChild(createItem(true));
           }
@@ -2484,27 +2497,30 @@ window.addEventListener("DOMContentLoaded", () => {
         const deletePromises = Array.from(selectedCbs).map(cb => {
           const fileName = cb.getAttribute("data-filename");
           const jsonFileName = fileName.replace('.pdf', '.json');
-          const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`;
+          const baseApi = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`;
+          const apiUrlPdf = `${baseApi}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=reports&fileName=${encodeURIComponent(fileName)}`;
+          const apiUrlJson = `${baseApi}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=reports&fileName=${encodeURIComponent(jsonFileName)}`;
           
-          const deletePdf = fetch(apiUrl, {
+          const deletePdf = fetch(apiUrlPdf, {
             method: "DELETE",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               projectId: activeProject.folderName,
               surveyId: activeProject.surveyId,
-              type: 'rois', // For features we might have different types, wait! 
+              type: 'reports',
               fileName: fileName
             })
           }).then(res => {
             if (!res.ok) throw new Error(`Delete failed for ${fileName}`);
           });
           
-          const deleteJson = fetch(apiUrl, {
+          const deleteJson = fetch(apiUrlJson, {
             method: "DELETE",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               projectId: activeProject.folderName,
               surveyId: activeProject.surveyId,
+              type: 'reports',
               fileName: jsonFileName
             })
           }).catch(() => {}); // Ignore JSON delete failure if it didn't exist
@@ -2628,6 +2644,7 @@ window.addEventListener("DOMContentLoaded", () => {
       const data = {
         name,
         folder,
+        isOfficial: !window.isDumpDraw,
         timestamp: new Date().toISOString(),
         area2D: document.getElementById("volMiniArea").textContent,
         perimeter: document.getElementById("volMiniPerim").textContent,
@@ -2708,9 +2725,9 @@ window.addEventListener("DOMContentLoaded", () => {
     try {
       if (!activeProject) throw new Error("No active project");
       const metrics = calculateRoiPolyMetrics();
-      
       const data = {
         name,
+        isOfficial: !window.isDumpDraw,
         timestamp: new Date().toISOString(),
         area2D: metrics.area,
         perimeter: metrics.perimeter,
@@ -2786,7 +2803,8 @@ window.addEventListener("DOMContentLoaded", () => {
   const API_BASE = "https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url";
 
   async function deleteFile(type, fileName) {
-    const res = await fetch(API_BASE, {
+    const delUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=${encodeURIComponent(type)}&fileName=${encodeURIComponent(fileName)}`;
+    const res = await fetch(delUrl, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2815,27 +2833,34 @@ window.addEventListener("DOMContentLoaded", () => {
   // Left Panel Exclusive State: only one feature can be active at a time
   // -------------------------------------------------------------------------
   function clearAllLeftPanelState() {
-    // Clear Volume info
-    if (volumeMiniContainer) volumeMiniContainer.classList.add('hidden');
-    volumePoints = [];
-    if (typeof updateVolumeSvg === 'function') updateVolumeSvg();
+    // 1. Clear Profile/Line
+    const btnClearProfile = document.getElementById('btnClearProfile');
+    if (btnClearProfile) {
+      btnClearProfile.disabled = false;
+      btnClearProfile.click();
+    }
 
-    // Clear Elevation / Path chart
-    if (elevationMiniContainer) elevationMiniContainer.classList.add('hidden');
+    // 2. Clear Volume/Polygon
+    const btnClearVolume = document.getElementById('btnClearVolume');
+    if (btnClearVolume) {
+      btnClearVolume.disabled = false;
+      btnClearVolume.click();
+    }
 
-    // Clear Point info
+    // 3. Clear Simple Measure
+    const btnClearMeasureSimple = document.getElementById('btnClearMeasureSimple');
+    if (btnClearMeasureSimple) {
+      btnClearMeasureSimple.disabled = false;
+      btnClearMeasureSimple.click();
+    }
+
+    // 4. Clear Points
     if (pointMiniContainer) pointMiniContainer.classList.add('hidden');
+    pointDrawPoint = null;
+    pointDrawCoord = null;
+    if(pointSvg) pointSvg.style.display = 'none';
 
-    // Clear ROI Poly
-    if (roiMiniContainer) roiMiniContainer.classList.add('hidden');
-    roiPolyPoints = [];
-    if (typeof updateRoiPolySvg === 'function') updateRoiPolySvg();
-
-    // Reset measure state
-    measureMode = 'IDLE';
-    measureState = 'IDLE';
-    controls.enabled = true;
-    document.body.classList.remove('roi-selecting');
+    // We no longer clear right-panel items (ROI clipping) here to keep them independent.
   }
 
   async function fetchSavedRois() {
@@ -2919,6 +2944,8 @@ window.addEventListener("DOMContentLoaded", () => {
           if (metadata.isOfficial !== false) {
             if (!officialFolders[folderName]) officialFolders[folderName] = [];
             officialFolders[folderName].push({ file, metadata });
+            if (!dumpFolders[folderName]) dumpFolders[folderName] = [];
+            dumpFolders[folderName].push({ file, metadata });
           } else {
             if (!dumpFolders[folderName]) dumpFolders[folderName] = [];
             dumpFolders[folderName].push({ file, metadata });
@@ -3010,12 +3037,14 @@ window.addEventListener("DOMContentLoaded", () => {
               e.stopPropagation();
               if (!confirm(`Delete "${niceName}"? This cannot be undone.`)) return;
               try {
-                const delUrlRes = await fetch(API_BASE, {
+                const delUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=volumes&fileName=${encodeURIComponent(file.fileName)}`;
+                const delUrlRes = await fetch(delUrl, {
                   method: 'DELETE',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     projectId: activeProject.folderName,
                     surveyId: activeProject.surveyId,
+                    type: 'volumes',
                     fileName: file.fileName
                   })
                 });
@@ -3191,7 +3220,8 @@ window.addEventListener("DOMContentLoaded", () => {
       deleteSelectedVolumesBtn.disabled = true;
       try {
         const deletePromises = Array.from(selectedCbs).map(cb => {
-          return fetch(API_BASE, {
+          const delUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=volumes&fileName=${encodeURIComponent(cb.value)}`;
+          return fetch(delUrl, {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -3272,10 +3302,12 @@ window.addEventListener("DOMContentLoaded", () => {
           // For reports/profiles, we also need to delete the JSON
           let extraPromise = null;
           if (fileName.endsWith('.pdf')) {
-             extraPromise = fetch(API_BASE, {
+             const jsonFileName = fileName.replace('.pdf', '.json');
+             const extraUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=reports&fileName=${encodeURIComponent(jsonFileName)}`;
+             extraPromise = fetch(extraUrl, {
               method: 'DELETE',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, fileName: fileName.replace('.pdf', '.json') })
+              body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: 'reports', fileName: jsonFileName })
             }).catch(() => {});
           }
 
@@ -3283,7 +3315,8 @@ window.addEventListener("DOMContentLoaded", () => {
           if (cb.classList.contains('volume-checkbox')) fileType = 'volumes';
           if (cb.classList.contains('report-checkbox')) fileType = 'reports'; // Assuming reports is the type for profiles
 
-          const mainPromise = fetch(API_BASE, {
+          const mainUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=${encodeURIComponent(fileType)}&fileName=${encodeURIComponent(fileName)}`;
+          const mainPromise = fetch(mainUrl, {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

@@ -1,0 +1,169 @@
+--- Line 2932 ---
+      const renderFolder = (folderName, folderItems, isDump, targetContainer) => {
+        const folderGroup = document.createElement("div");
+        folderGroup.className = "folder-group";
+        
+        const fHeader = document.createElement("div");
+        fHeader.className = "folder-header";
+        fHeader.innerHTML = `<span><i class="folder-icon">📂</i> ${folderName}</span><span>▼</span>`;
+        
+        const fContent = document.createElement("div");
+        fContent.className = "folder-content";
+        fHeader.addEventListener("click", () => {
+          const isHidden = fContent.style.display === "none";
+          fContent.style.display = isHidden ? "block" : "none";
+          fHeader.querySelector("span:last-child").style.transform = isHidden ? "rotate(0deg)" : "rotate(-90deg)";
+        });
+
+        folderItems.forEach(({ file, metadata }) => {
+          const item = document.createElement("div");
+          item.className = "saved-report-item";
+          
+          
+          const niceName = file.fileName.split('/').pop().replace(/_[0-9]+\.json$/, '').replace(/_/g, ' ');
+          
+          let promoteBtnHtml = '';
+          if (isDump && metadata.isOfficial === false) {
+            promoteBtnHtml = `<button class="btn-outline promote-btn" style="padding: 4px 6px; display: flex; align-items: center; gap: 4px; font-size: 11px; border-radius: 4px; margin-right: 4px; color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.05); transition: all 0.2s; cursor: pointer;" title="Save as Official Volume"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg> Save</button>`;
+          }
+
+          item.innerHTML = `
+            <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+              <div style="display: flex; align-items: center; flex: 1; min-width: 0;">
+                
+                <div style="display: flex; flex-direction: column; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <span style="font-weight: 500; font-size: 13px; text-transform: capitalize; overflow: hidden; text-overflow: ellipsis;">${niceName}</span>
+                  <span style="font-size: 10px; color: #64748b;">${new Date(file.lastModified).toLocaleDateString()}</span>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+                ${promoteBtnHtml}
+                <button class="btn-outline view-vol-btn" style="padding: 4px 6px; display: flex; align-items: center; gap: 4px; font-size: 11px; border-radius: 4px; color: #0ea5e9; border: 1px solid rgba(14, 165, 233, 0.3); background: rgba(14, 165, 233, 0.05); transition: all 0.2s; cursor: pointer;" title="View Volume on Map"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg> View</button>
+                <button class="btn-outline delete-vol-btn" style="padding: 4px 6px; display: flex; align-items: center; gap: 4px; font-size: 11px; border-radius: 4px; color: #ef4444; border: 1px solid rgba(239,68,68,0.3); background: rgba(239,68,68,0.05); transition: all 0.2s; cursor: pointer;" title="Delete Volume"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
+              </div>
+            </div>
+          `;
+
+          const promoteBtn = item.querySelector('.promote-btn');
+          if (promoteBtn) {
+            promoteBtn.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              promoteBtn.disabled = true;
+              promoteBtn.style.opacity = "0.5";
+              try {
+                metadata.isOfficial = true;
+                const jsonStr = JSON.stringify(metadata, null, 2);
+                const putUrlRes = await fetch(`https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`, {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    projectId: activeProject.folderName, surveyId: activeProject.surveyId,
+                    type: "volumes", fileName: file.fileName
+                  })
+                });
+                if (!putUrlRes.ok) throw new Error("Failed upload url");
+                const { uploadUrl } = await putUrlRes.json();
+                
+                await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: jsonStr });
+                fetchSavedVolumes(); // Refresh both lists!
+              } catch(err) {
+                alert("Failed to promote: " + err.message);
+                promoteBtn.disabled = false;
+                promoteBtn.style.opacity = "1";
+              }
+            });
+          }
+
+          const deleteVolBtn = item.querySelector('.delete-vol-btn');
+          if (deleteVolBtn) {
+            deleteVolBtn.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              if (!confirm(`Delete "${niceName}"? This cannot be undone.`)) return;
+              try {
+                const delUrlRes = await fetch(API_BASE, {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    projectId: activeProject.folderName,
+                    surveyId: activeProject.surveyId,
+                    type: 'volumes',
+                    fileName: file.fileName
+                  })
+                });
+                if (!delUrlRes.ok) throw new Error('Delete failed');
+                fetchSavedVolumes();
+              } catch(err) {
+                alert('Failed to delete: ' + err.message);
+              }
+            });
+          }
+
+          item.querySelector('.view-vol-btn').addEventListener("click", async (e) => {
+            if (window.isVolumeManageMode) return;
+            e.stopPropagation();
+            const btn = e.currentTarget;
+            const originalText = btn.textContent;
+            btn.textContent = "Loading...";
+            
+            try {
+              clearAllLeftPanelState();
+              measureMode = "VOLUME";
+              measureState = "FINISHED_VOLUME";
+              
+              
+              volumePoints = metadata.points.map(p => ({
+                  coord: new Coordinates(giroCrs, p.x, p.y, p.z),
+                  point: new Vector3(p.x, p.y, p.z)
+              }));
+              
+              let cx=0, cy=0;
+              for(let p of volumePoints) { cx+=p.coord.x; cy+=p.coord.y; }
+              cx/=volumePoints.length; cy/=volumePoints.length;
+              
+              const centerWorld = new Vector3(cx, cy, activeProject.zOffset || 0);
+              controls.target.copy(centerWorld);
+              controls.update();
+
+              updateVolumeSvg();
+              
+              document.getElementById("volMiniArea").textContent = metadata.area2D;
+              document.getElementById("volMiniPerim").textContent = metadata.perimeter;
+              document.getElementById("volMiniCut").textContent = metadata.cutVolume;
+              document.getElementById("volMiniFill").textContent = metadata.fillVolume;
+              
+              if (volumeMiniContainer) {
+                volumeMiniContainer.classList.remove("hidden");
+              }
+              
+              // Open Volumes tool if closed
+              if (volumesPanelContent && volumesPanelContent.style.display === "none") {
+                savedVolumesHeader.click();
+              }
+              
+              btnClearVolume.disabled = false;
+              
+            } catch(err) {
+              console.error("Failed to load volume metadata", err);
+              alert("Failed to load volume details.");
+            } finally {
+              btn.textContent = originalText;
+            }
+          });
+          
+          item.addEventListener("click", (e) => {
+            if (typeof isVolumeManageMode !== 'undefined' && isVolumeManageMode) {
+              if (e.target.tagName.toLowerCase() !== 'input') {
+                e.preventDefault();
+                const cb = item.querySelector(".volume-checkbox");
+                if (cb) cb.checked = !cb.checked;
+              }
+            }
+          });
+          
+          fContent.appendChild(item);
+        });
+        
+        folderGroup.appendChild(fHeader);
+        folderGroup.appendChild(fContent);
+        targetContainer.appendChild(folderGroup);
+      };

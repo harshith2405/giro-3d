@@ -677,8 +677,13 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   selectROI?.addEventListener("click", () => {
+    if (selectROI.classList.contains("active")) {
+      resetRoiState();
+      return;
+    }
     resetRoiState();
     roiState = "SELECTING";
+    measureState = "IDLE";
     controls.enabled = false;
     document.body.classList.add("roi-selecting");
     selectROI.classList.add("active");
@@ -686,9 +691,22 @@ window.addEventListener("DOMContentLoaded", () => {
     resetROI.disabled = false;
   });
 
-  btnDrawPolyRoi?.addEventListener("click", startRoiPolyDrawing);
+  btnDrawPolyRoi?.addEventListener("click", (e) => startRoiPolyDrawing(e));
 
-  function startRoiPolyDrawing() {
+  function startRoiPolyDrawing(e) {
+    const btn = e ? e.currentTarget : null;
+    if (btn && btn.classList.contains("active")) {
+      resetRoiState();
+      measureState = "IDLE";
+      measureMode = "NONE";
+      btn.classList.remove("active");
+      document.body.classList.remove("roi-selecting");
+      controls.enabled = true;
+      roiPolyPoints = [];
+      updateRoiPolySvg();
+      return;
+    }
+    resetRoiState();
     measureState = "SELECTING";
     measureMode = "ROI_POLY";
     controls.enabled = false;
@@ -697,13 +715,21 @@ window.addEventListener("DOMContentLoaded", () => {
     roiPolyMousePoint = null;
     updateRoiPolySvg();
     if (roiMiniContainer) roiMiniContainer.classList.add("hidden");
+    if (btn) btn.classList.add("active");
   }
 
-  document.getElementById("btnDrawFeatureRoi")?.addEventListener("click", startRoiPolyDrawing);
+  document.getElementById("btnDrawFeatureRoi")?.addEventListener("click", (e) => startRoiPolyDrawing(e));
 
   resetROI?.addEventListener("click", () => {
     resetRoiState();
     if (roiSvg) roiSvg.style.display = "none";
+    
+    if (typeof roiPolyPoints !== "undefined") roiPolyPoints = [];
+    if (measureMode === "ROI_POLY" || measureState === "FINISHED_ROI_POLY") {
+      measureState = "IDLE";
+      measureMode = "NONE";
+    }
+    if (typeof updateRoiPolySvg === 'function') updateRoiPolySvg();
     
     // Clear KML boundary
     kmlWorldPoints = [];
@@ -1125,6 +1151,10 @@ window.addEventListener("DOMContentLoaded", () => {
       }
       if (volumeVerticesSvg) volumeVerticesSvg.style.display = "block";
       if (volumeSvg) volumeSvg.style.display = "block";
+    } else if (measureMode !== "VOLUME" && measureState !== "FINISHED_VOLUME") {
+      if (volumePolygonSvg) volumePolygonSvg.style.display = "none";
+      if (volumeVerticesSvg) volumeVerticesSvg.style.display = "none";
+      if (volumeSvg) volumeSvg.style.display = "none";
     }
   }
   controls.addEventListener("change", updateRoiPolySvg);
@@ -1271,6 +1301,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // --- Simple Measurement ---
   btnMeasureSimple?.addEventListener("click", () => {
+    resetRoiState();
     measureState = "SELECTING";
     measureMode = "SIMPLE";
     measureHasFirstTap = false;
@@ -1304,6 +1335,7 @@ window.addEventListener("DOMContentLoaded", () => {
   btnProfile?.addEventListener("click", () => {
     window.isDumpDraw = window._nextDrawIsDump === true;
     window._nextDrawIsDump = false;
+    resetRoiState();
     measureState = "SELECTING";
     measureMode = "PROFILE";
     measureHasFirstTap = false;
@@ -1347,6 +1379,7 @@ window.addEventListener("DOMContentLoaded", () => {
   btnDrawVolume?.addEventListener("click", () => {
     window.isDumpDraw = window._nextDrawIsDump === true;
     window._nextDrawIsDump = false;
+    resetRoiState();
     measureState = "SELECTING";
     measureMode = "VOLUME";
     controls.enabled = false;
@@ -1423,6 +1456,9 @@ window.addEventListener("DOMContentLoaded", () => {
       measureState = "FINISHED_ROI_POLY";
       controls.enabled = true;
       document.body.classList.remove("roi-selecting");
+      if (btnDrawPolyRoi) btnDrawPolyRoi.classList.remove("active");
+      const featRoiBtn = document.getElementById("btnDrawFeatureRoi");
+      if (featRoiBtn) featRoiBtn.classList.remove("active");
       roiPolyMousePoint = null;
       updateRoiPolySvg();
       calculateRoiPolyMetrics();
@@ -2332,8 +2368,9 @@ window.addEventListener("DOMContentLoaded", () => {
             promoteBtnHtml = `<button class="btn-action-icon promote-btn" title="Save as Official Profile"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg> Save</button>`;
           }
 
+          const cbHtml = `<input type="checkbox" class="report-checkbox feature-checkbox premium-checkbox" data-filename="${pdfFile.fileName}" value="${pdfFile.fileName}" style="display: none; margin-right: 8px;">`;
           item.innerHTML = `
-            
+            ${cbHtml}
             <a href="${pdfFile.url}" target="_blank" class="report-link" style="display: flex; align-items: center; flex: 1; color: inherit; text-decoration: none; overflow: hidden;">
               ${svg} <span style="flex: 1; margin-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${pdfFile.fileName}">${pdfFile.fileName.split('/').pop().replace('.pdf', '')}</span>
             </a>
@@ -2414,7 +2451,7 @@ window.addEventListener("DOMContentLoaded", () => {
           }
 
           item.addEventListener("click", (e) => {
-            if (isReportManageMode) {
+            if (window.isReportManageMode) {
               if (e.target.tagName.toLowerCase() !== 'input') {
                 e.preventDefault();
                 const cb = item.querySelector(".report-checkbox");
@@ -2440,7 +2477,7 @@ window.addEventListener("DOMContentLoaded", () => {
       }
       
       // Restore UI state if re-fetched during manage mode
-      if (typeof toggleManageMode === 'function') toggleManageMode(isReportManageMode);
+      if (typeof toggleManageMode === 'function') toggleManageMode(window.isReportManageMode || false);
       
     } catch (err) {
       console.error(err);
@@ -2459,7 +2496,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const deleteSelectedReportsBtn = document.getElementById("deleteSelectedReportsBtn");
 
   function toggleManageMode(enable) {
-    isReportManageMode = enable;
+    window.isReportManageMode = enable;
     if (manageReportsContainer) manageReportsContainer.style.display = enable ? "none" : "flex";
     if (reportsSelectionBar) reportsSelectionBar.style.display = enable ? "flex" : "none";
     
@@ -2566,8 +2603,9 @@ window.addEventListener("DOMContentLoaded", () => {
 
   
   
-  // Pre-fetch volumes on load so the panel is ready instantly
+  // Pre-fetch volumes and ROIs on load so the panel is ready instantly
   fetchSavedVolumes();
+  fetchSavedRois();
 
   closeVolumeMiniBtn?.addEventListener("click", () => {
     if (volumeMiniContainer) volumeMiniContainer.classList.add("hidden");
@@ -2881,17 +2919,16 @@ window.addEventListener("DOMContentLoaded", () => {
       for (const file of jsonFiles) {
         const item = document.createElement("div");
         item.className = "saved-report-item";
+        const cbHtml = `<input type="checkbox" class="feature-checkbox premium-checkbox" data-filename="${file.fileName}" value="${file.fileName}" style="display: none; margin-right: 8px;">`;
         item.innerHTML = `
-          <div style="display: flex; align-items: center; gap: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+            ${cbHtml}
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #8b5cf6;"><polygon points="12 2 22 8.5 18 20 6 20 2 8.5 12 2"></polygon></svg>
             <span style="font-weight: 500; font-size: 13px; color: var(--text);">${file.fileName.split('/').pop().replace('.json', '')}</span>
           </div>
           <div style="display: flex; gap: 8px;">
             <button class="btn-action-icon view" onclick="loadRoiArea('${file.url}')" title="View">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-            </button>
-            <button class="btn-action-icon delete" style="display: none;" onclick="deleteFileByUrl('${file.url}', 'rois', '${file.fileName}')" title="Delete">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
             </button>
           </div>
         `;
@@ -2984,10 +3021,11 @@ window.addEventListener("DOMContentLoaded", () => {
             promoteBtnHtml = `<button class="btn-outline promote-btn" style="padding: 4px 6px; display: flex; align-items: center; gap: 4px; font-size: 11px; border-radius: 4px; margin-right: 4px; color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.05); transition: all 0.2s; cursor: pointer;" title="Save as Official Volume"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg> Save</button>`;
           }
 
+          const cbHtml = `<input type="checkbox" class="volume-checkbox feature-checkbox premium-checkbox" data-filename="${file.fileName}" value="${file.fileName}" style="display: none; margin-right: 8px;">`;
           item.innerHTML = `
             <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
               <div style="display: flex; align-items: center; flex: 1; min-width: 0;">
-                
+                ${cbHtml}
                 <div style="display: flex; flex-direction: column; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                   <span style="font-weight: 500; font-size: 13px; text-transform: capitalize; overflow: hidden; text-overflow: ellipsis;">${niceName}</span>
                   <span style="font-size: 10px; color: #64748b;">${new Date(file.lastModified).toLocaleDateString()}</span>
@@ -2996,7 +3034,6 @@ window.addEventListener("DOMContentLoaded", () => {
               <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
                 ${promoteBtnHtml}
                 <button class="btn-outline view-vol-btn" style="padding: 4px 6px; display: flex; align-items: center; gap: 4px; font-size: 11px; border-radius: 4px; color: #0ea5e9; border: 1px solid rgba(14, 165, 233, 0.3); background: rgba(14, 165, 233, 0.05); transition: all 0.2s; cursor: pointer;" title="View Volume on Map"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg> View</button>
-                <button class="btn-outline delete-vol-btn" style="padding: 4px 6px; display: flex; align-items: center; gap: 4px; font-size: 11px; border-radius: 4px; color: #ef4444; border: 1px solid rgba(239,68,68,0.3); background: rgba(239,68,68,0.05); transition: all 0.2s; cursor: pointer;" title="Delete Volume"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
               </div>
             </div>
           `;
@@ -3031,30 +3068,6 @@ window.addEventListener("DOMContentLoaded", () => {
             });
           }
 
-          const deleteVolBtn = item.querySelector('.delete-vol-btn');
-          if (deleteVolBtn) {
-            deleteVolBtn.addEventListener('click', async (e) => {
-              e.stopPropagation();
-              if (!confirm(`Delete "${niceName}"? This cannot be undone.`)) return;
-              try {
-                const delUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=volumes&fileName=${encodeURIComponent(file.fileName)}`;
-                const delUrlRes = await fetch(delUrl, {
-                  method: 'DELETE',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    projectId: activeProject.folderName,
-                    surveyId: activeProject.surveyId,
-                    type: 'volumes',
-                    fileName: file.fileName
-                  })
-                });
-                if (!delUrlRes.ok) throw new Error('Delete failed');
-                fetchSavedVolumes();
-              } catch(err) {
-                alert('Failed to delete: ' + err.message);
-              }
-            });
-          }
 
           item.querySelector('.view-vol-btn').addEventListener("click", async (e) => {
             if (window.isVolumeManageMode) return;
@@ -3109,7 +3122,7 @@ window.addEventListener("DOMContentLoaded", () => {
           });
           
           item.addEventListener("click", (e) => {
-            if (typeof isVolumeManageMode !== 'undefined' && isVolumeManageMode) {
+            if (window.isVolumeManageMode) {
               if (e.target.tagName.toLowerCase() !== 'input') {
                 e.preventDefault();
                 const cb = item.querySelector(".volume-checkbox");
@@ -3145,7 +3158,7 @@ window.addEventListener("DOMContentLoaded", () => {
       }
 
       // Restore UI state if re-fetched during manage mode
-      if (typeof toggleVolumeManageMode === 'function') toggleVolumeManageMode(typeof isVolumeManageMode !== 'undefined' ? isVolumeManageMode : false);
+      if (typeof toggleVolumeManageMode === 'function') toggleVolumeManageMode(window.isVolumeManageMode || false);
 
     } catch (err) {
       console.error(err);
@@ -3185,7 +3198,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const deleteSelectedVolumesBtn = document.getElementById("deleteSelectedVolumesBtn");
 
   window.toggleVolumeManageMode = function(enable) {
-    isVolumeManageMode = enable;
+    window.isVolumeManageMode = enable;
     if (manageVolumesContainer) manageVolumesContainer.style.display = enable ? "none" : "flex";
     if (volumesSelectionBar) volumesSelectionBar.style.display = enable ? "flex" : "none";
     
@@ -3254,9 +3267,10 @@ window.addEventListener("DOMContentLoaded", () => {
   const featuresSelectionBar = document.getElementById("featuresSelectionBar");
   const manageFeaturesContainer = document.getElementById("manageFeaturesContainer");
   const deleteSelectedFeaturesBtn = document.getElementById("deleteSelectedFeaturesBtn");
+  const selectAllFeatures = document.getElementById("selectAllFeatures");
 
   function toggleFeatureManageMode(enable) {
-    isFeatureManageMode = enable;
+    window.isFeatureManageMode = enable;
     if (manageFeaturesContainer) manageFeaturesContainer.style.display = enable ? "none" : "flex";
     if (featuresSelectionBar) featuresSelectionBar.style.display = enable ? "flex" : "none";
     
@@ -3269,14 +3283,18 @@ window.addEventListener("DOMContentLoaded", () => {
       buttons.forEach(b => b.style.pointerEvents = enable ? "none" : "auto");
       item.style.cursor = enable ? "pointer" : "default";
     });
+    if (!enable && selectAllFeatures) selectAllFeatures.checked = false;
   }
 
   manageFeaturesBtn?.addEventListener("click", () => toggleFeatureManageMode(true));
   cancelManageFeaturesBtn?.addEventListener("click", () => toggleFeatureManageMode(false));
+  selectAllFeatures?.addEventListener("change", (e) => {
+    document.querySelectorAll("#panel-features .feature-checkbox").forEach(cb => cb.checked = e.target.checked);
+  });
 
   // Add click to toggle checkbox anywhere on the row in features list
   document.addEventListener("click", (e) => {
-    if (isFeatureManageMode) {
+    if (window.isFeatureManageMode) {
       const item = e.target.closest("#panel-features .saved-report-item");
       if (item && e.target.tagName.toLowerCase() !== 'input') {
         e.preventDefault();
@@ -3348,48 +3366,17 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // -------------------------------------------------------------------------
-  // Unified Manage Mode Logic (iOS Style)
-  // -------------------------------------------------------------------------
-  
-  function setupManageToggle(btnId, containerSelector, isManageVarName) {
-    const btn = document.getElementById(btnId);
-    if (!btn) return;
-    
-    window[isManageVarName] = false;
-    
-    btn.addEventListener("click", () => {
-      window[isManageVarName] = !window[isManageVarName];
-      const isManage = window[isManageVarName];
-      
-      btn.textContent = isManage ? "Done" : "Manage";
-      
-      document.querySelectorAll(`${containerSelector} .btn-action-icon.delete`).forEach(delBtn => {
-        delBtn.style.display = isManage ? "flex" : "none";
-      });
-      
-      document.querySelectorAll(`${containerSelector} .btn-action-icon.view, ${containerSelector} .btn-action-icon.promote-btn, ${containerSelector} .report-link`).forEach(otherBtn => {
-        otherBtn.style.pointerEvents = isManage ? "none" : "auto";
-        otherBtn.style.opacity = isManage ? "0.5" : "1";
-      });
-    });
-  }
+  // Stop 3D Map from swallowing key events on inputs
+  ['volSaveName', 'roiSaveName', 'volSaveFolder', 'reportNameInput'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('keydown', e => e.stopPropagation());
+      el.addEventListener('keyup', e => e.stopPropagation());
+      el.addEventListener('keypress', e => e.stopPropagation());
+    }
+  });
 
-  setupManageToggle("manageReportsBtn", "#reportsList", "isReportManageMode");
-  setupManageToggle("manageVolumesBtn", "#volumesList", "isVolumeManageMode");
-  
-    // Stop 3D Map from swallowing key events on inputs
-    ['volSaveName', 'roiSaveName', 'volSaveFolder', 'reportNameInput'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) {
-        el.addEventListener('keydown', e => e.stopPropagation());
-        el.addEventListener('keyup', e => e.stopPropagation());
-        el.addEventListener('keypress', e => e.stopPropagation());
-      }
-    });
-
-
-setupManageToggle("manageFeaturesBtn", "#panel-features", "isFeatureManageMode");
+  // (Removed conflicting iOS style manage toggle)
   
 
   const btnResetMap = document.getElementById("btnResetMap");

@@ -311,6 +311,20 @@
             <div id="featuresSettings" style="display: block; margin-top: 10px;">
               <div class="hint" style="margin-bottom: 12px;">All drawn items across the project are listed here.</div>
               
+              <div id="manageFeaturesContainer" style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
+                <button id="manageFeaturesBtn" class="btn-manage-trigger">Manage</button>
+              </div>
+              <div id="featuresSelectionBar" class="manage-selection-bar">
+                <div style="display: flex; align-items: center;">
+                   <input type="checkbox" id="selectAllFeatures" class="premium-checkbox">
+                   <label for="selectAllFeatures" style="cursor: pointer; user-select: none; font-weight: 500; color: var(--text); margin-left: 6px;">Select All</label>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                   <button id="deleteSelectedFeaturesBtn" class="btn-manage-delete">Delete</button>
+                   <button id="cancelManageFeaturesBtn" class="btn-manage-cancel">Cancel</button>
+                </div>
+              </div>
+              
               <div id="featuresPointsHeader" class="feature-accordion-header">
                 <div style="display: flex; align-items: center; gap: 8px;">
                   POINTS
@@ -407,16 +421,16 @@
             
             <div id="reportsPanelContent" style="margin-top: 10px; display: block;">
               <div id="manageReportsContainer" style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
-                <button id="manageReportsBtn" style="background: none; border: none; color: #0ea5e9; font-size: 11px; font-weight: 600; cursor: pointer; padding: 4px; text-decoration: underline;">Manage</button>
+                <button id="manageReportsBtn" class="btn-manage-trigger">Manage</button>
               </div>
-              <div id="reportsSelectionBar" style="display: none; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 12px; background: #f8fafc; border: 1px solid var(--panel-border); padding: 6px 10px; border-radius: 6px;">
+              <div id="reportsSelectionBar" class="manage-selection-bar">
                 <div style="display: flex; align-items: center;">
-                   <input type="checkbox" id="selectAllReports" style="margin-right: 6px; cursor: pointer; accent-color: var(--purple-primary);">
-                   <label for="selectAllReports" style="cursor: pointer; user-select: none; font-weight: 500; color: var(--text);">Select All</label>
+                   <input type="checkbox" id="selectAllReports" class="premium-checkbox">
+                   <label for="selectAllReports" style="cursor: pointer; user-select: none; font-weight: 500; color: var(--text); margin-left: 6px;">Select All</label>
                 </div>
                 <div style="display: flex; gap: 8px;">
-                   <button id="deleteSelectedReportsBtn" style="background: #ef4444; border: none; color: white; border-radius: 4px; padding: 4px 10px; font-size: 11px; font-weight: 600; cursor: pointer; transition: background 0.2s;">Delete</button>
-                   <button id="cancelManageReportsBtn" style="background: transparent; border: 1px solid var(--panel-border); color: var(--text); border-radius: 4px; padding: 4px 10px; font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.2s;">Cancel</button>
+                   <button id="deleteSelectedReportsBtn" class="btn-manage-delete">Delete</button>
+                   <button id="cancelManageReportsBtn" class="btn-manage-cancel">Cancel</button>
                 </div>
               </div>
               <div id="reportsListLoading" style="color: #94a3b8; font-size: 12px; text-align: center; padding: 10px 0;">Loading reports...</div>
@@ -631,16 +645,16 @@
             
             <div id="volumesPanelContent" style="margin-top: 10px; display: block;">
               <div id="manageVolumesContainer" style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
-                <button id="manageVolumesBtn" style="background: none; border: none; color: #0ea5e9; font-size: 11px; font-weight: 600; cursor: pointer; padding: 4px; text-decoration: underline;">Manage</button>
+                <button id="manageVolumesBtn" class="btn-manage-trigger">Manage</button>
               </div>
-              <div id="volumesSelectionBar" style="display: none; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 12px; background: #f8fafc; border: 1px solid var(--panel-border); padding: 6px 10px; border-radius: 6px;">
+              <div id="volumesSelectionBar" class="manage-selection-bar">
                 <div style="display: flex; align-items: center;">
-                   <input type="checkbox" id="selectAllVolumes" style="margin-right: 6px; cursor: pointer; accent-color: var(--purple-primary);">
-                   <label for="selectAllVolumes" style="cursor: pointer; user-select: none; font-weight: 500; color: var(--text);">Select All</label>
+                   <input type="checkbox" id="selectAllVolumes" class="premium-checkbox">
+                   <label for="selectAllVolumes" style="cursor: pointer; user-select: none; font-weight: 500; color: var(--text); margin-left: 6px;">Select All</label>
                 </div>
                 <div style="display: flex; gap: 8px;">
-                   <button id="deleteSelectedVolumesBtn" style="background: #ef4444; border: none; color: white; border-radius: 4px; padding: 4px 10px; font-size: 11px; font-weight: 600; cursor: pointer; transition: background 0.2s;">Delete</button>
-                   <button id="cancelManageVolumesBtn" style="background: transparent; border: 1px solid var(--panel-border); color: var(--text); border-radius: 4px; padding: 4px 10px; font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.2s;">Cancel</button>
+                   <button id="deleteSelectedVolumesBtn" class="btn-manage-delete">Delete</button>
+                   <button id="cancelManageVolumesBtn" class="btn-manage-cancel">Cancel</button>
                 </div>
               </div>
               <div id="volumesListLoading" style="color: #94a3b8; font-size: 12px; text-align: center; padding: 10px 0;">Loading volumes...</div>

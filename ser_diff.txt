@@ -1,0 +1,2235 @@
+diff --git a/ser.js b/ser.js
+index 157b3e0..f67dcc1 100644
+--- a/ser.js
++++ b/ser.js
+@@ -96,44 +96,31 @@ async function loadProject(project, extentOverride = null) {
+     map.backgroundColor = 0xcccccc;
+     instance.add(map);
+ 
+-    // Sources are cached on the project object so switching / reloading is cheap.
+-    if (!project.elevationSource) {
+-      project.elevationSource = new GeoTIFFSource({
+-        url: new URL(project.elevationUrl, window.location.href).href,
+-        crs: giroCrs,
+-        retries: 5,
+-        httpTimeout: 30000,
+-      });
+-    }
++    // Instantiate fresh sources per load to ensure clean WebGL layer binding
++    project.elevationSource = new GeoTIFFSource({
++      url: new URL(project.elevationUrl, window.location.href).href,
++      crs: giroCrs,
++      retries: 5,
++      httpTimeout: 30000,
++    });
+ 
+-    if (!project.orthoSource) {
+-      project.orthoSource = new GeoTIFFSource({
+-        url: new URL(project.orthoUrl, window.location.href).href,
+-        crs: giroCrs,
+-        retries: 5,
+-        httpTimeout: 30000,
+-      });
+-    }
++    project.orthoSource = new GeoTIFFSource({
++      url: new URL(project.orthoUrl, window.location.href).href,
++      crs: giroCrs,
++      retries: 5,
++      httpTimeout: 30000,
++    });
+ 
+     // Elevation (DSM/DTM).
+     updateStatus("Loading Elevation Model…");
+-
+-    // Create the slope color map BEFORE adding the layer.
+-    // Giro3D only registers colorMaps during addLayer(), so it must exist at construction.
+     slopeColorMap = new ColorMap({
+-      colors: [
+-        new Color('green'),
+-        new Color('yellow'),
+-        new Color('orange'),
+-        new Color('red'),
+-        new Color('darkred')
+-      ],
++      colors: [new Color('green'), new Color('yellow'), new Color('orange'), new Color('red'), new Color('darkred')],
+       opacities: new Array(5).fill(0.35),
+       min: 0,
+       max: 90,
+       mode: ColorMapMode.Slope
+     });
+-    slopeColorMap.active = false; // Start hidden, user toggles it on
++    slopeColorMap.active = false; 
+ 
+     elevationLayer = new ElevationLayer({
+       name: "Elevation",
+@@ -143,8 +130,13 @@ async function loadProject(project, extentOverride = null) {
+       minmax: { min: 0, max: 4000 }, // Prevents "no min/max could be computed" WebGL crash
+       colorMap: slopeColorMap, // Registered with the Map's GPU shader atlas during addLayer
+     });
+-    await map.addLayer(elevationLayer);
+-    console.log("Elevation loaded ✅");
++    
++    try {
++      await map.addLayer(elevationLayer);
++      console.log("Elevation loaded ✅");
++    } catch (err) {
++      console.error("Failed to load Elevation layer (Check S3 404/403 errors):", err);
++    }
+ 
+     // Orthophoto (color imagery).
+     updateStatus("Loading orthophoto…");
+@@ -155,8 +147,13 @@ async function loadProject(project, extentOverride = null) {
+       opacity: 1,
+       preloadImages: true,
+     });
+-    await map.addLayer(orthoLayer);
+-    console.log("Orthophoto loaded ✅");
++    
++    try {
++      await map.addLayer(orthoLayer);
++      console.log("Orthophoto loaded ✅");
++    } catch (err) {
++      console.error("Failed to load Ortho layer (Check S3 404/403 errors):", err);
++    }
+ 
+     // Terrain elevation range → drives contour range readout.
+     const minMax = map.getElevationMinMax();
+@@ -201,37 +198,35 @@ async function loadProject(project, extentOverride = null) {
+ const PROJECTS = {
+   chattibhariatu_project: {
+     folderName: "Chattibhariatu",
+-    extent: [
+-      9467845763606766e-9,
+-      9473006448724607e-9,
+-      2.7212684801465548e6,
+-      2.7244897791313147e6,
+-    ],
+-    zOffset: 429,
+-      surveys: {
+-        may_2026: {
+-          elevationUrl: "./projects/Chattibhariatu/surveys/may_2026/DSM_cloudoptimised.tif",
+-          orthoUrl: "./projects/Chattibhariatu/surveys/may_2026/Ortho_CO.tif",
+-        },
+-        july_2026: {
+-          elevationUrl: "./projects/Chattibhariatu/surveys/july_2026/DSM_cloudoptimised.tif",
+-          orthoUrl: "./projects/Chattibhariatu/surveys/july_2026/Ortho_CO.tif",
+-        }
++    surveys: {
++      may_2026: {
++        elevationUrl: "./projects/Chattibhariatu/surveys/may_2026/DSM_cloudoptimised.tif",
++        orthoUrl: "./projects/Chattibhariatu/surveys/may_2026/Ortho_CO.tif",
++        extent: [9467845.7636, 9473006.4487, 2721268.4801, 2724489.7791],
++        zOffset: 429,
++      },
++      july_2026: {
++        elevationUrl: "./projects/Chattibhariatu/surveys/july_2026/DTM_CO_mercator.tif",
++        orthoUrl: "./projects/Chattibhariatu/surveys/july_2026/Ortho_CO_5cm_mercator.tif",
++        extent: [9467845.7636, 9473006.4487, 2721268.4801, 2724489.7791],
++        zOffset: 429,
++      },
++      August_2026: {
++        elevationUrl: "./projects/Chattibhariatu/surveys/August_2026/DTM_CO.tif",
++        orthoUrl: "./projects/Chattibhariatu/surveys/August_2026/Ortho_CO.tif",
++        extent: [9468023.88, 9472680.48, 2721355.34, 2724299.87],
++        zOffset: 434.5,
+       }
++    }
+   },
+   ahuja_project: {
+     folderName: "ahuja",
+-    extent: [
+-      8755723168817045e-9,
+-      8756317918817045e-9,
+-      1.9424123557069767e6,
+-      1.9432158557069767e6,
+-    ],
+-    zOffset: 550,
+     surveys: {
+       may_2026: {
+         elevationUrl: "./projects/ahuja/surveys/may_2026/Ahuja_DTM_COG.tif",
+         orthoUrl: "./projects/ahuja/surveys/may_2026/Ambuja_ortho.tif",
++        extent: [8755723.1688, 8756317.9188, 1942412.3557, 1943215.8557],
++        zOffset: 550,
+       }
+     }
+   },
+@@ -244,13 +239,22 @@ function getActiveProjectConfig() {
+   const surveyId = urlParams.get("survey") || "may_2026";
+   
+   const projectInfo = PROJECTS[projectId] || PROJECTS.chattibhariatu_project;
+-  // If the specific survey doesn't exist, default to may_2026 to prevent crashes
+-  const surveyInfo = projectInfo.surveys[surveyId] || projectInfo.surveys["may_2026"];
++  const defaultSurvey = projectInfo.surveys["may_2026"] || Object.values(projectInfo.surveys)[0];
++  const surveyInfo = (projectInfo.surveys && projectInfo.surveys[surveyId])
++    ? projectInfo.surveys[surveyId]
++    : {
++        elevationUrl: `./projects/${projectInfo.folderName}/surveys/${surveyId}/DSM_cloudoptimised.tif`,
++        orthoUrl: `./projects/${projectInfo.folderName}/surveys/${surveyId}/Ortho_CO.tif`,
++        extent: defaultSurvey ? defaultSurvey.extent : [0,0,0,0],
++        zOffset: defaultSurvey ? defaultSurvey.zOffset : 0
++      };
+   
+   return {
+     ...projectInfo,
+     elevationUrl: surveyInfo.elevationUrl,
+     orthoUrl: surveyInfo.orthoUrl,
++    extent: surveyInfo.extent || (defaultSurvey ? defaultSurvey.extent : [0,0,0,0]),
++    zOffset: (typeof surveyInfo.zOffset === "number") ? surveyInfo.zOffset : (defaultSurvey ? defaultSurvey.zOffset : 0),
+     id: projectId,
+     folderName: projectInfo.folderName || projectId,
+     surveyId: surveyId
+@@ -369,7 +373,15 @@ console.log("Giro3D initialized");
+ // UI wiring
+ // ---------------------------------------------------------------------------
+ window.addEventListener("DOMContentLoaded", () => {
+-  // Select project and survey from query string
++  // -------------------------------------------------------------------------
++  // Multi-Select State Variables (Declared early to prevent TDZ ReferenceErrors)
++  // -------------------------------------------------------------------------
++  let isMultiSelectReports = false;
++  let isMultiSelectVolumes = false;
++  const multiSelectedReportsMap = new Map();
++  const multiSelectedVolumesMap = new Map();
++  let activeFocusedFeatureId = null;
++
+   activeProject = getActiveProjectConfig();
+   loadProject(activeProject).then(() => {});
+ 
+@@ -481,7 +493,7 @@ window.addEventListener("DOMContentLoaded", () => {
+       if (x !== undefined && y !== undefined) {
+         try {
+           const [lon, lat] = proj4("EPSG:3395", "WGS84", [x, y]);
+-          if (coordLonLat) coordLonLat.textContent = `Lon: ${lon.toFixed(6)}°, Lat: ${lat.toFixed(6)}°`;
++          if (coordLonLat) coordLonLat.textContent = `Lon: ${lon.toFixed(3)}°, Lat: ${lat.toFixed(3)}°`;
+           if (coordElev) coordElev.textContent = `${Number(elev).toFixed(2)} m`;
+         } catch(err) {
+            console.error("Proj4 conversion error:", err);
+@@ -505,7 +517,7 @@ window.addEventListener("DOMContentLoaded", () => {
+   const contourCarrot = document.getElementById("contourCarrot");
+   const btnEnableContours = document.getElementById("btnEnableContours");
+   const btnDisableContours = document.getElementById("btnDisableContours");
+-  const contourLoading = document.getElementById("contourLoading");
++  const contourLoading = document.getElementById("infoContourLoading") || document.getElementById("contourLoading");
+   const contourPreset = document.getElementById("contourPreset");
+   const contourInterval = document.getElementById("contourInterval");
+   const majorInterval = document.getElementById("majorInterval");
+@@ -545,15 +557,22 @@ window.addEventListener("DOMContentLoaded", () => {
+       if (!contoursEnabled) {
+         map.contourLines = { enabled: false, opacity: 0 };
+       } else {
+-        let opacity = parseFloat(contourOpacity.value);
++        // Prefer info panel inputs (always visible), fall back to original hidden panel inputs
++        const _contourOpacity = document.getElementById("infoContourOpacity") || contourOpacity;
++        const _contourInterval = document.getElementById("infoContourInterval") || contourInterval;
++        const _majorInterval = document.getElementById("infoMajorInterval") || majorInterval;
++        const _contourColor = document.getElementById("infoContourColor") || contourColor;
++        const _contourWidth = document.getElementById("infoContourWidth") || contourWidth;
++
++        let opacity = parseFloat(_contourOpacity?.value ?? 0.8);
+         if (opacity >= 1) opacity = 0.99;
+         if (opacity <= 0) opacity = 0.01;
+         map.contourLines = {
+           enabled: true,
+-          secondaryInterval: parseFloat(contourInterval.value),
+-          interval: parseFloat(majorInterval.value),
+-          color: new Color(contourColor.value),
+-          thickness: parseFloat(contourWidth.value),
++          secondaryInterval: parseFloat(_contourInterval?.value ?? 2),
++          interval: parseFloat(_majorInterval?.value ?? 10),
++          color: new Color(_contourColor?.value ?? "#ffffff"),
++          thickness: parseFloat(_contourWidth?.value ?? 1),
+           opacity,
+         };
+       }
+@@ -650,6 +669,286 @@ window.addEventListener("DOMContentLoaded", () => {
+   let roiStart = null; // world coord (Vector3) of drag start
+   let roiEnd = null; // world coord (Vector3) of drag end
+ 
++  // -------------------------------------------------------------------------
++  // Unified Fixed Info Panel & Standardized Save Workflow Controller
++  // -------------------------------------------------------------------------
++  const unifiedInfoPanel = document.getElementById("unifiedInfoPanel");
++  const unifiedInfoTitle = document.getElementById("unifiedInfoTitle");
++  const closeInfoPanelBtn = document.getElementById("closeInfoPanelBtn");
++
++  const universalSaveName = document.getElementById("universalSaveName");
++  const universalSaveFolder = document.getElementById("universalSaveFolder");
++  const btnUniversalSave = document.getElementById("btnUniversalSave");
++  const btnUniversalNewFolder = document.getElementById("btnUniversalNewFolder");
++
++  // ── Universal Dynamic Folder Store & Sync System ──
++  const defaultFolders = ["General", "Pits", "Stockpiles"];
++  const knownFolders = new Set(defaultFolders);
++
++  function loadStoredFolders() {
++    try {
++      const stored = localStorage.getItem("polygon_known_folders");
++      if (stored) {
++        const parsed = JSON.parse(stored);
++        if (Array.isArray(parsed)) {
++          parsed.forEach(f => {
++            if (f && typeof f === "string" && f.trim() !== "") knownFolders.add(f.trim());
++          });
++        }
++      }
++    } catch(e) {}
++  }
++
++  function saveStoredFolders() {
++    try {
++      localStorage.setItem("polygon_known_folders", JSON.stringify(Array.from(knownFolders)));
++    } catch(e) {}
++  }
++
++  function addKnownFolder(folderName, autoSync = true, selectTarget = null) {
++    if (!folderName || typeof folderName !== "string") return;
++    const trimmed = folderName.trim();
++    if (trimmed === "") return;
++    knownFolders.add(trimmed);
++    saveStoredFolders();
++    if (autoSync) syncFolderDropdowns(selectTarget || trimmed);
++  }
++
++  function syncFolderDropdowns(selectedFolder = null) {
++    const dropdowns = document.querySelectorAll("#universalSaveFolder, #saveFolder, #volSaveFolder, #roiSaveFolder, #reportSaveFolder, .save-folder-select");
++    dropdowns.forEach(select => {
++      if (!select) return;
++      const currentVal = selectedFolder || select.value || "General";
++      select.innerHTML = "";
++      knownFolders.forEach(folder => {
++        const option = document.createElement("option");
++        option.value = folder;
++        option.textContent = folder;
++        select.appendChild(option);
++      });
++      if (knownFolders.has(currentVal)) {
++        select.value = currentVal;
++      }
++    });
++  }
++
++  loadStoredFolders();
++  setTimeout(() => syncFolderDropdowns(), 100);
++
++  const infoViewProfile = document.getElementById("infoViewProfile");
++  const infoViewVolume = document.getElementById("infoViewVolume");
++  const infoViewBoxRoi = document.getElementById("infoViewBoxRoi");
++  const infoViewPolyRoi = document.getElementById("infoViewPolyRoi");
++  const infoViewPoint = document.getElementById("infoViewPoint");
++
++  const topSaveBar = document.getElementById("topSaveBar");
++
++  let activeInfoTool = null;
++  let activeToolSaveData = null;
++
++  function showUnifiedInfoPanel(toolType, headerText, data, isSavedView = false) {
++    activeInfoTool = toolType;
++    activeToolSaveData = data;
++
++    if (unifiedInfoTitle) unifiedInfoTitle.textContent = headerText || "INFORMATION PANEL";
++    
++    // Clear validation error state & reset name input
++    if (universalSaveName) {
++      universalSaveName.classList.remove("input-invalid");
++      universalSaveName.value = "";
++    }
++
++    // Hide all viewports first
++    const infoViewGrid = document.getElementById("infoViewGrid");
++    const infoViewHeatmap = document.getElementById("infoViewHeatmap");
++    const infoViewContour = document.getElementById("infoViewContour");
++    [infoViewProfile, infoViewVolume, infoViewBoxRoi, infoViewPolyRoi, infoViewPoint, infoViewGrid, infoViewHeatmap, infoViewContour].forEach(el => el?.classList.add("hidden"));
++
++    // Display active tool viewport
++    if (toolType === "PROFILE" && infoViewProfile) {
++      infoViewProfile.classList.remove("hidden");
++      // CRITICAL: un-hide the chart container (clearMeasure hides it)
++      if (elevationMiniContainer) elevationMiniContainer.classList.remove("hidden");
++      // Destroy stale 0x0 chart so it gets recreated at correct size
++      if (miniChart && miniChart.width === 0) {
++        miniChart.destroy();
++        miniChart = null;
++      }
++      setTimeout(() => {
++        initCharts();
++        if (miniChart) {
++          miniChart.resize();
++          miniChart.update();
++        }
++      }, 100);
++    }
++    if (toolType === "VOLUME" && infoViewVolume) infoViewVolume.classList.remove("hidden");
++    if (toolType === "BOX_ROI" && infoViewBoxRoi) infoViewBoxRoi.classList.remove("hidden");
++    if (toolType === "POLY_ROI" && infoViewPolyRoi) infoViewPolyRoi.classList.remove("hidden");
++    if (toolType === "POINT" && infoViewPoint) infoViewPoint.classList.remove("hidden");
++    if (toolType === "GRID" && infoViewGrid) infoViewGrid.classList.remove("hidden");
++    if (toolType === "HEATMAP" && infoViewHeatmap) infoViewHeatmap.classList.remove("hidden");
++    if (toolType === "CONTOUR" && infoViewContour) infoViewContour.classList.remove("hidden");
++
++    if (topSaveBar) {
++      if (isSavedView || ["GRID", "HEATMAP", "CONTOUR"].includes(toolType)) {
++        topSaveBar.classList.add("hidden");
++      } else {
++        topSaveBar.classList.remove("hidden");
++      }
++    }
++    if (unifiedInfoPanel) unifiedInfoPanel.classList.remove("hidden");
++  }
++
++  closeInfoPanelBtn?.addEventListener("click", () => {
++    if (unifiedInfoPanel) unifiedInfoPanel.classList.add("hidden");
++    if (topSaveBar) topSaveBar.classList.add("hidden");
++    activeInfoTool = null;
++    activeToolSaveData = null;
++  });
++
++  // Universal Feature Storage Helper
++  function saveFeatureItem(type, name, folder, data) {
++    const activeSurveyKey = `${activeProject?.folderName || activeProject}_${activeProject?.surveyId || 'default'}`;
++    let saved = JSON.parse(localStorage.getItem(`features_${activeSurveyKey}`) || "[]");
++    saved.push({
++      id: Date.now(),
++      type: type,
++      name: name,
++    folder: folder,
++      timestamp: new Date().toISOString(),
++      data: data
++    });
++    localStorage.setItem(`features_${activeSurveyKey}`, JSON.stringify(saved));
++    if (typeof updateFeaturesListUI === 'function') updateFeaturesListUI();
++  }
++
++  // Compulsory Name Validation & Universal Save Handler
++  btnUniversalSave?.addEventListener("click", async () => {
++    const nameVal = universalSaveName ? universalSaveName.value.trim() : "";
++    if (!nameVal) {
++      if (universalSaveName) {
++        universalSaveName.classList.add("input-invalid");
++        universalSaveName.focus();
++      }
++      alert("⚠️ COMPULSORY: Please enter a Name before saving!");
++      return;
++    }
++
++    if (universalSaveName) universalSaveName.classList.remove("input-invalid");
++    const folderVal = universalSaveFolder ? universalSaveFolder.value : "General";
++    const apiUrl = "https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url";
++
++    const originalText = btnUniversalSave.textContent;
++    btnUniversalSave.textContent = "Saving...";
++    btnUniversalSave.disabled = true;
++
++    try {
++      if (!activeProject) throw new Error("No active project");
++
++      if (activeInfoTool === "PROFILE") {
++        // ── Upload PDF + JSON to S3 (same as btnSaveToSurvey) ──
++        const safeReportName = nameVal.replace(/\s+/g, '_');
++
++        const doc = generateReportPDF(nameVal);
++        const pdfBlob = doc.output('blob');
++
++        const metadata = {
++          isOfficial: !window.isDumpDraw,
++          folder: folderVal,
++          name: nameVal,
++          startPoint: measureStartPoint ? { x: measureStartPoint.x, y: measureStartPoint.y, z: measureStartPoint.z } : null,
++          endPoint: measureEndPoint ? { x: measureEndPoint.x, y: measureEndPoint.y, z: measureEndPoint.z } : null,
++          startCoord: measureStartCoord ? { x: measureStartCoord.x, y: measureStartCoord.y, z: measureStartCoord.z } : null,
++          endCoord: measureEndCoord ? { x: measureEndCoord.x, y: measureEndCoord.y, z: measureEndCoord.z } : null,
++          chartData: {
++            distances: miniChart?.data.labels || [],
++            elevations: miniChart?.data.datasets[0].data || [],
++            currentProfileData: currentProfileData,
++            totalDist: parseFloat(document.getElementById("profileHoriz")?.textContent) || 0,
++            elevChange: parseFloat(document.getElementById("profileVert")?.textContent) || 0,
++            surfDist: parseFloat(document.getElementById("profile3D")?.textContent) || 0
++          }
++        };
++        const jsonBlob = new Blob([JSON.stringify(metadata)], { type: "application/json" });
++
++        // Upload PDF
++        const pdfRes = await fetch(apiUrl, {
++          method: "POST", headers: { "Content-Type": "application/json" },
++          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "reports", fileName: `${safeReportName}.pdf` })
++        });
++        if (!pdfRes.ok) throw new Error("Failed to get PDF upload URL");
++        const { uploadUrl: pdfUploadUrl } = await pdfRes.json();
++        const pdfPut = await fetch(pdfUploadUrl, { method: "PUT", headers: { "Content-Type": "application/pdf" }, body: pdfBlob });
++        if (!pdfPut.ok) throw new Error("Failed to upload PDF to S3");
++
++        // Upload JSON
++        const jsonRes = await fetch(apiUrl, {
++          method: "POST", headers: { "Content-Type": "application/json" },
++          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "reports", fileName: `${safeReportName}.json` })
++        });
++        if (!jsonRes.ok) throw new Error("Failed to get JSON upload URL");
++        const { uploadUrl: jsonUploadUrl } = await jsonRes.json();
++        const jsonPut = await fetch(jsonUploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: jsonBlob });
++        if (!jsonPut.ok) throw new Error("Failed to upload JSON to S3");
++
++        fetchSavedReports();
++
++      } else if (activeInfoTool === "VOLUME") {
++        // ── Upload Volume JSON to S3 (same as btnConfirmVolSave) ──
++        const data = {
++          name: nameVal,
++          folder: folderVal,
++          isOfficial: !window.isDumpDraw,
++          timestamp: new Date().toISOString(),
++          area2D: document.getElementById("volMiniArea")?.textContent || "0",
++          perimeter: document.getElementById("volMiniPerim")?.textContent || "0",
++          cutVolume: document.getElementById("volMiniCut")?.textContent || "0",
++          fillVolume: document.getElementById("volMiniFill")?.textContent || "0",
++          points: volumePoints.map(p => ({ x: p.coord.x, y: p.coord.y, z: p.coord.z }))
++        };
++
++        const safeName = nameVal.replace(/[^a-z0-9]/gi, '_').toLowerCase();
++        const fileName = `${folderVal}/${safeName}_${Date.now()}.json`;
++
++        const volRes = await fetch(apiUrl, {
++          method: "POST", headers: { "Content-Type": "application/json" },
++          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "volumes", fileName })
++        });
++        if (!volRes.ok) throw new Error("Failed to get volume upload URL");
++        const { uploadUrl } = await volRes.json();
++
++        const putRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data, null, 2) });
++        if (!putRes.ok) throw new Error("Failed to upload volume JSON to S3");
++
++        fetchSavedVolumes();
++
++      } else {
++        // Fallback: localStorage for other types (BOX_ROI, POLY_ROI, POINT)
++        if (activeToolSaveData) saveFeatureItem(activeInfoTool?.toLowerCase(), nameVal, folderVal, activeToolSaveData);
++      }
++
++      alert(`✅ Saved "${nameVal}" to folder '${folderVal}'!`);
++      if (unifiedInfoPanel) unifiedInfoPanel.classList.add("hidden");
++      if (topSaveBar) topSaveBar.classList.add("hidden");
++
++    } catch(err) {
++      console.error("Save error:", err);
++      alert("Error saving item: " + err.message);
++    } finally {
++      btnUniversalSave.textContent = originalText;
++      btnUniversalSave.disabled = false;
++    }
++  });
++
++  btnUniversalNewFolder?.addEventListener("click", () => {
++    const newFolder = prompt("Enter new folder name:");
++    if (newFolder && newFolder.trim() !== "") {
++      const trimmed = newFolder.trim();
++      addKnownFolder(trimmed, true, trimmed);
++    }
++  });
++
+   const roiSvg = document.getElementById("roiSvg");
+   const roiFaceTop = document.getElementById("roiFaceTop");
+   const roiFaceRight = document.getElementById("roiFaceRight");
+@@ -669,15 +968,45 @@ window.addEventListener("DOMContentLoaded", () => {
+     roiStart = null;
+     roiEnd = null;
+     document.body.classList.remove("roi-selecting");
+-    selectROI.classList.remove("active");
+-    // Removed selectROI.textContent replacement so SVG isn't destroyed
++    if (selectROI) selectROI.classList.remove("active");
+     if (roiHint) roiHint.textContent = "Click 'Select ROI' to start drawing a rectangle.";
+     if (roiMetrics) roiMetrics.classList.add("hidden");
+     controls.enabled = true;
++    
++    const mainRoiBtn = document.getElementById("mainRoiBtn");
++    if (mainRoiBtn) {
++      mainRoiBtn.classList.remove("active", "overlay-active");
++    }
++    [optRoiRect, optRoiPoly, optRoiKml].forEach(btn => btn?.classList.remove("active"));
++    const roiSvg = document.getElementById("roiSvg");
++    if (roiSvg) roiSvg.style.display = "none";
+   }
+ 
+-  selectROI?.addEventListener("click", () => {
+-    if (selectROI.classList.contains("active")) {
++  // Unified ROI Sub-Panel Controls
++  const mainRoiBtn = document.getElementById("mainRoiBtn");
++  const mainRoiIcon = document.getElementById("mainRoiIcon");
++  const optRoiRect = document.getElementById("optRoiRect");
++  const optRoiPoly = document.getElementById("optRoiPoly");
++  const optRoiKml = document.getElementById("optRoiKml");
++
++  const ROI_ICONS = {
++    RECT: `<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line>`,
++    POLY: `<polygon points="12 2 22 8.5 18 20 6 20 2 8.5 12 2"></polygon>`,
++    KML: `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line>`
++  };
++
++  let activeRoiMode = "RECT";
++
++  function setActiveRoiSubMode(mode) {
++    activeRoiMode = mode;
++    if (mainRoiIcon && ROI_ICONS[mode]) {
++      mainRoiIcon.innerHTML = ROI_ICONS[mode];
++    }
++  }
++
++  function triggerRectRoi() {
++    const mainRoiBtn = document.getElementById("mainRoiBtn");
++    if (mainRoiBtn && mainRoiBtn.classList.contains("overlay-active") && roiState === "SELECTING") {
+       resetRoiState();
+       return;
+     }
+@@ -686,16 +1015,92 @@ window.addEventListener("DOMContentLoaded", () => {
+     measureState = "IDLE";
+     controls.enabled = false;
+     document.body.classList.add("roi-selecting");
+-    selectROI.classList.add("active");
++    if (mainRoiBtn) mainRoiBtn.classList.add("active", "overlay-active");
++    if (optRoiRect) optRoiRect.classList.add("active");
++    if (selectROI) selectROI.classList.add("active");
+     if (roiHint) roiHint.textContent = "Click and drag on the terrain to draw a clipping rectangle.";
+-    resetROI.disabled = false;
++    if (resetROI) resetROI.disabled = false;
++    setLiveGuidance("📐", "Click and drag over the map to draw a rectangular clipping box.");
++  }
++
++  const roiHorizontalBar = document.getElementById("roiHorizontalBar");
++  const roiWrapper = document.getElementById("roiWrapper");
++
++  mainRoiBtn?.addEventListener("click", (e) => {
++    e.stopPropagation();
++    if (roiHorizontalBar) {
++      const isOpen = roiHorizontalBar.classList.toggle("open");
++      if (isOpen) {
++        if (unifiedInfoPanel) unifiedInfoPanel.classList.add("hidden");
++        if (topSaveBar) topSaveBar.classList.add("hidden");
++      }
++    }
++  });
++
++  document.addEventListener("click", (e) => {
++    if (roiWrapper && !roiWrapper.contains(e.target)) {
++      roiHorizontalBar?.classList.remove("open");
++    }
++  });
++
++  selectROI?.addEventListener("click", () => {
++    setActiveRoiSubMode("RECT");
++    triggerRectRoi();
++  });
++
++  optRoiRect?.addEventListener("click", (e) => {
++    e.stopPropagation();
++    roiHorizontalBar?.classList.remove("open");
++    setActiveRoiSubMode("RECT");
++    triggerRectRoi();
++  });
++
++  optRoiPoly?.addEventListener("click", (e) => {
++    e.stopPropagation();
++    roiHorizontalBar?.classList.remove("open");
++    setActiveRoiSubMode("POLY");
++    startRoiPolyDrawing(e);
++  });
++
++  optRoiKml?.addEventListener("click", (e) => {
++    e.stopPropagation();
++    roiHorizontalBar?.classList.remove("open");
++    setActiveRoiSubMode("KML");
++    document.getElementById("kmlUpload")?.click();
++  });
++
++  btnDrawPolyRoi?.addEventListener("click", (e) => {
++    setActiveRoiSubMode("POLY");
++    startRoiPolyDrawing(e);
++  });
++
++  const btnLeftPolyRoi = document.getElementById("btnLeftPolyRoi");
++  const btnResetRoiLeft = document.getElementById("btnResetRoiLeft");
++  const leftRoisHeader = document.getElementById("leftRoisHeader");
++  const leftRoisContent = document.getElementById("leftRoisContent");
++  const leftRoisCarrot = document.getElementById("leftRoisCarrot");
++
++  btnLeftPolyRoi?.addEventListener("click", (e) => {
++    setActiveRoiSubMode("POLY");
++    startRoiPolyDrawing(e);
++  });
++
++  btnResetRoiLeft?.addEventListener("click", () => {
++    const resetRoiBtn = document.getElementById("resetROI");
++    if (resetRoiBtn) resetRoiBtn.click();
++    if (map) map.clippingPlanes = [];
+   });
+ 
+-  btnDrawPolyRoi?.addEventListener("click", (e) => startRoiPolyDrawing(e));
++  leftRoisHeader?.addEventListener("click", () => {
++    if (!leftRoisContent) return;
++    const isHidden = leftRoisContent.style.display === "none";
++    leftRoisContent.style.display = isHidden ? "block" : "none";
++    if (leftRoisCarrot) leftRoisCarrot.textContent = isHidden ? "▼" : "▲";
++  });
+ 
+   function startRoiPolyDrawing(e) {
+-    const btn = e ? e.currentTarget : null;
+-    if (btn && btn.classList.contains("active")) {
++    const btn = mainRoiBtn || (e ? e.currentTarget : null);
++    if (btn && btn.classList.contains("active") && measureMode === "ROI_POLY") {
+       resetRoiState();
+       measureState = "IDLE";
+       measureMode = "NONE";
+@@ -957,11 +1362,23 @@ window.addEventListener("DOMContentLoaded", () => {
+ 
+     roiState = "IDLE";
+     document.body.classList.remove("roi-selecting");
+-    selectROI.classList.remove("active");
+-    // Removed selectROI.textContent replacement so SVG isn't destroyed
++    if (mainRoiBtn) mainRoiBtn.classList.remove("active");
++    if (selectROI) selectROI.classList.remove("active");
+     controls.enabled = true;
+-    resetROI.disabled = false;
++    if (resetROI) resetROI.disabled = false;
+     if (roiHint) roiHint.textContent = "Terrain clipped! Click 'Reset' to restore the full view.";
++
++    const boxW = Math.abs(maxX - minX);
++    const boxH = Math.abs(maxY - minY);
++    const boxArea = boxW * boxH;
++    const boxPerim = 2 * (boxW + boxH);
++
++    const boxPerimEl = document.getElementById("boxRoiPerim");
++    const boxAreaEl = document.getElementById("boxRoiArea");
++    if (boxPerimEl) boxPerimEl.textContent = boxPerim.toLocaleString(undefined, {maximumFractionDigits: 2}) + " m";
++    if (boxAreaEl) boxAreaEl.textContent = boxArea.toLocaleString(undefined, {maximumFractionDigits: 2}) + " m²";
++
++    showUnifiedInfoPanel("BOX_ROI", "BOX ROI ANALYSIS", { minX, maxX, minY, maxY, area: boxArea, perim: boxPerim });
+   });
+ 
+   // -------------------------------------------------------------------------
+@@ -1251,6 +1668,21 @@ window.addEventListener("DOMContentLoaded", () => {
+         
+         map.clippingPlanes = planes;
+         updateRoiPolySvg();
++
++        let polyArea = Math.abs(signedArea) / 2;
++        let polyPerim = 0;
++        for (let i = 0; i < numPoints; i++) {
++          const p1 = roiPolyPoints[i].coord;
++          const p2 = roiPolyPoints[(i + 1) % numPoints].coord;
++          polyPerim += Math.hypot(p2.x - p1.x, p2.y - p1.y);
++        }
++
++        const polyPerimEl = document.getElementById("polyRoiPerim");
++        const polyAreaEl = document.getElementById("polyRoiArea");
++        if (polyPerimEl) polyPerimEl.textContent = polyPerim.toLocaleString(undefined, {maximumFractionDigits: 2}) + " m";
++        if (polyAreaEl) polyAreaEl.textContent = polyArea.toLocaleString(undefined, {maximumFractionDigits: 2}) + " m²";
++
++        showUnifiedInfoPanel("POLY_ROI", "POLYGON ROI ANALYSIS", { points: roiPolyPoints, area: polyArea, perim: polyPerim });
+     });
+   }
+ 
+@@ -1299,11 +1731,28 @@ window.addEventListener("DOMContentLoaded", () => {
+   }
+   controls.addEventListener("change", updateVolumeSvg);
+ 
++  // ── Top-Center Live Map Guidance HUD Helper ──
++  const liveGuidanceHud = document.getElementById("liveGuidanceHud");
++  const guidanceIcon = document.getElementById("guidanceIcon");
++  const guidanceText = document.getElementById("guidanceText");
++
++  function setLiveGuidance(icon, text) {
++    if (!liveGuidanceHud) return;
++    if (!text) {
++      liveGuidanceHud.classList.add("hidden");
++      return;
++    }
++    if (guidanceIcon) guidanceIcon.textContent = icon;
++    if (guidanceText) guidanceText.textContent = text;
++    liveGuidanceHud.classList.remove("hidden");
++  }
++
+   // --- Simple Measurement ---
+   btnMeasureSimple?.addEventListener("click", () => {
+     resetRoiState();
+     measureState = "SELECTING";
+     measureMode = "SIMPLE";
++    setLiveGuidance("📐", "Click start point on map, then drag or click end point to measure.");
+     measureHasFirstTap = false;
+     controls.enabled = false;
+     document.body.classList.add("roi-selecting");
+@@ -1319,6 +1768,7 @@ window.addEventListener("DOMContentLoaded", () => {
+   });
+ 
+   btnClearMeasureSimple?.addEventListener("click", () => {
++    setLiveGuidance(null, null);
+     measureState = "IDLE";
+     measureMode = "NONE";
+     controls.enabled = true;
+@@ -1338,6 +1788,7 @@ window.addEventListener("DOMContentLoaded", () => {
+     resetRoiState();
+     measureState = "SELECTING";
+     measureMode = "PROFILE";
++    setLiveGuidance("📏", "Click on the map to place start point, then drag or tap end point.");
+     measureHasFirstTap = false;
+     controls.enabled = false;
+     document.body.classList.add("roi-selecting");
+@@ -1354,6 +1805,7 @@ window.addEventListener("DOMContentLoaded", () => {
+   });
+ 
+   btnClearProfile?.addEventListener("click", () => {
++    setLiveGuidance(null, null);
+     measureState = "IDLE";
+     measureMode = "NONE";
+     controls.enabled = true;
+@@ -1382,6 +1834,7 @@ window.addEventListener("DOMContentLoaded", () => {
+     resetRoiState();
+     measureState = "SELECTING";
+     measureMode = "VOLUME";
++    setLiveGuidance("📦", "Click points on the map to build volume polygon. Click Finish when done.");
+     controls.enabled = false;
+     document.body.classList.add("roi-selecting");
+     btnDrawVolume.classList.add("active");
+@@ -1406,6 +1859,7 @@ window.addEventListener("DOMContentLoaded", () => {
+   });
+ 
+   btnClearVolume?.addEventListener("click", () => {
++    setLiveGuidance(null, null);
+     measureState = "IDLE";
+     measureMode = "NONE";
+     controls.enabled = true;
+@@ -1425,6 +1879,7 @@ window.addEventListener("DOMContentLoaded", () => {
+   });
+ 
+   btnFinishVolume?.addEventListener("click", () => {
++    setLiveGuidance(null, null);
+     if (measureMode !== "VOLUME") return;
+     if (volumePoints.length < 3) {
+       alert("Please draw at least 3 points for a volume polygon.");
+@@ -1467,7 +1922,10 @@ window.addEventListener("DOMContentLoaded", () => {
+     }
+   });
+ 
++  let isCtrlPanActive = false;
++
+   canvas.addEventListener("mousedown", (e) => {
++    if (e.ctrlKey || isCtrlPanActive) return;
+     if (measureMode === "POINT" && measureState === "SELECTING_POINT") {
+       const rect = canvas.getBoundingClientRect();
+       const mouse = new Vector2(e.clientX - rect.left, e.clientY - rect.top);
+@@ -1479,17 +1937,20 @@ window.addEventListener("DOMContentLoaded", () => {
+         controls.enabled = true;
+         document.body.classList.remove("roi-selecting");
+         
+-        if (pointMiniContainer) {
+-          pointMiniContainer.classList.remove("hidden");
+-          const pCoord = pointDrawCoord.as(proj4('EPSG:4326'));
+-          pointMiniLon.textContent = pCoord.x.toFixed(6) + "°";
+-          pointMiniLat.textContent = pCoord.y.toFixed(6) + "°";
+-          pointMiniElev.textContent = pointDrawPoint.z.toFixed(2) + " m";
+-          if (pointSaveName) {
+-            pointSaveName.value = "";
+-            pointSaveName.focus();
+-          }
+-        }
++        const pCoord = pointDrawCoord.as(proj4('EPSG:4326'));
++        const lon = pCoord.x.toFixed(6) + "°";
++        const lat = pCoord.y.toFixed(6) + "°";
++        const elev = pointDrawPoint.z.toFixed(2) + " m";
++        
++        const ptLonEl = document.getElementById("pointMiniLon");
++        const ptLatEl = document.getElementById("pointMiniLat");
++        const ptElevEl = document.getElementById("pointMiniElev");
++        if (ptLonEl) ptLonEl.textContent = lon;
++        if (ptLatEl) ptLatEl.textContent = lat;
++        if (ptElevEl) ptElevEl.textContent = elev;
++        
++        showUnifiedInfoPanel("POINT", "SAVE POINT", { lon: pCoord.x, lat: pCoord.y, z: pointDrawPoint.z, point: pointDrawPoint });
++        
+         updatePointSvg();
+       }
+       return;
+@@ -1504,14 +1965,17 @@ window.addEventListener("DOMContentLoaded", () => {
+       if (picked && picked.length > 0) {
+         if (measureMode === "ROI_POLY") {
+           roiPolyPoints.push({ point: picked[0].point.clone(), coord: picked[0].coord.clone() });
++          setLiveGuidance("✂️", `Polygon ROI: ${roiPolyPoints.length} Points Placed — Double-click to finish clipping`);
+           updateRoiPolySvg();
+           return;
+         }
+-        if (measureMode === "VOLUME" /* handled */) {
++        if (measureMode === "VOLUME") {
+           volumePoints.push({
+             point: picked[0].point.clone(),
+             coord: picked[0].coord.clone()
+           });
++          measureDragScreenStart = null; // prevent mouseup from treating this as a drag-finish
++          setLiveGuidance("📦", `Volume Drawing: ${volumePoints.length} Points Placed — Click map for next point, or Finish`);
+           updateVolumeSvg();
+           return;
+         }
+@@ -1655,6 +2119,14 @@ window.addEventListener("DOMContentLoaded", () => {
+ 
+   function initCharts() {
+     if (miniChart) return;
++    const miniCanvas = document.getElementById("elevationMiniChart");
++    const fullCanvas = document.getElementById("elevationFullChart");
++    if (!miniCanvas || !fullCanvas) return;
++    
++    const miniCtx = miniCanvas.getContext("2d");
++    const fullCtx = fullCanvas.getContext("2d");
++    if (!miniCtx || !fullCtx) return;
++
+     const commonOptions = {
+       responsive: true,
+       maintainAspectRatio: false,
+@@ -1669,24 +2141,33 @@ window.addEventListener("DOMContentLoaded", () => {
+         y: { 
+           title: { display: true, text: 'Elevation (m)', color: '#1e293b' },
+           ticks: { color: '#64748b' },
+-          grid: { color: '#e2e8f0' }
++          grid: { color: '#e2e8f0' },
++          grace: '5%'
+         }
+       }
+     };
+ 
+-    miniChart = new Chart(elevationMiniChartCtx, {
++    miniChart = new Chart(miniCtx, {
+       type: 'line',
+-      data: { labels: [], datasets: [{ data: [], borderColor: '#5e19ea', backgroundColor: 'rgba(94, 25, 234, 0.15)', fill: true, tension: 0.1, pointRadius: 0, borderWidth: 3 }] },
++      data: { labels: [], datasets: [{ data: [], borderColor: '#5e19ea', backgroundColor: 'rgba(94, 25, 234, 0.2)', fill: true, tension: 0.2, pointRadius: 0, borderWidth: 2.5 }] },
+       options: {
+-        ...commonOptions,
++        responsive: true,
++        maintainAspectRatio: false,
++        animation: false,
++        plugins: { legend: { display: false } },
+         scales: {
+           x: { display: false },
+-          y: { ticks: { color: '#64748b', font: { size: 9 } }, grid: { color: '#e2e8f0' } }
++          y: { 
++            display: true,
++            ticks: { color: '#64748b', font: { size: 9 } }, 
++            grid: { color: 'rgba(226, 232, 240, 0.8)' },
++            grace: '5%'
++          }
+         }
+       }
+     });
+ 
+-    fullChart = new Chart(elevationFullChartCtx, {
++    fullChart = new Chart(fullCtx, {
+       type: 'line',
+       data: { labels: [], datasets: [{ label: 'Elevation', data: [], borderColor: '#5e19ea', backgroundColor: 'rgba(94, 25, 234, 0.15)', fill: true, tension: 0.1, pointRadius: 2, pointHoverRadius: 5, borderWidth: 3 }] },
+       options: commonOptions,
+@@ -1779,14 +2260,11 @@ window.addEventListener("DOMContentLoaded", () => {
+     document.getElementById("volMiniCut").textContent = cutVolume.toLocaleString(undefined, {maximumFractionDigits: 2}) + " m³";
+     document.getElementById("volMiniFill").textContent = fillVolume.toLocaleString(undefined, {maximumFractionDigits: 2}) + " m³";
+     
+-    if (volumeMiniContainer) {
+-      volumeMiniContainer.classList.remove("hidden");
+-    }
++    showUnifiedInfoPanel("VOLUME", "VOLUME ANALYSIS", { area2D, perimeter, cutVolume, fillVolume, coords });
+   }
+ 
+   function updateElevationProfile() {
+     if (!measureStartCoord || !measureEndCoord || !map) {
+-      if (elevationMiniContainer) elevationMiniContainer.classList.add("hidden");
+       return;
+     }
+     
+@@ -1794,7 +2272,6 @@ window.addEventListener("DOMContentLoaded", () => {
+     const dy = measureEndCoord.y - measureStartCoord.y;
+     const totalDist = Math.sqrt(dx * dx + dy * dy);
+     if (totalDist < 1) {
+-      if (elevationMiniContainer) elevationMiniContainer.classList.add("hidden");
+       return;
+     }
+ 
+@@ -1809,9 +2286,13 @@ window.addEventListener("DOMContentLoaded", () => {
+       const t = i / numSamples;
+       const x = measureStartCoord.x + t * dx;
+       const y = measureStartCoord.y + t * dy;
+-      
+-      const sample = map.getElevationFast(x, y);
+-      let z = sample ? sample.elevation : 0;
++      let z = 0;
++      try {
++        const sample = map.getElevationFast(x, y);
++        z = sample ? sample.elevation : 0;
++      } catch (err) {
++        z = 0;
++      }
+       
+       const currentDist = t * totalDist;
+       distances.push(currentDist.toFixed(1));
+@@ -1819,21 +2300,62 @@ window.addEventListener("DOMContentLoaded", () => {
+       currentProfileData.push({ dist: currentDist, elev: z, x, y });
+     }
+ 
+-    if (elevationMiniContainer) elevationMiniContainer.classList.remove("hidden");
++    const elevChange = Math.abs(elevations[elevations.length - 1] - elevations[0]);
++    const surfDist = currentProfileData.reduce((acc, curr, idx) => {
++      if (idx === 0) return 0;
++      const prev = currentProfileData[idx - 1];
++      const dX = curr.x - prev.x;
++      const dY = curr.y - prev.y;
++      const dZ = curr.elev - prev.elev;
++      return acc + Math.sqrt(dX*dX + dY*dY + dZ*dZ);
++    }, 0);
++
++    const profHoriz = document.getElementById("profileHoriz");
++    const profVert = document.getElementById("profileVert");
++    const prof3D = document.getElementById("profile3D");
++    if (profHoriz) profHoriz.textContent = totalDist.toFixed(2) + " m";
++    if (profVert) profVert.textContent = elevChange.toFixed(2) + " m";
++    if (prof3D) prof3D.textContent = surfDist.toFixed(2) + " m";
++
++    showUnifiedInfoPanel("PROFILE", "ELEVATION PATH PROFILE", { totalDist, elevChange, surfDist, distances, elevations, currentProfileData });
+     
+-    initCharts();
+-    miniChart.data.labels = distances;
+-    miniChart.data.datasets[0].data = elevations;
+-    miniChart.update();
++    // Delay chart population to ensure container is visible and has real dimensions
++    setTimeout(() => {
++      initCharts();
++      if (miniChart) {
++        miniChart.data.labels = distances;
++        miniChart.data.datasets[0].data = elevations;
++        miniChart.resize();
++        miniChart.update('none');
++      }
+ 
+-    if (!elevationModal.classList.contains("hidden")) {
+-      fullChart.data.labels = distances;
+-      fullChart.data.datasets[0].data = elevations;
+-      fullChart.update();
+-    }
++      if (elevationModal && !elevationModal.classList.contains("hidden") && fullChart) {
++        fullChart.data.labels = distances;
++        fullChart.data.datasets[0].data = elevations;
++        fullChart.update();
++      }
++    }, 150);
+   }
+ 
++  let wasInfoPanelVisibleOnModalOpen = false;
++  let wasTopSaveBarVisibleOnModalOpen = false;
++
+   elevationMiniContainer?.addEventListener("click", () => {
++    // Auto-hide right info panel and top save bar to avoid visual overlap
++    if (unifiedInfoPanel && !unifiedInfoPanel.classList.contains("hidden")) {
++      wasInfoPanelVisibleOnModalOpen = true;
++      unifiedInfoPanel.classList.add("hidden");
++    } else {
++      wasInfoPanelVisibleOnModalOpen = false;
++    }
++
++    if (topSaveBar && !topSaveBar.classList.contains("hidden")) {
++      wasTopSaveBarVisibleOnModalOpen = true;
++      topSaveBar.classList.add("hidden");
++    } else {
++      wasTopSaveBarVisibleOnModalOpen = false;
++    }
++
+     elevationModal.classList.remove("hidden");
+     initCharts();
+     fullChart.data.labels = miniChart.data.labels;
+@@ -1849,9 +2371,35 @@ window.addEventListener("DOMContentLoaded", () => {
+ 
+   btnCloseModal?.addEventListener("click", () => {
+     elevationModal.classList.add("hidden");
++    // Restore right info panel and top save bar if they were open before expanding
++    if (wasInfoPanelVisibleOnModalOpen && unifiedInfoPanel) {
++      unifiedInfoPanel.classList.remove("hidden");
++    }
++    if (wasTopSaveBarVisibleOnModalOpen && topSaveBar) {
++      topSaveBar.classList.remove("hidden");
++    }
+   });
+ 
+   function generateReportPDF(reportName) {
++    // Force fullChart to sync with miniChart and render if modal is hidden
++    let wasHidden = false;
++    const elevationModal = document.getElementById("elevationModal");
++    if (elevationModal && elevationModal.classList.contains("hidden")) {
++      wasHidden = true;
++      // Make it part of the layout but invisible to the user
++      elevationModal.style.visibility = 'hidden';
++      elevationModal.style.display = 'flex';
++      elevationModal.classList.remove("hidden");
++    }
++
++    if (fullChart && miniChart) {
++      fullChart.data.labels = miniChart.data.labels;
++      fullChart.data.datasets[0].data = miniChart.data.datasets[0].data;
++      // Force synchronous update (Chart.js 3+ uses 'none', fallback to 0)
++      try { fullChart.update('none'); } catch (e) { }
++      try { fullChart.update(0); } catch (e) { }
++    }
++
+     const doc = new jsPDF();
+     const pageWidth = doc.internal.pageSize.getWidth();
+     
+@@ -1883,6 +2431,13 @@ window.addEventListener("DOMContentLoaded", () => {
+     // Add Chart Image
+     const chartImg = fullChart.canvas.toDataURL('image/png');
+     doc.addImage(chartImg, 'PNG', 15, 75, 180, 80);
++
++    // Restore modal state
++    if (wasHidden && elevationModal) {
++      elevationModal.classList.add("hidden");
++      elevationModal.style.visibility = '';
++      elevationModal.style.display = '';
++    }
+     
+     // Calculate Analytical Stats
+     const dists = currentProfileData.map(d => d.dist);
+@@ -1983,7 +2538,15 @@ window.addEventListener("DOMContentLoaded", () => {
+         startPoint: measureStartPoint ? { x: measureStartPoint.x, y: measureStartPoint.y, z: measureStartPoint.z } : null,
+         endPoint: measureEndPoint ? { x: measureEndPoint.x, y: measureEndPoint.y, z: measureEndPoint.z } : null,
+         startCoord: measureStartCoord ? { x: measureStartCoord.x, y: measureStartCoord.y, z: measureStartCoord.z } : null,
+-        endCoord: measureEndCoord ? { x: measureEndCoord.x, y: measureEndCoord.y, z: measureEndCoord.z } : null
++        endCoord: measureEndCoord ? { x: measureEndCoord.x, y: measureEndCoord.y, z: measureEndCoord.z } : null,
++        chartData: {
++          distances: miniChart?.data.labels || [],
++          elevations: miniChart?.data.datasets[0].data || [],
++          currentProfileData: currentProfileData,
++          totalDist: parseFloat(document.getElementById("profileHoriz")?.textContent) || 0,
++          elevChange: parseFloat(document.getElementById("profileVert")?.textContent) || 0,
++          surfDist: parseFloat(document.getElementById("profile3D")?.textContent) || 0
++        }
+       };
+       const jsonBlob = new Blob([JSON.stringify(metadata)], { type: "application/json" });
+       
+@@ -2062,14 +2625,15 @@ window.addEventListener("DOMContentLoaded", () => {
+   const heatmapSettings = document.getElementById('heatmapSettings');
+   const heatmapOpacity = document.getElementById('heatmapOpacity');
+   const heatmapOpacityVal = document.getElementById('heatmapOpacityVal');
+-  const heatmapLoading = document.getElementById('heatmapLoading');
++  const heatmapLoading = document.getElementById('infoHeatmapLoading') || document.getElementById('heatmapLoading');
+ 
+   btnEnableHeatmap?.addEventListener('click', () => {
+     btnEnableHeatmap.disabled = true;
+     heatmapLoading.classList.remove('hidden');
+ 
+     setTimeout(() => {
+-      if (slopeColorMap) {
++      if (slopeColorMap && elevationLayer) {
++        elevationLayer.colorMap = slopeColorMap;
+         slopeColorMap.active = true;
+         if (orthoLayer) {
+           orthoLayer.opacity = 0.4; // Fade the satellite image so the heatmap shines through
+@@ -2077,13 +2641,14 @@ window.addEventListener("DOMContentLoaded", () => {
+         instance.notifyChange();
+       }
+       btnDisableHeatmap.disabled = false;
+-      heatmapLoading.classList.add('hidden');
+-      heatmapSettings.classList.remove('hidden');
++      heatmapLoading?.classList.add('hidden');
++      heatmapSettings?.classList.remove('hidden');
+     }, 600);
+   });
+ 
+   btnDisableHeatmap?.addEventListener('click', () => {
+-    if (slopeColorMap) {
++    if (slopeColorMap && elevationLayer) {
++      elevationLayer.colorMap = null;
+       slopeColorMap.active = false;
+       if (orthoLayer) {
+         orthoLayer.opacity = 1.0; // Restore full satellite imagery
+@@ -2092,7 +2657,7 @@ window.addEventListener("DOMContentLoaded", () => {
+     }
+     btnEnableHeatmap.disabled = false;
+     btnDisableHeatmap.disabled = true;
+-    heatmapSettings.classList.add('hidden');
++    heatmapSettings?.classList.add('hidden');
+   });
+ 
+   heatmapOpacity?.addEventListener('input', (e) => {
+@@ -2289,6 +2854,11 @@ window.addEventListener("DOMContentLoaded", () => {
+     }
+   });
+ 
++  function setActiveSavedItem(itemEl) {
++    document.querySelectorAll(".saved-report-item").forEach(el => el.classList.remove("selected-item"));
++    if (itemEl) itemEl.classList.add("selected-item");
++  }
++
+   // -------------------------------------------------------------------------
+   // Saved Reports UI Logic
+   // -------------------------------------------------------------------------
+@@ -2369,56 +2939,131 @@ window.addEventListener("DOMContentLoaded", () => {
+           }
+ 
+           const cbHtml = `<input type="checkbox" class="report-checkbox feature-checkbox premium-checkbox" data-filename="${pdfFile.fileName}" value="${pdfFile.fileName}" style="display: none; margin-right: 8px;">`;
++          const pdfLinkHtml = `<a href="${pdfFile.url}" target="_blank" class="btn-action-icon pdf-link" title="Download PDF" onclick="event.stopPropagation();" style="display: inline-flex; align-items: center; gap: 3px; font-size: 11px; padding: 2px 6px; border-radius: 4px; text-decoration: none; color: #8b5cf6; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.2);"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> PDF</a>`;
++          
+           item.innerHTML = `
+             ${cbHtml}
+-            <a href="${pdfFile.url}" target="_blank" class="report-link" style="display: flex; align-items: center; flex: 1; color: inherit; text-decoration: none; overflow: hidden;">
++            <div style="display: flex; align-items: center; flex: 1; overflow: hidden; cursor: pointer;">
+               ${svg} <span style="flex: 1; margin-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${pdfFile.fileName}">${pdfFile.fileName.split('/').pop().replace('.pdf', '')}</span>
+-            </a>
+-            <div style="display: flex; align-items: center; gap: 4px;">
++            </div>
++            <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+               ${promoteBtnHtml}
+-              ${viewBtnHtml}
++              ${pdfLinkHtml}
+               <span style="color: #94a3b8; font-size: 10px;">${dateStr}</span>
+             </div>
+           `;
+           
+-          const viewBtn = item.querySelector('.view-path-btn');
+-          if (viewBtn) {
+-            viewBtn.addEventListener('click', async (e) => {
+-              e.stopPropagation();
+-              e.preventDefault();
+-              try {
+-                const _url = jsonFile.url;
+-          const _cacheBuster = _url.includes('?') ? `&t=${Date.now()}` : `?t=${Date.now()}`;
+-          const res = await fetch(_url + _cacheBuster, { cache: 'no-store' });
+-                const text = await res.text();
+-                const m = JSON.parse(text);
+-                
+-                if (m.startPoint && m.endPoint) {
+-                   measureStartPoint = new Vector3(m.startPoint.x, m.startPoint.y, m.startPoint.z);
+-                   measureEndPoint = new Vector3(m.endPoint.x, m.endPoint.y, m.endPoint.z);
+-                   if (m.startCoord) measureStartCoord = new Coordinates(giroCrs, m.startCoord.x, m.startCoord.y, m.startCoord.z);
+-                   if (m.endCoord) measureEndCoord = new Coordinates(giroCrs, m.endCoord.x, m.endCoord.y, m.endCoord.z);
+-                   
+-                   measureMode = "PROFILE";
+-                   measureState = "FINISHED";
+-                   updateMeasureSvg();
++          const loadPathProfile = async () => {
++            if (window.isFeatureManageMode || window.isVolumeManageMode) return;
++            setActiveSavedItem(item);
++            if (!jsonFile) return;
++            try {
++              const _url = jsonFile.url;
++              const _cacheBuster = _url.includes('?') ? `&t=${Date.now()}` : `?t=${Date.now()}`;
++              const res = await fetch(_url + _cacheBuster, { cache: 'no-store' });
++              const text = await res.text();
++              const m = JSON.parse(text);
++              
++              if (m.startPoint && m.endPoint) {
++                 measureStartPoint = new Vector3(m.startPoint.x, m.startPoint.y, m.startPoint.z);
++                 measureEndPoint = new Vector3(m.endPoint.x, m.endPoint.y, m.endPoint.z);
++                 
++                 if (m.startCoord) {
++                   measureStartCoord = new Coordinates(giroCrs, m.startCoord.x, m.startCoord.y, m.startCoord.z);
++                 } else {
++                   measureStartCoord = new Coordinates(giroCrs, instance.reference.x + measureStartPoint.x, instance.reference.y + measureStartPoint.y, measureStartPoint.z);
++                 }
++                 
++                 if (m.endCoord) {
++                   measureEndCoord = new Coordinates(giroCrs, m.endCoord.x, m.endCoord.y, m.endCoord.z);
++                 } else {
++                   measureEndCoord = new Coordinates(giroCrs, instance.reference.x + measureEndPoint.x, instance.reference.y + measureEndPoint.y, measureEndPoint.z);
++                 }
++                 
++                 measureMode = "PROFILE";
++                 measureState = "FINISHED";
++                 updateMeasureSvg();
++                 
++                 // Expand Path Profile tool if closed
++                 if (profileSettings.style.display === "none") {
++                   profileHeader.click();
++                 }
++                 
++                 btnProfile.classList.remove("active");
++                 btnProfile.textContent = "Draw Path Profile";
++                 btnClearProfile.disabled = false;
++                 
++                 if (m.chartData && m.chartData.distances && m.chartData.elevations) {
++                   currentProfileData = m.chartData.currentProfileData || [];
++                   const profHoriz = document.getElementById("profileHoriz");
++                   const profVert = document.getElementById("profileVert");
++                   const prof3D = document.getElementById("profile3D");
++                   if (profHoriz) profHoriz.textContent = (m.chartData.totalDist || 0).toFixed(2) + " m";
++                   if (profVert) profVert.textContent = (m.chartData.elevChange || 0).toFixed(2) + " m";
++                   if (prof3D) prof3D.textContent = (m.chartData.surfDist || 0).toFixed(2) + " m";
+                    
+-                   // Expand Path Profile tool if closed
+-                   if (profileSettings.style.display === "none") {
+-                     profileHeader.click();
++                   if (elevationMiniContainer) elevationMiniContainer.classList.remove('hidden');
++                   if (miniChart && (miniChart.width === 0 || miniChart.height === 0)) {
++                     miniChart.destroy();
++                     miniChart = null;
+                    }
+-                   
+-                   btnProfile.classList.remove("active");
+-                   btnProfile.textContent = "Draw Path Profile";
+-                   btnClearProfile.disabled = false;
+-                   
++                   showUnifiedInfoPanel("PROFILE", "SAVED PATH PROFILE", null, true);
++                    
++                   // Delay chart population to ensure container is visible and has real dimensions
++                   const _savedDistances = m.chartData.distances;
++                   const _savedElevations = m.chartData.elevations;
++                   setTimeout(() => {
++                     initCharts();
++                     if (miniChart) {
++                       miniChart.data.labels = _savedDistances;
++                       miniChart.data.datasets[0].data = _savedElevations;
++                       miniChart.resize();
++                       miniChart.update('none');
++                     }
++                   }, 200);
++                 } else {
+                    updateElevationProfile();
++                 }
++              }
++            } catch(err) {
++              alert("Failed to load path metadata from S3.\nError: " + err.message);
++            }
++          };
++
++          item.addEventListener("click", (e) => {
++            if (e.target.closest(".promote-btn") || e.target.closest(".pdf-link") || e.target.closest("input")) return;
++            if (window.isReportManageMode) {
++              const cb = item.querySelector(".report-checkbox");
++              if (cb) cb.checked = !cb.checked;
++              return;
++            }
++
++            const reportName = pdfFile.fileName.split('/').pop().replace('.pdf', '');
++            const uniqueId = (jsonFile && jsonFile.fileName) ? jsonFile.fileName : pdfFile.fileName;
++            if (isMultiSelectReports) {
++              if (multiSelectedReportsMap.has(uniqueId)) {
++                multiSelectedReportsMap.delete(uniqueId);
++                item.classList.remove("selected-item");
++                if (activeFocusedFeatureId === uniqueId) {
++                  activeFocusedFeatureId = multiSelectedReportsMap.keys().next().value || null;
+                 }
+-              } catch(err) {
+-                alert("Failed to load path metadata from S3.\nError: " + err.message);
++              } else {
++                multiSelectedReportsMap.set(uniqueId, { file: jsonFile, metadata, data: metadata, name: reportName });
++                item.classList.add("selected-item");
++                activeFocusedFeatureId = uniqueId;
++                showUnifiedInfoPanel("PROFILE", "ELEVATION PROFILE", metadata, true);
+               }
+-            });
+-          }
++              if (typeof updateMultiOverlaySvg === "function") updateMultiOverlaySvg();
++            } else {
++              multiSelectedReportsMap.clear();
++              document.querySelectorAll("#reportsList .saved-report-item").forEach(el => el.classList.remove("selected-item"));
++              item.classList.add("selected-item");
++              activeFocusedFeatureId = uniqueId;
++              multiSelectedReportsMap.set(uniqueId, { file: jsonFile, metadata, data: metadata, name: reportName });
++              loadPathProfile();
++              if (typeof updateMultiOverlaySvg === "function") updateMultiOverlaySvg();
++            }
++          });
+           
+           const promoteBtn = item.querySelector('.promote-btn');
+           if (promoteBtn) {
+@@ -2651,16 +3296,7 @@ window.addEventListener("DOMContentLoaded", () => {
+     document.getElementById("customPromptOk").addEventListener("click", () => {
+       const newFolder = input.value.trim();
+       if (newFolder) {
+-        ['volSaveFolder', 'roiSaveFolder', 'reportSaveFolder'].forEach(id => {
+-          const select = document.getElementById(id);
+-          if (select) {
+-            const opt = document.createElement("option");
+-            opt.value = newFolder;
+-            opt.textContent = newFolder;
+-            select.appendChild(opt);
+-            if (id === 'volSaveFolder') select.value = newFolder;
+-          }
+-        });
++        addKnownFolder(newFolder, true, newFolder);
+       }
+       cleanup();
+     });
+@@ -2902,8 +3538,9 @@ window.addEventListener("DOMContentLoaded", () => {
+   }
+ 
+   async function fetchSavedRois() {
+-    if (!featuresListRois) return;
+-    featuresListRois.innerHTML = '<i style="color: var(--muted); padding: 4px;">Loading...</i>';
++    const leftRoisList = document.getElementById("leftRoisList");
++    if (featuresListRois) featuresListRois.innerHTML = '<i style="color: var(--muted); padding: 4px;">Loading...</i>';
++    if (leftRoisList) leftRoisList.innerHTML = '<i style="color: var(--muted); padding: 4px;">Loading...</i>';
+     try {
+       if (!activeProject) return;
+       const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url?projectId=${activeProject.folderName}&surveyId=${activeProject.surveyId}&type=rois`;
+@@ -2911,31 +3548,44 @@ window.addEventListener("DOMContentLoaded", () => {
+       if (!response.ok) throw new Error("Failed to fetch ROIs");
+       const files = await response.json();
+       const jsonFiles = files.filter(f => f.fileName.endsWith('.json'));
++      
+       if (jsonFiles.length === 0) {
+-        featuresListRois.innerHTML = '<i style="color: var(--muted); padding: 4px;">No ROI areas saved yet.</i>';
++        if (featuresListRois) featuresListRois.innerHTML = '<i style="color: var(--muted); padding: 4px;">No ROI areas saved yet.</i>';
++        if (leftRoisList) leftRoisList.innerHTML = '<i style="color: var(--muted); padding: 4px;">No ROI areas saved yet.</i>';
+         return;
+       }
+-      featuresListRois.innerHTML = '';
++      
++      if (featuresListRois) featuresListRois.innerHTML = '';
++      if (leftRoisList) leftRoisList.innerHTML = '';
++
+       for (const file of jsonFiles) {
+-        const item = document.createElement("div");
+-        item.className = "saved-report-item";
+-        const cbHtml = `<input type="checkbox" class="feature-checkbox premium-checkbox" data-filename="${file.fileName}" value="${file.fileName}" style="display: none; margin-right: 8px;">`;
+-        item.innerHTML = `
+-          <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+-            ${cbHtml}
+-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #8b5cf6;"><polygon points="12 2 22 8.5 18 20 6 20 2 8.5 12 2"></polygon></svg>
+-            <span style="font-weight: 500; font-size: 13px; color: var(--text);">${file.fileName.split('/').pop().replace('.json', '')}</span>
+-          </div>
+-          <div style="display: flex; gap: 8px;">
+-            <button class="btn-action-icon view" onclick="loadRoiArea('${file.url}')" title="View">
+-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+-            </button>
+-          </div>
+-        `;
+-        featuresListRois.appendChild(item);
++        const createRoiItem = () => {
++          const item = document.createElement("div");
++          item.className = "saved-report-item";
++          const cbHtml = `<input type="checkbox" class="feature-checkbox premium-checkbox" data-filename="${file.fileName}" value="${file.fileName}" style="display: none; margin-right: 8px;">`;
++          item.innerHTML = `
++            <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
++              ${cbHtml}
++              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #8b5cf6; flex-shrink: 0;"><polygon points="12 2 22 8.5 18 20 6 20 2 8.5 12 2"></polygon></svg>
++              <span style="font-weight: 500; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${file.fileName.split('/').pop().replace('.json', '')}</span>
++            </div>
++          `;
++          
++          item.addEventListener("click", (e) => {
++            if (window.isFeatureManageMode || window.isVolumeManageMode) return;
++            if (e.target.closest("input")) return;
++            setActiveSavedItem(item);
++            loadRoiArea(file.url);
++          });
++          return item;
++        };
++
++        if (featuresListRois) featuresListRois.appendChild(createRoiItem());
++        if (leftRoisList) leftRoisList.appendChild(createRoiItem());
+       }
+     } catch(err) {
+-      featuresListRois.innerHTML = '<i style="color: #ef4444; padding: 4px;">Failed to load ROIs.</i>';
++      if (featuresListRois) featuresListRois.innerHTML = '<i style="color: #ef4444; padding: 4px;">Failed to load ROIs.</i>';
++      if (leftRoisList) leftRoisList.innerHTML = '<i style="color: #ef4444; padding: 4px;">Failed to load ROIs.</i>';
+     }
+   }
+ 
+@@ -2977,6 +3627,7 @@ window.addEventListener("DOMContentLoaded", () => {
+           if (!res.ok) continue;
+           const metadata = await res.json();
+           const folderName = metadata.folder || "General";
++          addKnownFolder(folderName);
+           
+           if (metadata.isOfficial !== false) {
+             if (!officialFolders[folderName]) officialFolders[folderName] = [];
+@@ -2997,16 +3648,20 @@ window.addEventListener("DOMContentLoaded", () => {
+         const folderGroup = document.createElement("div");
+         folderGroup.className = "folder-group";
+         
++        const svgFolder = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5e19ea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px; flex-shrink: 0;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
++        const svgChevron = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chevron-icon" style="transition: transform 0.2s ease;"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
++
+         const fHeader = document.createElement("div");
+         fHeader.className = "folder-header";
+-        fHeader.innerHTML = `<span><i class="folder-icon">📂</i> ${folderName}</span><span>▼</span>`;
++        fHeader.innerHTML = `<span style="display: flex; align-items: center; font-weight: 600; color: #1f2937;">${svgFolder} ${folderName}</span>${svgChevron}`;
+         
+         const fContent = document.createElement("div");
+         fContent.className = "folder-content";
+         fHeader.addEventListener("click", () => {
+           const isHidden = fContent.style.display === "none";
+           fContent.style.display = isHidden ? "block" : "none";
+-          fHeader.querySelector("span:last-child").style.transform = isHidden ? "rotate(0deg)" : "rotate(-90deg)";
++          const chevron = fHeader.querySelector(".chevron-icon");
++          if (chevron) chevron.style.transform = isHidden ? "rotate(0deg)" : "rotate(-90deg)";
+         });
+ 
+         folderItems.forEach(({ file, metadata }) => {
+@@ -3033,7 +3688,6 @@ window.addEventListener("DOMContentLoaded", () => {
+               </div>
+               <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+                 ${promoteBtnHtml}
+-                <button class="btn-outline view-vol-btn" style="padding: 4px 6px; display: flex; align-items: center; gap: 4px; font-size: 11px; border-radius: 4px; color: #0ea5e9; border: 1px solid rgba(14, 165, 233, 0.3); background: rgba(14, 165, 233, 0.05); transition: all 0.2s; cursor: pointer;" title="View Volume on Map"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg> View</button>
+               </div>
+             </div>
+           `;
+@@ -3069,19 +3723,15 @@ window.addEventListener("DOMContentLoaded", () => {
+           }
+ 
+ 
+-          item.querySelector('.view-vol-btn').addEventListener("click", async (e) => {
+-            if (window.isVolumeManageMode) return;
+-            e.stopPropagation();
+-            const btn = e.currentTarget;
+-            const originalText = btn.textContent;
+-            btn.textContent = "Loading...";
++          const loadVolumeAction = async () => {
++            if (window.isVolumeManageMode || window.isFeatureManageMode) return;
++            setActiveSavedItem(item);
+             
+             try {
+               clearAllLeftPanelState();
+               measureMode = "VOLUME";
+               measureState = "FINISHED_VOLUME";
+               
+-              
+               volumePoints = metadata.points.map(p => ({
+                   coord: new Coordinates(giroCrs, p.x, p.y, p.z),
+                   point: new Vector3(p.x, p.y, p.z)
+@@ -3102,11 +3752,8 @@ window.addEventListener("DOMContentLoaded", () => {
+               document.getElementById("volMiniCut").textContent = metadata.cutVolume;
+               document.getElementById("volMiniFill").textContent = metadata.fillVolume;
+               
+-              if (volumeMiniContainer) {
+-                volumeMiniContainer.classList.remove("hidden");
+-              }
++              showUnifiedInfoPanel("VOLUME", "SAVED VOLUME", metadata, true);
+               
+-              // Open Volumes tool if closed
+               if (volumesPanelContent && volumesPanelContent.style.display === "none") {
+                 savedVolumesHeader.click();
+               }
+@@ -3116,18 +3763,45 @@ window.addEventListener("DOMContentLoaded", () => {
+             } catch(err) {
+               console.error("Failed to load volume metadata", err);
+               alert("Failed to load volume details.");
+-            } finally {
+-              btn.textContent = originalText;
+             }
+-          });
+-          
++          };
++
+           item.addEventListener("click", (e) => {
+-            if (window.isVolumeManageMode) {
++            if (window.isVolumeManageMode || window.isFeatureManageMode) {
+               if (e.target.tagName.toLowerCase() !== 'input') {
+                 e.preventDefault();
+                 const cb = item.querySelector(".volume-checkbox");
+                 if (cb) cb.checked = !cb.checked;
+               }
++              return;
++            }
++            if (e.target.closest("button.promote-btn") || e.target.closest("input")) return;
++
++            const uniqueId = file.fileName || metadata.name || "Volume";
++            const volName = metadata.name || file.fileName.split('/').pop().replace('.json', '');
++
++            if (isMultiSelectVolumes) {
++              if (multiSelectedVolumesMap.has(uniqueId)) {
++                multiSelectedVolumesMap.delete(uniqueId);
++                item.classList.remove("selected-item");
++                if (activeFocusedFeatureId === uniqueId) {
++                  activeFocusedFeatureId = multiSelectedVolumesMap.keys().next().value || null;
++                }
++              } else {
++                multiSelectedVolumesMap.set(uniqueId, { file, metadata, data: metadata, name: volName });
++                item.classList.add("selected-item");
++                activeFocusedFeatureId = uniqueId;
++                showUnifiedInfoPanel("VOLUME", "SAVED VOLUME", metadata, true);
++              }
++              if (typeof updateMultiOverlaySvg === "function") updateMultiOverlaySvg();
++            } else {
++              multiSelectedVolumesMap.clear();
++              document.querySelectorAll("#volumesList .saved-report-item").forEach(el => el.classList.remove("selected-item"));
++              item.classList.add("selected-item");
++              activeFocusedFeatureId = uniqueId;
++              multiSelectedVolumesMap.set(uniqueId, { file, metadata, data: metadata, name: volName });
++              loadVolumeAction();
++              if (typeof updateMultiOverlaySvg === "function") updateMultiOverlaySvg();
+             }
+           });
+           
+@@ -3379,6 +4053,100 @@ window.addEventListener("DOMContentLoaded", () => {
+   // (Removed conflicting iOS style manage toggle)
+   
+ 
++  // -------------------------------------------------------------------------
++  // ELEVATIONS OVERLAY LOGIC
++  // -------------------------------------------------------------------------
++  let isElevationsEnabled = false;
++  let elevationGridSpacing = 50;
++  let elevationGridPoints = [];
++  
++  const btnEnableElevations = document.getElementById("btnEnableElevations");
++  const btnDisableElevations = document.getElementById("btnDisableElevations");
++  const elevationsSpacingInput = document.getElementById("elevationsSpacing");
++  const elevationsSpacingVal = document.getElementById("elevationsSpacingVal");
++  const elevationsCanvas = document.getElementById("elevationsSvg"); // Note: variable named elevationsCanvas for simplicity, but it's an SVG now
++
++  function renderElevations() {
++    if (!elevationsCanvas) return;
++    elevationsCanvas.innerHTML = "";
++    
++    if (!isElevationsEnabled || !map) return;
++
++    const step = Math.max(60, elevationGridSpacing * 1.5);
++    let svgContent = "";
++
++    for (let screenX = step / 2; screenX < window.innerWidth; screenX += step) {
++      for (let screenY = step / 2; screenY < window.innerHeight; screenY += step) {
++        const mouse = new Vector2(screenX, screenY);
++        const picked = map.pick(mouse, { gpuPicking: true });
++        
++        if (picked && picked.length > 0 && picked[0].coord) {
++          const coord = picked[0].coord;
++          
++          // Check 1: Must be inside elevation layer extent
++          if (elevationLayer && elevationLayer.extent && elevationLayer.extent.isPointInside(coord)) {
++            // Check 2: Must be a valid elevation value (not no-data padding outside the angled boundary)
++            const sample = map.getElevationFast(coord.x, coord.y);
++            if (sample && typeof sample.elevation === "number" && !isNaN(sample.elevation)) {
++              const text = Math.round(sample.elevation) + " m";
++              svgContent += `<text x="${screenX.toFixed(1)}" y="${screenY.toFixed(1)}" fill="#111111" stroke="rgba(255,255,255,0.95)" stroke-width="3" paint-order="stroke" text-anchor="middle" dominant-baseline="middle" font-family="'Inter', 'Roboto', sans-serif" font-weight="700" font-size="13px">${text}</text>`;
++            }
++          }
++        }
++      }
++    }
++    elevationsCanvas.innerHTML = svgContent;
++  }
++
++  controls.addEventListener('change', () => {
++    if (isElevationsEnabled) renderElevations();
++  });
++
++  btnEnableElevations?.addEventListener('click', () => {
++    isElevationsEnabled = true;
++    btnEnableElevations.disabled = true;
++    btnDisableElevations.disabled = false;
++    renderElevations();
++  });
++  
++  btnDisableElevations?.addEventListener('click', () => {
++    isElevationsEnabled = false;
++    btnEnableElevations.disabled = false;
++    btnDisableElevations.disabled = true;
++    renderElevations(); 
++  });
++  
++  elevationsSpacingInput?.addEventListener('input', (e) => {
++    elevationsSpacingVal.textContent = e.target.value + "m";
++  });
++  
++  elevationsSpacingInput?.addEventListener('change', (e) => {
++    elevationGridSpacing = parseInt(e.target.value);
++    if (isElevationsEnabled) generateElevationGrid();
++  });
++
++  toggleAccordion("elevationsHeader", "elevationsSettings", "elevationsCarrot");
++
++  // -------------------------------------------------------------------------
++  // ORTHOPHOTO TOGGLE LOGIC
++  // -------------------------------------------------------------------------
++  const btnToggleOrtho = document.getElementById("btnToggleOrtho");
++  btnToggleOrtho?.addEventListener('click', () => {
++    if (orthoLayer) {
++      if (btnToggleOrtho.classList.contains("active")) {
++        btnToggleOrtho.classList.remove("active");
++        orthoLayer.opacity = 0;
++        orthoLayer.visible = false;
++      } else {
++        btnToggleOrtho.classList.add("active");
++        orthoLayer.opacity = 1;
++        orthoLayer.visible = true;
++      }
++      instance.notifyChange();
++    }
++  });
++
++
+   const btnResetMap = document.getElementById("btnResetMap");
+   btnResetMap?.addEventListener("click", () => {
+     // 1. Clear UI states
+@@ -3402,4 +4170,585 @@ window.addEventListener("DOMContentLoaded", () => {
+     }
+   });
+ 
++
++  // -------------------------------------------------------------------------
++  // RIGHT TOOLBAR OVERLAY TOGGLES (Grid, Heatmap, Contours)
++  // -------------------------------------------------------------------------
++  const btnRightGrid = document.getElementById("btnRightGrid");
++  const btnRightHeatmap = document.getElementById("btnRightHeatmap");
++  const btnRightContour = document.getElementById("btnRightContour");
++
++  // Track overlay active states
++  let isGridOverlayActive = false;
++  let isHeatmapOverlayActive = false;
++  let isContourOverlayActive = false;
++
++  // --- Grid Toggle ---
++  btnRightGrid?.addEventListener("click", () => {
++    if (isGridOverlayActive) {
++      // Turn OFF
++      isGridOverlayActive = false;
++      btnRightGrid.classList.remove("overlay-active");
++      const btnDisableElevations = document.getElementById("btnDisableElevations");
++      if (btnDisableElevations && !btnDisableElevations.disabled) btnDisableElevations.click();
++      if (unifiedInfoPanel) unifiedInfoPanel.classList.add("hidden");
++      if (topSaveBar) topSaveBar.classList.add("hidden");
++    } else {
++      // Show panel without turning ON
++      showUnifiedInfoPanel("GRID", "ELEVATIONS GRID", null, false);
++      // Sync info panel slider with the original slider
++      const origSpacing = document.getElementById("elevationsSpacing");
++      const infoSpacing = document.getElementById("infoElevationsSpacing");
++      const infoSpacingVal = document.getElementById("infoElevationsSpacingVal");
++      if (origSpacing && infoSpacing) {
++        infoSpacing.value = origSpacing.value;
++        if (infoSpacingVal) infoSpacingVal.textContent = origSpacing.value + "m";
++      }
++    }
++  });
++
++  // Sync info panel grid slider -> original slider
++  document.getElementById("infoElevationsSpacing")?.addEventListener("input", (e) => {
++    const origSpacing = document.getElementById("elevationsSpacing");
++    const infoSpacingVal = document.getElementById("infoElevationsSpacingVal");
++    if (origSpacing) {
++      origSpacing.value = e.target.value;
++      origSpacing.dispatchEvent(new Event("input"));
++    }
++    if (infoSpacingVal) infoSpacingVal.textContent = e.target.value + "m";
++  });
++
++  // Sync original disable button -> clear active state
++  document.getElementById("btnDisableElevations")?.addEventListener("click", () => {
++    isGridOverlayActive = false;
++    if (btnRightGrid) btnRightGrid.classList.remove("overlay-active");
++  });
++  document.getElementById("btnEnableElevations")?.addEventListener("click", () => {
++    isGridOverlayActive = true;
++    if (btnRightGrid) btnRightGrid.classList.add("overlay-active");
++  });
++
++  // --- Heatmap Toggle ---
++  btnRightHeatmap?.addEventListener("click", () => {
++    if (isHeatmapOverlayActive) {
++      // Turn OFF
++      isHeatmapOverlayActive = false;
++      btnRightHeatmap.classList.remove("overlay-active");
++      const btnDisableHeatmap = document.getElementById("btnDisableHeatmap");
++      if (btnDisableHeatmap && !btnDisableHeatmap.disabled) btnDisableHeatmap.click();
++      if (unifiedInfoPanel) unifiedInfoPanel.classList.add("hidden");
++      if (topSaveBar) topSaveBar.classList.add("hidden");
++    } else {
++      // Show panel without turning ON
++      showUnifiedInfoPanel("HEATMAP", "SLOPE HEATMAP", null, false);
++      // Sync opacity
++      const origOpacity = document.getElementById("heatmapOpacity");
++      const infoOpacity = document.getElementById("infoHeatmapOpacity");
++      const infoOpacityVal = document.getElementById("infoHeatmapOpacityVal");
++      if (origOpacity && infoOpacity) {
++        infoOpacity.value = origOpacity.value;
++        if (infoOpacityVal) infoOpacityVal.textContent = Math.round(parseFloat(origOpacity.value) * 100) + "%";
++      }
++    }
++  });
++
++  // Sync info panel heatmap opacity -> original slider
++  document.getElementById("infoHeatmapOpacity")?.addEventListener("input", (e) => {
++    const origOpacity = document.getElementById("heatmapOpacity");
++    const infoOpacityVal = document.getElementById("infoHeatmapOpacityVal");
++    if (origOpacity) {
++      origOpacity.value = e.target.value;
++      origOpacity.dispatchEvent(new Event("input"));
++    }
++    if (infoOpacityVal) infoOpacityVal.textContent = Math.round(parseFloat(e.target.value) * 100) + "%";
++  });
++
++  // Sync info panel heatmap mode radios -> original radios
++  document.querySelectorAll('input[name="infoHeatmapMode"]').forEach(radio => {
++    radio.addEventListener("change", (e) => {
++      const mode = e.target.value;
++      // Click the corresponding original radio
++      const origRadio = document.querySelector(`input[name="heatmapMode"][value="${mode}"]`);
++      if (origRadio) {
++        origRadio.checked = true;
++        origRadio.dispatchEvent(new Event("change"));
++      }
++      // Toggle info panel legends
++      const infoPredefined = document.getElementById("infoPredefinedHeatmapUI");
++      const infoHaulroad = document.getElementById("infoHaulroadHeatmapUI");
++      const infoCustom = document.getElementById("infoCustomHeatmapUI");
++      if (infoPredefined) infoPredefined.classList.toggle("hidden", mode !== "predefined");
++      if (infoHaulroad) infoHaulroad.classList.toggle("hidden", mode !== "haulroad");
++      if (infoCustom) infoCustom.classList.toggle("hidden", mode !== "custom");
++    });
++  });
++
++  // Sync original disable/enable heatmap buttons -> clear/set active state  
++  document.getElementById("btnDisableHeatmap")?.addEventListener("click", () => {
++    isHeatmapOverlayActive = false;
++    if (btnRightHeatmap) btnRightHeatmap.classList.remove("overlay-active");
++  });
++  document.getElementById("btnEnableHeatmap")?.addEventListener("click", () => {
++    isHeatmapOverlayActive = true;
++    if (btnRightHeatmap) btnRightHeatmap.classList.add("overlay-active");
++  });
++
++  // --- Contour Toggle ---
++  btnRightContour?.addEventListener("click", () => {
++    if (isContourOverlayActive) {
++      // Turn OFF
++      isContourOverlayActive = false;
++      btnRightContour.classList.remove("overlay-active");
++      const btnDisableContours = document.getElementById("btnDisableContours");
++      if (btnDisableContours && !btnDisableContours.disabled) btnDisableContours.click();
++      if (unifiedInfoPanel) unifiedInfoPanel.classList.add("hidden");
++      if (topSaveBar) topSaveBar.classList.add("hidden");
++    } else {
++      // Show panel without turning ON
++      showUnifiedInfoPanel("CONTOUR", "TOPOGRAPHIC CONTOURS", null, false);
++      // Sync all contour values
++      const syncContourField = (origId, infoId) => {
++        const orig = document.getElementById(origId);
++        const info = document.getElementById(infoId);
++        if (orig && info) info.value = orig.value;
++      };
++      syncContourField("contourPreset", "infoContourPreset");
++      syncContourField("contourInterval", "infoContourInterval");
++      syncContourField("majorInterval", "infoMajorInterval");
++      syncContourField("contourColor", "infoContourColor");
++      syncContourField("contourWidth", "infoContourWidth");
++      syncContourField("contourOpacity", "infoContourOpacity");
++      const infoOpacityVal = document.getElementById("infoContourOpacityVal");
++      const origOpacity = document.getElementById("contourOpacity");
++      if (infoOpacityVal && origOpacity) infoOpacityVal.textContent = origOpacity.value;
++      const infoRange = document.getElementById("infoContourRange");
++      const origRange = document.getElementById("contourRange");
++      if (infoRange && origRange) infoRange.textContent = origRange.textContent;
++    }
++  });
++
++  // Sync info panel contour controls -> original controls
++  const syncInfoToOrigContour = (infoId, origId) => {
++    document.getElementById(infoId)?.addEventListener("input", (e) => {
++      const orig = document.getElementById(origId);
++      if (orig) {
++        orig.value = e.target.value;
++        orig.dispatchEvent(new Event("input"));
++        orig.dispatchEvent(new Event("change"));
++      }
++    });
++    document.getElementById(infoId)?.addEventListener("change", (e) => {
++      const orig = document.getElementById(origId);
++      if (orig) {
++        orig.value = e.target.value;
++        orig.dispatchEvent(new Event("change"));
++      }
++    });
++  };
++  syncInfoToOrigContour("infoContourPreset", "contourPreset");
++  syncInfoToOrigContour("infoContourInterval", "contourInterval");
++  syncInfoToOrigContour("infoMajorInterval", "majorInterval");
++  syncInfoToOrigContour("infoContourColor", "contourColor");
++  syncInfoToOrigContour("infoContourWidth", "contourWidth");
++  syncInfoToOrigContour("infoContourOpacity", "contourOpacity");
++
++  document.getElementById("infoContourOpacity")?.addEventListener("input", (e) => {
++    const val = document.getElementById("infoContourOpacityVal");
++    if (val) val.textContent = e.target.value;
++  });
++
++  // Sync original disable/enable contour buttons -> clear/set active state
++  document.getElementById("btnDisableContours")?.addEventListener("click", () => {
++    isContourOverlayActive = false;
++    if (btnRightContour) btnRightContour.classList.remove("overlay-active");
++  });
++  document.getElementById("btnEnableContours")?.addEventListener("click", () => {
++    isContourOverlayActive = true;
++    if (btnRightContour) btnRightContour.classList.add("overlay-active");
++  });
++
++  // -------------------------------------------------------------------------
++  // MULTI-SELECT CONTROLLER & 3D FLOATING NAME LABEL OVERLAY RENDERER
++  // -------------------------------------------------------------------------
++  const multiPolygonsGroup = document.getElementById("multiPolygonsGroup");
++  const multiLinesGroup = document.getElementById("multiLinesGroup");
++  const multiBadgesGroup = document.getElementById("multiBadgesGroup");
++
++  const toggleMultiSelectReports = document.getElementById("toggleMultiSelectReports");
++  toggleMultiSelectReports?.addEventListener("click", () => {
++    isMultiSelectReports = !isMultiSelectReports;
++    toggleMultiSelectReports.classList.toggle("active", isMultiSelectReports);
++    if (!isMultiSelectReports) {
++      multiSelectedReportsMap.clear();
++      activeFocusedFeatureId = null;
++      document.querySelectorAll("#reportsList .saved-report-item").forEach(el => el.classList.remove("selected-item"));
++      updateMultiOverlaySvg();
++    }
++  });
++
++  const toggleMultiSelectVolumes = document.getElementById("toggleMultiSelectVolumes");
++  toggleMultiSelectVolumes?.addEventListener("click", () => {
++    isMultiSelectVolumes = !isMultiSelectVolumes;
++    toggleMultiSelectVolumes.classList.toggle("active", isMultiSelectVolumes);
++    if (!isMultiSelectVolumes) {
++      multiSelectedVolumesMap.clear();
++      activeFocusedFeatureId = null;
++      document.querySelectorAll("#volumesList .saved-report-item").forEach(el => el.classList.remove("selected-item"));
++      updateMultiOverlaySvg();
++    }
++  });
++
++  window.updateMultiOverlaySvg = function() {
++    if (!instance || !instance.view || !instance.view.camera) return;
++    const camera = instance.view.camera;
++
++    if (multiPolygonsGroup) multiPolygonsGroup.innerHTML = "";
++    if (multiLinesGroup) multiLinesGroup.innerHTML = "";
++    if (multiBadgesGroup) multiBadgesGroup.innerHTML = "";
++
++    // 1. Render Multi-Selected Volumes
++    multiSelectedVolumesMap.forEach((item, id) => {
++      if (!item.data || !item.data.points || item.data.points.length < 3) return;
++      const isFocused = id === activeFocusedFeatureId;
++
++      let sumX = 0, sumY = 0, sumZ = 0;
++      const screenPoints = item.data.points.map(pt => {
++        const v = new Vector3(pt.x, pt.y, pt.z);
++        sumX += pt.x; sumY += pt.y; sumZ += pt.z;
++        const p = v.clone().project(camera);
++        const sx = (p.x * 0.5 + 0.5) * window.innerWidth;
++        const sy = (-(p.y * 0.5) + 0.5) * window.innerHeight;
++        return `${sx},${sy}`;
++      });
++
++      const ptsAttr = screenPoints.join(" ");
++      const strokeColor = isFocused ? "#5e19ea" : "#0ea5e9";
++      const fillColor = isFocused ? "rgba(94, 25, 234, 0.28)" : "rgba(14, 165, 233, 0.18)";
++      const strokeWidth = isFocused ? "3.5" : "2";
++
++      const polyEl = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
++      polyEl.setAttribute("points", ptsAttr);
++      polyEl.setAttribute("fill", fillColor);
++      polyEl.setAttribute("stroke", strokeColor);
++      polyEl.setAttribute("stroke-width", strokeWidth);
++      polyEl.setAttribute("stroke-linejoin", "round");
++      if (isFocused) polyEl.setAttribute("filter", "url(#multiGlow)");
++      polyEl.style.cursor = "pointer";
++      polyEl.style.pointerEvents = "auto";
++
++      polyEl.addEventListener("click", (e) => {
++        e.stopPropagation();
++        focusMultiFeature(id, "VOLUME");
++      });
++
++      if (multiPolygonsGroup) multiPolygonsGroup.appendChild(polyEl);
++
++      // Render Floating 3D Name Badge at volume polygon centroid
++      const count = item.data.points.length;
++      const centroidWorld = new Vector3(sumX / count, sumY / count, sumZ / count);
++      const projCentroid = centroidWorld.project(camera);
++      const badgeX = (projCentroid.x * 0.5 + 0.5) * window.innerWidth;
++      const badgeY = (-(projCentroid.y * 0.5) + 0.5) * window.innerHeight;
++
++      renderMapBadge(item.name || "Volume", badgeX, badgeY, isFocused, () => focusMultiFeature(id, "VOLUME"));
++    });
++
++    // 2. Render Multi-Selected Path Profiles
++    multiSelectedReportsMap.forEach((item, id) => {
++      if (!item.data || !item.data.points || item.data.points.length < 2) return;
++      const isFocused = id === activeFocusedFeatureId;
++
++      let sumX = 0, sumY = 0, sumZ = 0;
++      const screenPoints = item.data.points.map(pt => {
++        const v = new Vector3(pt.x, pt.y, pt.z);
++        sumX += pt.x; sumY += pt.y; sumZ += pt.z;
++        const p = v.clone().project(camera);
++        const sx = (p.x * 0.5 + 0.5) * window.innerWidth;
++        const sy = (-(p.y * 0.5) + 0.5) * window.innerHeight;
++        return `${sx},${sy}`;
++      });
++
++      const ptsAttr = screenPoints.join(" ");
++      const strokeColor = isFocused ? "#5e19ea" : "#10b981";
++      const strokeWidth = isFocused ? "4.5" : "2.5";
++
++      const lineEl = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
++      lineEl.setAttribute("points", ptsAttr);
++      lineEl.setAttribute("fill", "none");
++      lineEl.setAttribute("stroke", strokeColor);
++      lineEl.setAttribute("stroke-width", strokeWidth);
++      lineEl.setAttribute("stroke-linejoin", "round");
++      if (isFocused) lineEl.setAttribute("filter", "url(#multiGlow)");
++      lineEl.style.cursor = "pointer";
++      lineEl.style.pointerEvents = "auto";
++
++      lineEl.addEventListener("click", (e) => {
++        e.stopPropagation();
++        focusMultiFeature(id, "PROFILE");
++      });
++
++      if (multiLinesGroup) multiLinesGroup.appendChild(lineEl);
++
++      // Midpoint badge
++      const count = item.data.points.length;
++      const midWorld = new Vector3(sumX / count, sumY / count, sumZ / count);
++      const projMid = midWorld.project(camera);
++      const badgeX = (projMid.x * 0.5 + 0.5) * window.innerWidth;
++      const badgeY = (-(projMid.y * 0.5) + 0.5) * window.innerHeight;
++
++      renderMapBadge(item.name || "Profile", badgeX, badgeY, isFocused, () => focusMultiFeature(id, "PROFILE"));
++    });
++  };
++
++  function renderMapBadge(text, x, y, isFocused, onClick) {
++    if (!multiBadgesGroup || isNaN(x) || isNaN(y)) return;
++    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
++    g.style.cursor = "pointer";
++    g.style.pointerEvents = "auto";
++
++    const paddingX = 10;
++    const height = 22;
++    const textWidth = Math.max(45, text.length * 7.5);
++    const width = textWidth + paddingX * 2;
++    const rectX = x - width / 2;
++    const rectY = y - height / 2;
++
++    const bgRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
++    bgRect.setAttribute("x", rectX);
++    bgRect.setAttribute("y", rectY);
++    bgRect.setAttribute("width", width);
++    bgRect.setAttribute("height", height);
++    bgRect.setAttribute("rx", "11");
++    bgRect.setAttribute("fill", isFocused ? "#5e19ea" : "rgba(255, 255, 255, 0.94)");
++    bgRect.setAttribute("stroke", isFocused ? "#ffffff" : "#5e19ea");
++    bgRect.setAttribute("stroke-width", "1.5");
++    if (isFocused) bgRect.setAttribute("filter", "url(#multiGlow)");
++
++    const textEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
++    textEl.setAttribute("x", x);
++    textEl.setAttribute("y", y + 4);
++    textEl.setAttribute("text-anchor", "middle");
++    textEl.setAttribute("fill", isFocused ? "#ffffff" : "#1f2937");
++    textEl.setAttribute("font-size", "11");
++    textEl.setAttribute("font-weight", "700");
++    textEl.setAttribute("font-family", "Inter, sans-serif");
++    textEl.textContent = text;
++
++    g.appendChild(bgRect);
++    g.appendChild(textEl);
++    g.addEventListener("click", (e) => {
++      e.stopPropagation();
++      if (onClick) onClick();
++    });
++
++    multiBadgesGroup.appendChild(g);
++  }
++
++  function focusMultiFeature(id, type) {
++    activeFocusedFeatureId = id;
++    if (type === "VOLUME") {
++      const vol = multiSelectedVolumesMap.get(id);
++      if (vol && vol.data) {
++        document.getElementById("volMiniArea").textContent = vol.data.area2D || "0";
++        document.getElementById("volMiniPerim").textContent = vol.data.perimeter || "0";
++        document.getElementById("volMiniCut").textContent = vol.data.cutVolume || "0";
++        document.getElementById("volMiniFill").textContent = vol.data.fillVolume || "0";
++        showUnifiedInfoPanel("VOLUME", "SAVED VOLUME", vol.data, true);
++      }
++    } else if (type === "PROFILE") {
++      const prof = multiSelectedReportsMap.get(id);
++      if (prof && prof.data) {
++        showUnifiedInfoPanel("PROFILE", "ELEVATION PROFILE", prof.data, true);
++      }
++    }
++    updateMultiOverlaySvg();
++  }
++
++  controls.addEventListener("change", () => {
++    if (typeof updateMultiOverlaySvg === "function") updateMultiOverlaySvg();
++  });
++
++  // -------------------------------------------------------------------------
++  // GLOBAL KEYBOARD SHORTCUTS & NAVIGATION (ESC Clear + Arrow Key Camera Controls)
++  // -------------------------------------------------------------------------
++  window.addEventListener("keydown", (e) => {
++    // Ignore keypresses when user is actively typing in form inputs
++    const activeEl = document.activeElement;
++    if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || activeEl.tagName === "SELECT")) {
++      return;
++    }
++
++    // --- Hold CTRL to pan/rotate map mid-drawing ---
++    if ((e.key === "Control" || e.ctrlKey) && !isCtrlPanActive) {
++      if (measureState === "SELECTING" || roiState === "SELECTING") {
++        isCtrlPanActive = true;
++        if (controls) controls.enabled = true;
++        document.body.classList.remove("roi-selecting");
++        setLiveGuidance("🗺️", "CTRL Held: Drag mouse to pan/rotate map • Release CTRL to resume drawing");
++      }
++    }
++
++    // --- 1. Global ESC Key Reset Handler ---
++    if (e.key === "Escape") {
++      e.preventDefault();
++      
++      // Reset active drawing & tool mode
++      measureState = "IDLE";
++      measureMode = "NONE";
++      if (controls) controls.enabled = true;
++      document.body.classList.remove("roi-selecting");
++
++      // Reset button states
++      [btnMeasureSimple, btnProfile, btnDrawVolume, btnDrawPolyRoi].forEach(b => b?.classList.remove("active"));
++      if (btnClearMeasureSimple) btnClearMeasureSimple.disabled = true;
++      if (btnClearProfile) btnClearProfile.disabled = true;
++      if (btnClearVolume) btnClearVolume.disabled = true;
++      if (btnFinishVolume) btnFinishVolume.classList.add("hidden");
++
++      // Clear drawn graphics & SVGs
++      clearMeasure();
++      volumePoints = [];
++      volumeMousePoint = null;
++      updateVolumeSvg();
++      roiPolyPoints = [];
++      roiPolyMousePoint = null;
++      updateRoiPolySvg();
++      
++      pointDrawPoint = null;
++      pointDrawCoord = null;
++      if (pointSvg) pointSvg.style.display = "none";
++      if (map) map.clippingPlanes = [];
++
++      // Hide active tool panels, modals & guidance
++      if (unifiedInfoPanel) unifiedInfoPanel.classList.add("hidden");
++      if (topSaveBar) topSaveBar.classList.add("hidden");
++      if (elevationModal) elevationModal.classList.add("hidden");
++      const volumeSaveModal = document.getElementById("volumeSaveModal");
++      if (volumeSaveModal) volumeSaveModal.classList.add("hidden");
++      const roiHorizontalBar = document.getElementById("roiHorizontalBar");
++      if (roiHorizontalBar) roiHorizontalBar.classList.remove("open");
++
++      setLiveGuidance(null, null);
++      return;
++    }
++
++    // --- 2. Arrow Key 3D Camera Controls (Continuous Smooth Inertia Sliding) ---
++    if (e.key in arrowKeysPressed) {
++      e.preventDefault();
++      arrowKeysPressed[e.key] = true;
++      startSmoothCamLoop();
++    }
++  });
++
++  const arrowKeysPressed = {
++    ArrowUp: false,
++    ArrowDown: false,
++    ArrowLeft: false,
++    ArrowRight: false
++  };
++
++  let camVelocityX = 0;
++  let camVelocityY = 0;
++  let animFrameId = null;
++
++  window.addEventListener("keyup", (e) => {
++    if (e.key in arrowKeysPressed) {
++      arrowKeysPressed[e.key] = false;
++    }
++    if (e.key === "Control" || !e.ctrlKey) {
++      if (isCtrlPanActive) {
++        isCtrlPanActive = false;
++        if (measureState === "SELECTING" || roiState === "SELECTING") {
++          if (controls) controls.enabled = false;
++          document.body.classList.add("roi-selecting");
++          
++          if (measureMode === "VOLUME") {
++            setLiveGuidance("📦", `Volume Drawing: ${volumePoints.length} Points Placed — Click map for next point, or Finish`);
++          } else if (measureMode === "PROFILE") {
++            setLiveGuidance("📏", "Click on the map to place start point, then drag or tap end point.");
++          } else if (measureMode === "ROI_POLY") {
++            setLiveGuidance("✂️", `Polygon ROI: ${roiPolyPoints.length} Points Placed — Double-click to finish clipping`);
++          } else if (roiState === "SELECTING") {
++            setLiveGuidance("📐", "Click and drag over the map to draw a rectangular clipping box.");
++          } else if (measureMode === "SIMPLE") {
++            setLiveGuidance("📐", "Click start point on map, then drag or click end point to measure.");
++          }
++        }
++      }
++    }
++  });
++
++  function startSmoothCamLoop() {
++    if (animFrameId) return; // Loop already running
++
++    function updateCamVelocity() {
++      if (!controls || !map || !instance) {
++        animFrameId = null;
++        return;
++      }
++
++      const cameraObj = controls.object || instance.view?.camera;
++      if (!cameraObj || !controls.target) {
++        animFrameId = null;
++        return;
++      }
++
++      const isAnyKeyPressed = Object.values(arrowKeysPressed).some(Boolean);
++
++      let targetVelX = 0;
++      let targetVelY = 0;
++
++      if (isAnyKeyPressed) {
++        const dist = cameraObj.position.distanceTo(controls.target);
++        // Max frame velocity scaled smoothly to current zoom altitude (ultra-gentle & micro-smooth)
++        const maxSpeed = Math.max(0.05, Math.min(6, dist * 0.0006));
++        const azimuth = controls.getAzimuthalAngle ? controls.getAzimuthalAngle() : 0;
++        const sinAz = Math.sin(azimuth);
++        const cosAz = Math.cos(azimuth);
++
++        if (arrowKeysPressed.ArrowUp) {
++          targetVelX += -maxSpeed * sinAz;
++          targetVelY += maxSpeed * cosAz;
++        }
++        if (arrowKeysPressed.ArrowDown) {
++          targetVelX += maxSpeed * sinAz;
++          targetVelY += -maxSpeed * cosAz;
++        }
++        if (arrowKeysPressed.ArrowLeft) {
++          targetVelX += -maxSpeed * cosAz;
++          targetVelY += -maxSpeed * sinAz;
++        }
++        if (arrowKeysPressed.ArrowRight) {
++          targetVelX += maxSpeed * cosAz;
++          targetVelY += maxSpeed * sinAz;
++        }
++      }
++
++      // Ultra-smooth acceleration (0.05) & soft glide deceleration (0.05)
++      const lerpFactor = isAnyKeyPressed ? 0.05 : 0.05;
++      camVelocityX += (targetVelX - camVelocityX) * lerpFactor;
++      camVelocityY += (targetVelY - camVelocityY) * lerpFactor;
++
++      const currentSpeedSq = camVelocityX * camVelocityX + camVelocityY * camVelocityY;
++
++      if (currentSpeedSq > 0.0001) {
++        controls.target.x += camVelocityX;
++        controls.target.y += camVelocityY;
++        cameraObj.position.x += camVelocityX;
++        cameraObj.position.y += camVelocityY;
++
++        controls.update();
++        instance.notifyChange();
++
++        animFrameId = requestAnimationFrame(updateCamVelocity);
++      } else {
++        camVelocityX = 0;
++        camVelocityY = 0;
++        animFrameId = null;
++      }
++    }
++
++    animFrameId = requestAnimationFrame(updateCamVelocity);
++  }
++
+ });

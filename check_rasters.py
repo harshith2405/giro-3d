@@ -1,66 +1,125 @@
-import sys
 import rasterio
 import numpy as np
 from pathlib import Path
 
-def print_raster_info(file_path):
-    print(f"\n{'='*50}")
-    print(f"Checking Raster: {file_path}")
-    print(f"{'='*50}")
-    
+
+def inspect_raster(file_path):
     try:
         with rasterio.open(file_path) as src:
-            print(f"Driver:       {src.driver}")
-            print(f"Width:        {src.width}")
-            print(f"Height:       {src.height}")
-            print(f"Count:        {src.count}")
-            print(f"CRS:          {src.crs}")
-            
             bounds = src.bounds
-            print(f"Bounds:       Left: {bounds.left:.2f}, Bottom: {bounds.bottom:.2f}")
-            print(f"              Right: {bounds.right:.2f}, Top: {bounds.top:.2f}")
-            
-            print(f"Transform:    {src.transform}")
-            print(f"NoData Value: {src.nodata}")
-            print(f"Dtypes:       {src.dtypes}")
-            
-            print(f"Is Tiled:     {src.is_tiled}")
-            if src.is_tiled:
-                print(f"Block Shapes: {src.block_shapes}")
-                
-            print(f"Overviews:    {[src.overviews(i) for i in src.indexes]}")
-            
-            # Print stats for each band
-            print("\nBand Statistics:")
-            for i in src.indexes:
-                # Read band, handle nodata
-                band = src.read(i)
+            min_elev = None
+
+            # Get EPSG if available
+            epsg = src.crs.to_epsg() if src.crs else None
+
+            # Sample elevation for DSM/DTM
+            if src.count == 1:
+                small_band = src.read(1, out_shape=(500, 500))
+
                 if src.nodata is not None:
-                    band = np.ma.masked_equal(band, src.nodata)
-                    if not band.mask.all():
-                        print(f"  Band {i}: Min={band.min():.2f}, Max={band.max():.2f}, Mean={band.mean():.2f}")
-                    else:
-                        print(f"  Band {i}: All NoData")
+                    small_band = np.ma.masked_equal(small_band, src.nodata)
+
+                if hasattr(small_band, "mask"):
+                    if not small_band.mask.all():
+                        min_elev = float(small_band.min())
                 else:
-                    print(f"  Band {i}: Min={band.min():.2f}, Max={band.max():.2f}, Mean={band.mean():.2f}")
-                    
+                    min_elev = float(small_band.min())
+
+            return {
+                "file": str(file_path),
+                "left": round(bounds.left, 2),
+                "right": round(bounds.right, 2),
+                "bottom": round(bounds.bottom, 2),
+                "top": round(bounds.top, 2),
+                "min_elev": round(min_elev, 1) if min_elev is not None else None,
+                "crs": str(src.crs),
+                "epsg": epsg,
+                "tiled": src.is_tiled,
+            }
+
     except Exception as e:
-        print(f"Error reading {file_path}: {e}")
+        print(f"\n❌ Error reading file:\n{e}")
+        return None
+
+
+def main():
+    print("=" * 60)
+    print("⚡ INSTANT RASTER INSPECTOR")
+    print("=" * 60)
+
+    print("\nPaste one or more TIFF file paths.")
+    print("Press Enter on an empty line when finished.\n")
+
+    files = []n
+
+    while True:
+        path = input("TIFF Path: ").strip().strip('"')
+
+        if path == "":
+            break
+
+        if Path(path).exists():
+            files.append(path)
+        else:
+            print("❌ File not found.")
+
+    if not files:
+        print("No files selected.")
+        return
+
+    results = []
+    dsm_info = None
+    ortho_info = None
+
+    for f in files:
+        info = inspect_raster(f)
+
+        if info:
+            results.append(info)
+
+            if info["min_elev"] is not None:
+                dsm_info = info
+            else:
+                ortho_info = info
+
+    print("\n" + "=" * 60)
+
+    for res in results:
+        print(f"\n📄 File: {Path(res['file']).name}")
+        print(f"Full Path : {res['file']}")
+        print(f"EPSG      : {res['epsg']}")
+        print(f"CRS       : {res['crs']}")
+        print(f"Tiled COG : {res['tiled']}")
+        print(f"Bounds    :")
+        print(f"   Left   : {res['left']}")
+        print(f"   Right  : {res['right']}")
+        print(f"   Bottom : {res['bottom']}")
+        print(f"   Top    : {res['top']}")
+
+        if res["min_elev"] is not None:
+            print(f"Min Elev. : {res['min_elev']} m")
+
+    ref_info = dsm_info or ortho_info
+
+    if ref_info:
+        survey_name = "july_2026"
+        z_offset = dsm_info["min_elev"] if dsm_info else 429
+
+        print("\n" + "=" * 60)
+        print("SER.JS CONFIG")
+        print("=" * 60)
+
+        print(f"""
+{survey_name}: {{
+    elevationUrl: "./projects/<FOLDER_NAME>/surveys/{survey_name}/DSM_cloudoptimised.tif",
+    orthoUrl: "./projects/<FOLDER_NAME>/surveys/{survey_name}/Ortho_CO.tif",
+    extent: [{ref_info['left']}, {ref_info['right']}, {ref_info['bottom']}, {ref_info['top']}],
+    zOffset: {z_offset}
+}}
+""")
+
+    input("\nPress Enter to exit...")
 
 
 if __name__ == "__main__":
-    # If arguments are provided, use those as file paths
-    if len(sys.argv) > 1:
-        files_to_check = sys.argv[1:]
-    else:
-        # Otherwise, look for .tif files in a specific directory or current directory
-        current_dir = Path(".")
-        files_to_check = list(current_dir.glob("*.tif"))
-        
-        if not files_to_check:
-            print("No .tif files found in the current directory.")
-            print("Usage: python check_rasters.py <path_to_tif_1> [path_to_tif_2 ...]")
-            sys.exit(1)
-            
-    for f in files_to_check:
-        print_raster_info(f)
+    main()

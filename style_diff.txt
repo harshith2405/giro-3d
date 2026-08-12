@@ -1,0 +1,571 @@
+diff --git a/style.css b/style.css
+index 83610a5..6bf8ce6 100644
+--- a/style.css
++++ b/style.css
+@@ -795,3 +795,566 @@ body {
+ }
+ .btn-action-icon.view:hover { color: #0ea5e9; background: rgba(14, 165, 233, 0.1); border-color: rgba(14, 165, 233, 0.2); }
+ .btn-action-icon.delete:hover { color: #ef4444; background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.2); }
++
++/* ── Unified ROI Wrapper & Horizontal Extension Sub-Panel ── */
++.roi-wrapper {
++  position: relative;
++  display: inline-flex;
++  align-items: center;
++}
++
++.roi-horizontal-bar {
++  position: absolute;
++  right: 48px;
++  top: 50%;
++  transform: translateY(-50%) scale(0.92);
++  opacity: 0;
++  pointer-events: none;
++  display: flex;
++  align-items: center;
++  gap: 4px;
++  background: rgba(255, 255, 255, 0.92);
++  backdrop-filter: blur(16px);
++  -webkit-backdrop-filter: blur(16px);
++  border: 1px solid rgba(94, 25, 234, 0.18);
++  border-radius: 20px;
++  padding: 4px 6px;
++  box-shadow: 0 12px 32px rgba(94, 25, 234, 0.15), 0 4px 12px rgba(0, 0, 0, 0.08);
++  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
++  z-index: 1000;
++  white-space: nowrap;
++}
++
++.roi-horizontal-bar.open {
++  opacity: 1;
++  pointer-events: auto;
++  transform: translateY(-50%) scale(1);
++}
++
++.roi-bar-btn {
++  display: flex;
++  align-items: center;
++  gap: 6px;
++  padding: 6px 12px;
++  border-radius: 14px;
++  background: transparent;
++  border: none;
++  color: var(--muted);
++  font-size: 11px;
++  font-weight: 600;
++  font-family: 'Inter', sans-serif;
++  cursor: pointer;
++  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
++}
++
++.roi-bar-btn svg {
++  width: 14px;
++  height: 14px;
++}
++
++.roi-bar-btn:hover {
++  background: rgba(94, 25, 234, 0.08);
++  color: var(--purple-primary);
++}
++
++.roi-bar-btn.active {
++  background: var(--purple-primary);
++  color: #ffffff;
++  box-shadow: 0 4px 10px rgba(94, 25, 234, 0.3);
++}
++
++/* ── Bottom Coordinates HUD (Right side, just left of the TC 2D 2.5D 3D toolbar) ── */
++.bottom-coord-panel {
++  position: absolute;
++  right: 245px;
++  bottom: 16px;
++  display: flex;
++  align-items: center;
++  gap: 10px;
++  z-index: 1000;
++  pointer-events: none;
++}
++
++.bottom-coord-panel .coordinate-display {
++  pointer-events: auto;
++  background: rgba(255, 255, 255, 0.92);
++  backdrop-filter: blur(12px);
++  -webkit-backdrop-filter: blur(12px);
++  border: 1px solid rgba(226, 232, 240, 0.8);
++  padding: 8px 14px;
++  border-radius: 20px;
++  font-size: 11px;
++  font-weight: 600;
++  color: #1e293b;
++  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
++  font-family: 'Inter', sans-serif;
++  white-space: nowrap;
++}
++
++/* Reposition Bottom-Right Panel above parent platform 2D/3D toolbar */
++.bottom-right-panel {
++  position: absolute;
++  right: 16px;
++  bottom: 75px;
++  display: flex;
++  flex-direction: column;
++  gap: 12px;
++  align-items: flex-end;
++  pointer-events: none;
++  z-index: 1000;
++}
++
++/* ── Independent Top-Right Save Bar ── */
++.top-save-bar {
++  position: fixed;
++  top: 55px;
++  right: 70px;
++  width: 320px;
++  background: rgba(255, 255, 255, 0.95);
++  backdrop-filter: blur(16px);
++  -webkit-backdrop-filter: blur(16px);
++  border: 1px solid rgba(94, 25, 234, 0.2);
++  border-radius: 14px;
++  padding: 10px 12px;
++  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1), 0 4px 12px rgba(94, 25, 234, 0.08);
++  z-index: 9999;
++  pointer-events: auto;
++  font-family: 'Inter', sans-serif;
++  display: flex;
++  flex-direction: column;
++  gap: 8px;
++  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
++}
++
++.top-save-bar.hidden {
++  display: none !important;
++}
++
++/* ── Unified Fixed Info Panel (Vertical Stretch) ── */
++.unified-info-panel {
++  position: fixed;
++  top: 155px;
++  right: 70px;
++  width: 320px;
++  bottom: 235px;
++  background: rgba(255, 255, 255, 0.95);
++  backdrop-filter: blur(16px);
++  -webkit-backdrop-filter: blur(16px);
++  border: 1px solid rgba(94, 25, 234, 0.2);
++  border-radius: 16px;
++  padding: 16px;
++  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(94, 25, 234, 0.1);
++  z-index: 9998;
++  pointer-events: auto;
++  font-family: 'Inter', sans-serif;
++  display: flex;
++  flex-direction: column;
++  overflow-y: auto;
++  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
++}
++
++.unified-info-panel.hidden {
++  display: none !important;
++}
++
++.unified-info-header {
++  display: flex;
++  justify-content: space-between;
++  align-items: center;
++  margin-bottom: 12px;
++  padding-bottom: 8px;
++  border-bottom: 1px solid var(--panel-border);
++}
++
++.unified-info-title {
++  font-size: 13px;
++  font-weight: 700;
++  background: linear-gradient(135deg, #5e19ea, #8b5cf6);
++  -webkit-background-clip: text;
++  -webkit-text-fill-color: transparent;
++  letter-spacing: -0.01em;
++  text-transform: uppercase;
++}
++
++.unified-info-close {
++  background: transparent;
++  border: none;
++  color: var(--muted);
++  font-size: 16px;
++  cursor: pointer;
++  padding: 0 4px;
++  transition: color 0.2s;
++}
++
++.unified-info-close:hover {
++  color: #ef4444;
++}
++
++/* Standardized 2-Block Save Container */
++.save-block-container {
++  background: rgba(248, 250, 252, 0.8);
++  border: 1px solid rgba(94, 25, 234, 0.15);
++  border-radius: 12px;
++  padding: 12px;
++  margin-bottom: 14px;
++  display: flex;
++  flex-direction: column;
++  gap: 10px;
++}
++
++.save-input-row {
++  display: flex;
++  gap: 8px;
++  align-items: center;
++}
++
++.save-name-input {
++  flex: 1.2;
++  padding: 7px 10px;
++  border: 1px solid var(--panel-border);
++  border-radius: 8px;
++  font-size: 12px;
++  background: #ffffff;
++  color: var(--text);
++  outline: none;
++  transition: border-color 0.2s, box-shadow 0.2s;
++}
++
++.save-name-input:focus {
++  border-color: var(--purple-primary);
++  box-shadow: 0 0 0 3px rgba(94, 25, 234, 0.1);
++}
++
++.save-name-input.input-invalid {
++  border-color: #ef4444 !important;
++  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2) !important;
++  animation: shake 0.3s ease;
++}
++
++@keyframes shake {
++  0%, 100% { transform: translateX(0); }
++  25% { transform: translateX(-4px); }
++  75% { transform: translateX(4px); }
++}
++
++.save-folder-select {
++  flex: 1;
++  padding: 7px 8px;
++  border: 1px solid var(--panel-border);
++  border-radius: 8px;
++  font-size: 12px;
++  background: #ffffff;
++  color: var(--text);
++  outline: none;
++  cursor: pointer;
++}
++
++.btn-save-action {
++  width: 100%;
++  padding: 8px 12px;
++  background: linear-gradient(135deg, #5e19ea, #8b5cf6);
++  border: none;
++  border-radius: 8px;
++  color: #ffffff;
++  font-size: 12px;
++  font-weight: 700;
++  cursor: pointer;
++  box-shadow: 0 4px 12px rgba(94, 25, 234, 0.3);
++  transition: all 0.2s ease;
++}
++
++.btn-save-action:hover {
++  transform: translateY(-1px);
++  box-shadow: 0 6px 16px rgba(94, 25, 234, 0.4);
++}
++
++/* ── Right Toolbar Active State (Purple Glow) ── */
++.right-icon-btn.overlay-active {
++  background: linear-gradient(135deg, #5e19ea, #8b5cf6) !important;
++  color: white !important;
++  box-shadow: 0 4px 14px rgba(94, 25, 234, 0.5), 0 0 20px rgba(139, 92, 246, 0.3) !important;
++  border-color: rgba(139, 92, 246, 0.6) !important;
++}
++.right-icon-btn.overlay-active svg {
++  stroke: white !important;
++}
++
++/* ── Saved Feature Item Glow / Selection State ── */
++.saved-report-item {
++  cursor: pointer;
++  transition: all 0.2s ease;
++  border: 1px solid transparent;
++  border-radius: 8px;
++  padding: 6px 8px;
++}
++.saved-report-item:hover {
++  background: rgba(94, 25, 234, 0.06);
++}
++.saved-report-item.selected-item {
++  background: linear-gradient(135deg, rgba(94, 25, 234, 0.2), rgba(139, 92, 246, 0.12)) !important;
++  border: 1px solid rgba(139, 92, 246, 0.6) !important;
++  box-shadow: 0 4px 14px rgba(94, 25, 234, 0.35), 0 0 10px rgba(139, 92, 246, 0.2) !important;
++}
++
++/* ==========================================================================
++   MAIN PLATFORM UI ALIGNMENT (ULTRA-CLEAN WHITE GLASS THEME)
++   ========================================================================== */
++
++.flyout-panel, 
++.flyout-panel.right,
++.top-save-bar,
++.unified-info-panel,
++.cam-controls-panel,
++.viewer-card {
++  background: rgba(255, 255, 255, 0.94) !important;
++  backdrop-filter: blur(16px) !important;
++  -webkit-backdrop-filter: blur(16px) !important;
++  border: 1px solid #e2e8f0 !important;
++  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(94, 25, 234, 0.04) !important;
++  color: #1f2937 !important;
++}
++
++.flyout-panel h2, 
++.flyout-panel h3, 
++#flyoutTitle, 
++#rightFlyoutTitle,
++.unified-info-title,
++.top-save-title {
++  color: #1f2937 !important;
++  background: linear-gradient(135deg, #5e19ea, #8b5cf6) !important;
++  -webkit-background-clip: text !important;
++  -webkit-text-fill-color: transparent !important;
++  font-weight: 700 !important;
++  letter-spacing: -0.01em !important;
++}
++
++.group-title, 
++.feature-accordion-header {
++  background: #f8fafc !important;
++  border: 1px solid #e2e8f0 !important;
++  color: #1f2937 !important;
++  border-radius: 10px !important;
++  padding: 10px 14px !important;
++  font-weight: 600 !important;
++  font-size: 12px !important;
++  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
++}
++
++.group-title:hover, 
++.feature-accordion-header:hover {
++  background: #ffffff !important;
++  border-color: rgba(94, 25, 234, 0.3) !important;
++  color: #5e19ea !important;
++  box-shadow: 0 4px 12px rgba(94, 25, 234, 0.08) !important;
++}
++
++.folder-header {
++  background: #f8fafc !important;
++  border-left: 3px solid #5e19ea !important;
++  border: 1px solid #e2e8f0 !important;
++  border-left-width: 3px !important;
++  border-radius: 8px !important;
++  color: #1f2937 !important;
++  padding: 8px 12px !important;
++  font-weight: 600 !important;
++  font-size: 12px !important;
++  transition: all 0.2s ease !important;
++}
++
++.folder-header:hover {
++  background: #ffffff !important;
++  color: #5e19ea !important;
++  border-left-color: #8b5cf6 !important;
++  box-shadow: 0 4px 12px rgba(94, 25, 234, 0.08) !important;
++}
++
++.folder-content {
++  border-left: 2px solid rgba(94, 25, 234, 0.15) !important;
++  padding-left: 8px !important;
++  margin-left: 8px !important;
++}
++
++.saved-report-item,
++.saved-item-card {
++  background: #ffffff !important;
++  border: 1px solid #e2e8f0 !important;
++  border-radius: 10px !important;
++  color: #1f2937 !important;
++  padding: 10px 12px !important;
++  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03) !important;
++  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
++}
++
++.saved-report-item:hover,
++.saved-item-card:hover {
++  background: #f8fafc !important;
++  border-color: rgba(94, 25, 234, 0.3) !important;
++  box-shadow: 0 4px 14px rgba(94, 25, 234, 0.08) !important;
++  transform: translateY(-1px) !important;
++}
++
++.saved-report-item.selected-item,
++.saved-item-card.selected-item,
++.selected-item {
++  background: rgba(94, 25, 234, 0.08) !important;
++  border: 1.5px solid #5e19ea !important;
++  box-shadow: 0 4px 16px rgba(94, 25, 234, 0.2) !important;
++  color: #5e19ea !important;
++}
++
++.unified-info-panel label,
++.top-save-bar label,
++.camera-row label,
++.unified-info-panel .hint {
++  color: #64748b !important;
++}
++
++.unified-info-panel .input,
++.unified-info-panel select,
++.top-save-bar input,
++.top-save-bar select,
++.flyout-panel select,
++.flyout-panel input {
++  background: #ffffff !important;
++  border: 1px solid #cbd5e1 !important;
++  color: #1f2937 !important;
++  border-radius: 8px !important;
++}
++
++.unified-info-panel .input:focus,
++.top-save-bar input:focus,
++.flyout-panel select:focus,
++.flyout-panel input:focus {
++  border-color: #5e19ea !important;
++  box-shadow: 0 0 0 3px rgba(94, 25, 234, 0.15) !important;
++}
++
++.flyout-panel .btn,
++.flyout-panel .btn-outline {
++  background: #ffffff !important;
++  border: 1px solid #cbd5e1 !important;
++  color: #1f2937 !important;
++  border-radius: 8px !important;
++  transition: all 0.2s ease !important;
++}
++
++.flyout-panel .btn:hover,
++.flyout-panel .btn-outline:hover {
++  background: linear-gradient(135deg, #5e19ea, #8b5cf6) !important;
++  border-color: #5e19ea !important;
++  color: #ffffff !important;
++  box-shadow: 0 4px 14px rgba(94, 25, 234, 0.3) !important;
++}
++
++.btn-action-icon {
++  background: #f8fafc !important;
++  border: 1px solid #e2e8f0 !important;
++  color: #64748b !important;
++  border-radius: 6px !important;
++}
++
++.btn-action-icon:hover {
++  background: rgba(94, 25, 234, 0.1) !important;
++  border-color: rgba(94, 25, 234, 0.3) !important;
++  color: #5e19ea !important;
++}
++
++.icon-sidebar {
++  background: rgba(255, 255, 255, 0.94) !important;
++  backdrop-filter: blur(16px) !important;
++  -webkit-backdrop-filter: blur(16px) !important;
++  border: 1px solid #e2e8f0 !important;
++  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06) !important;
++}
++
++.icon-btn {
++  color: #64748b !important;
++}
++
++.icon-btn:hover {
++  background: rgba(94, 25, 234, 0.08) !important;
++  color: #5e19ea !important;
++}
++
++.icon-btn.active {
++  background: #5e19ea !important;
++  color: #ffffff !important;
++  box-shadow: 0 4px 10px rgba(94, 25, 234, 0.4) !important;
++}
++
++.bottom-coord-panel .coordinate-display,
++.view-mode-toggle {
++  background: rgba(255, 255, 255, 0.94) !important;
++  backdrop-filter: blur(16px) !important;
++  -webkit-backdrop-filter: blur(16px) !important;
++  border: 1px solid #e2e8f0 !important;
++  color: #1f2937 !important;
++  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
++}
++
++.view-mode-toggle button {
++  color: #374151 !important;
++}
++
++
++/* ── Top-Center Live Map Guidance Floating Pill HUD ── */
++.live-guidance-hud {
++  position: fixed;
++  top: 18px;
++  left: 50%;
++  transform: translateX(-50%);
++  z-index: 10002;
++  background: rgba(255, 255, 255, 0.95);
++  backdrop-filter: blur(16px);
++  -webkit-backdrop-filter: blur(16px);
++  border: 1px solid rgba(94, 25, 234, 0.25);
++  border-radius: 20px;
++  padding: 8px 18px;
++  font-size: 12px;
++  font-weight: 600;
++  color: #1f2937;
++  box-shadow: 0 10px 25px rgba(94, 25, 234, 0.15), 0 4px 10px rgba(0, 0, 0, 0.05);
++  display: flex;
++  align-items: center;
++  gap: 8px;
++  pointer-events: none;
++  font-family: 'Inter', sans-serif;
++  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
++  animation: fadeInDown 0.3s cubic-bezier(0.4, 0, 0.2, 1);
++}
++
++.live-guidance-hud.hidden {
++  display: none !important;
++}
++
++@keyframes fadeInDown {
++  from { opacity: 0; transform: translate(-50%, -10px); }
++  to { opacity: 1; transform: translate(-50%, 0); }
++}
++
++/* ── Multi-Select Toggle & 3D Floating Badge Styles ── */
++.btn-multi-toggle.active {
++  background: linear-gradient(135deg, #5e19ea, #8b5cf6) !important;
++  color: #ffffff !important;
++  border-color: #5e19ea !important;
++  box-shadow: 0 4px 12px rgba(94, 25, 234, 0.25) !important;
++}
++.btn-multi-toggle.active .multi-dot {
++  background: #22c55e !important;
++  box-shadow: 0 0 8px #22c55e !important;
++}
++
++.map-floating-badge {
++  font-family: 'Inter', sans-serif;
++  font-size: 11px;
++  font-weight: 700;
++  cursor: pointer;
++  pointer-events: auto;
++  transition: all 0.2s ease;
++}
++
++.saved-report-item.selected-item {
++  border-color: #5e19ea !important;
++  background: rgba(94, 25, 234, 0.08) !important;
++  box-shadow: 0 0 0 2px rgba(94, 25, 234, 0.2) !important;
++}

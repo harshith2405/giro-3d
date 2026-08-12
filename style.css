@@ -1332,6 +1332,17 @@ body {
   to { opacity: 1; transform: translate(-50%, 0); }
 }
 
+/* ── Multi-Select Toggle & 3D Floating Badge Styles ── */
+.btn-multi-toggle.active {
+  background: linear-gradient(135deg, #5e19ea, #8b5cf6) !important;
+  color: #ffffff !important;
+  border-color: #5e19ea !important;
+  box-shadow: 0 4px 12px rgba(94, 25, 234, 0.25) !important;
+}
+.btn-multi-toggle.active .multi-dot {
+  background: #22c55e !important;
+  box-shadow: 0 0 8px #22c55e !important;
+}
 .map-floating-badge {
   font-family: 'Inter', sans-serif;
   font-size: 11px;

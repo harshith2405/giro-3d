@@ -85,6 +85,19 @@
 
 
 
+  <!-- Multi-Selection Overlay SVG (Polygons, Lines & Floating 3D Name Badges) -->
+  <svg id="multiOverlaySvg" style="position:fixed; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index: 9998;">
+    <defs>
+      <filter id="multiGlow" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="3" result="blur" />
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <g id="multiPolygonsGroup"></g>
+    <g id="multiLinesGroup"></g>
+    <g id="multiBadgesGroup"></g>
+  </svg>
+
   <!-- Elevations SVG Overlay -->
   <svg id="elevationsSvg" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index: 100;"></svg>
 
@@ -527,7 +540,10 @@
             </div>
             
             <div id="reportsPanelContent" style="margin-top: 10px; display: block;">
-              <div id="manageReportsContainer" style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 8px;">
+              <div id="manageReportsContainer" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <button id="toggleMultiSelectReports" class="btn-multi-toggle" style="background: white; border: 1px solid var(--panel-border); border-radius: 14px; padding: 3px 10px; font-size: 11px; font-weight: 600; color: var(--text); cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.2s;">
+                  <span class="multi-dot" style="width: 6px; height: 6px; border-radius: 50%; background: #94a3b8;"></span> Multi-Select
+                </button>
                 <button id="manageReportsBtn" class="btn-manage-trigger">Manage</button>
               </div>
               <div id="reportsSelectionBar" class="manage-selection-bar">
@@ -745,7 +761,10 @@
             </div>
             
             <div id="volumesPanelContent" style="margin-top: 10px; display: block;">
-              <div id="manageVolumesContainer" style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 8px;">
+              <div id="manageVolumesContainer" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <button id="toggleMultiSelectVolumes" class="btn-multi-toggle" style="background: white; border: 1px solid var(--panel-border); border-radius: 14px; padding: 3px 10px; font-size: 11px; font-weight: 600; color: var(--text); cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.2s;">
+                  <span class="multi-dot" style="width: 6px; height: 6px; border-radius: 50%; background: #94a3b8;"></span> Multi-Select
+                </button>
                 <button id="manageVolumesBtn" class="btn-manage-trigger">Manage</button>
               </div>
               <div id="volumesSelectionBar" class="manage-selection-bar">

@@ -373,7 +373,254 @@ console.log("Giro3D initialized");
 // UI wiring
 // ---------------------------------------------------------------------------
 window.addEventListener("DOMContentLoaded", () => {
+  // --- MULTI-SELECT STATE ---
+  let isMultiSelectReports = false;
+  let isMultiSelectVolumes = false;
+  const multiSelectedReportsMap = new window.Map();
+  const multiSelectedVolumesMap = new window.Map();
+  let activeFocusedFeatureId = null;
 
+  function updateMultiOverlaySvg() {
+    const multiPolygonsGroup = document.getElementById("multiPolygonsGroup");
+    const multiLinesGroup = document.getElementById("multiLinesGroup");
+    const multiBadgesGroup = document.getElementById("multiBadgesGroup");
+
+    if (!instance || !instance.view || !instance.view.camera) return;
+    const camera = instance.view.camera;
+
+    if (multiPolygonsGroup) multiPolygonsGroup.innerHTML = "";
+    if (multiLinesGroup) multiLinesGroup.innerHTML = "";
+    if (multiBadgesGroup) multiBadgesGroup.innerHTML = "";
+
+    // Helper to render map badges
+    function renderMapBadge(text, x, y, isFocused, onClick) {
+      if (!multiBadgesGroup || isNaN(x) || isNaN(y)) return;
+      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.style.cursor = "pointer";
+      g.style.pointerEvents = "auto";
+  
+      const paddingX = 10;
+      const height = 22;
+      const textWidth = Math.max(45, text.length * 7.5);
+      const width = textWidth + paddingX * 2;
+      const rectX = x - width / 2;
+      const rectY = y - height / 2;
+  
+      const bgRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      bgRect.setAttribute("x", rectX);
+      bgRect.setAttribute("y", rectY);
+      bgRect.setAttribute("width", width);
+      bgRect.setAttribute("height", height);
+      bgRect.setAttribute("rx", "11");
+      bgRect.setAttribute("fill", isFocused ? "#5e19ea" : "rgba(255, 255, 255, 0.94)");
+      bgRect.setAttribute("stroke", isFocused ? "#ffffff" : "#5e19ea");
+      bgRect.setAttribute("stroke-width", "1.5");
+      if (isFocused) bgRect.setAttribute("filter", "url(#multiGlow)");
+  
+      const textEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      textEl.setAttribute("x", x);
+      textEl.setAttribute("y", y + 4);
+      textEl.setAttribute("text-anchor", "middle");
+      textEl.setAttribute("fill", isFocused ? "#ffffff" : "#1f2937");
+      textEl.setAttribute("font-size", "11");
+      textEl.setAttribute("font-weight", "700");
+      textEl.setAttribute("font-family", "Inter, sans-serif");
+      textEl.textContent = text;
+  
+      g.appendChild(bgRect);
+      g.appendChild(textEl);
+      g.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (onClick) onClick();
+      });
+  
+      multiBadgesGroup.appendChild(g);
+    }
+
+    // Helper to focus
+    function focusMultiFeature(id, type) {
+      activeFocusedFeatureId = id;
+      if (type === "VOLUME") {
+        const vol = multiSelectedVolumesMap.get(id);
+        if (vol && vol.metadata) {
+          document.getElementById("volMiniArea").textContent = vol.metadata.area2D || "0";
+          document.getElementById("volMiniPerim").textContent = vol.metadata.perimeter || "0";
+          document.getElementById("volMiniCut").textContent = vol.metadata.cutVolume || "0";
+          document.getElementById("volMiniFill").textContent = vol.metadata.fillVolume || "0";
+          showUnifiedInfoPanel("VOLUME", "SAVED VOLUME", vol.metadata, true);
+        }
+      } else if (type === "PROFILE") {
+        const prof = multiSelectedReportsMap.get(id);
+        if (prof && prof.metadata) {
+          const m = prof.metadata;
+          const profHoriz = document.getElementById("profileHoriz");
+          const profVert = document.getElementById("profileVert");
+          const prof3D = document.getElementById("profile3D");
+          
+          if (profHoriz && m.chartData) profHoriz.textContent = (m.chartData.totalDist || 0).toFixed(2) + " m";
+          if (profVert && m.chartData) profVert.textContent = (m.chartData.elevChange || 0).toFixed(2) + " m";
+          if (prof3D && m.chartData) prof3D.textContent = (m.chartData.surfDist || 0).toFixed(2) + " m";
+          
+          const elevationMiniContainer = document.getElementById("elevationMiniContainer");
+          if (elevationMiniContainer) elevationMiniContainer.classList.remove('hidden');
+          
+          showUnifiedInfoPanel("PROFILE", "ELEVATION PROFILE", m, true);
+          
+          if (m.chartData && m.chartData.distances && m.chartData.elevations) {
+            // Note: miniChart and initCharts are in the closure scope.
+            if (typeof miniChart !== 'undefined' && miniChart && (miniChart.width === 0 || miniChart.height === 0)) {
+              miniChart.destroy();
+              miniChart = null;
+            }
+            const _savedDistances = m.chartData.distances;
+            const _savedElevations = m.chartData.elevations;
+            setTimeout(() => {
+              if (typeof initCharts === "function") initCharts();
+              if (typeof miniChart !== 'undefined' && miniChart) {
+                miniChart.data.labels = _savedDistances;
+                miniChart.data.datasets[0].data = _savedElevations;
+                miniChart.resize();
+                miniChart.update('none');
+              }
+            }, 100);
+          }
+        }
+      }
+      updateMultiOverlaySvg();
+    }
+
+    // 1. Render Multi-Selected Volumes
+    multiSelectedVolumesMap.forEach((item, id) => {
+      if (!item.data || !item.data.points || item.data.points.length < 3) return;
+      const isFocused = id === activeFocusedFeatureId;
+
+      let sumX = 0, sumY = 0, sumZ = 0;
+      const screenPoints = [];
+      for (const pt of item.data.points) {
+        const v = new Vector3(pt.x, pt.y, pt.z);
+        sumX += pt.x; sumY += pt.y; sumZ += pt.z;
+        const screenP = projectToScreen(v);
+        if (screenP.z <= 1) {
+          screenPoints.push(`${screenP.x},${screenP.y}`);
+        }
+      }
+      
+      if (screenPoints.length < 3) return;
+
+      const ptsAttr = screenPoints.join(" ");
+      const strokeColor = isFocused ? "#5e19ea" : "#0ea5e9";
+      const fillColor = isFocused ? "rgba(94, 25, 234, 0.28)" : "rgba(14, 165, 233, 0.18)";
+      const strokeWidth = isFocused ? "3.5" : "2";
+
+      const polyEl = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+      polyEl.setAttribute("points", ptsAttr);
+      polyEl.setAttribute("fill", fillColor);
+      polyEl.setAttribute("stroke", strokeColor);
+      polyEl.setAttribute("stroke-width", strokeWidth);
+      polyEl.setAttribute("stroke-linejoin", "round");
+      if (isFocused) polyEl.setAttribute("filter", "url(#multiGlow)");
+      polyEl.style.cursor = "pointer";
+      polyEl.style.pointerEvents = "auto";
+
+      polyEl.addEventListener("click", (e) => {
+        e.stopPropagation();
+        focusMultiFeature(id, "VOLUME");
+      });
+
+      if (multiPolygonsGroup) multiPolygonsGroup.appendChild(polyEl);
+
+      const count = item.data.points.length;
+      const centroidWorld = new Vector3(sumX / count, sumY / count, sumZ / count);
+      const projCentroid = projectToScreen(centroidWorld);
+      if (projCentroid.z <= 1) {
+        renderMapBadge(item.name || "Volume", projCentroid.x, projCentroid.y, isFocused, () => focusMultiFeature(id, "VOLUME"));
+      }
+    });
+
+    // 2. Render Multi-Selected Path Profiles
+    multiSelectedReportsMap.forEach((item, id) => {
+      let pts = item.data.originalProfile || item.data.points;
+      if (!pts || pts.length < 2) {
+        if (item.data.startPoint && item.data.endPoint) {
+           pts = [item.data.startPoint, item.data.endPoint];
+        } else {
+           return;
+        }
+      }
+      
+      const isFocused = id === activeFocusedFeatureId;
+
+      let sumX = 0, sumY = 0, sumZ = 0;
+      const screenPoints = [];
+      for (const pt of pts) {
+        const x = pt.coord ? pt.coord.x : pt.x;
+        const y = pt.coord ? pt.coord.y : pt.y;
+        const z = pt.coord ? pt.coord.z : pt.z;
+        const v = new Vector3(x, y, z);
+        sumX += x; sumY += y; sumZ += z;
+        const screenP = projectToScreen(v);
+        if (screenP.z <= 1) {
+          screenPoints.push(`${screenP.x},${screenP.y}`);
+        }
+      }
+      
+      if (screenPoints.length < 2) return;
+
+      const ptsAttr = screenPoints.join(" ");
+      const strokeColor = isFocused ? "#5e19ea" : "#a855f7";
+      const strokeWidth = isFocused ? "4.5" : "2.5";
+
+      const lineEl = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+      lineEl.setAttribute("points", ptsAttr);
+      lineEl.setAttribute("fill", "none");
+      lineEl.setAttribute("stroke", strokeColor);
+      lineEl.setAttribute("stroke-width", strokeWidth);
+      lineEl.setAttribute("stroke-linecap", "round");
+      lineEl.setAttribute("stroke-linejoin", "round");
+      if (isFocused) lineEl.setAttribute("filter", "url(#multiGlow)");
+      lineEl.style.cursor = "pointer";
+      lineEl.style.pointerEvents = "auto";
+
+      lineEl.addEventListener("click", (e) => {
+        e.stopPropagation();
+        focusMultiFeature(id, "PROFILE");
+      });
+
+      if (multiLinesGroup) multiLinesGroup.appendChild(lineEl);
+
+      const count = pts.length;
+      const midWorld = new Vector3(sumX / count, sumY / count, sumZ / count);
+      const projMid = projectToScreen(midWorld);
+      
+      if (projMid.z <= 1) {
+        renderMapBadge(item.name || "Profile", projMid.x, projMid.y, isFocused, () => focusMultiFeature(id, "PROFILE"));
+      }
+    });
+  }
+
+  const toggleMultiSelectReports = document.getElementById("toggleMultiSelectReports");
+  toggleMultiSelectReports?.addEventListener("click", () => {
+    isMultiSelectReports = !isMultiSelectReports;
+    toggleMultiSelectReports.classList.toggle("active", isMultiSelectReports);
+    if (!isMultiSelectReports) {
+      multiSelectedReportsMap.clear();
+      activeFocusedFeatureId = null;
+      document.querySelectorAll("#reportsList .saved-report-item").forEach(el => el.classList.remove("selected-item"));
+      updateMultiOverlaySvg();
+    }
+  });
+
+  const toggleMultiSelectVolumes = document.getElementById("toggleMultiSelectVolumes");
+  toggleMultiSelectVolumes?.addEventListener("click", () => {
+    isMultiSelectVolumes = !isMultiSelectVolumes;
+    toggleMultiSelectVolumes.classList.toggle("active", isMultiSelectVolumes);
+    if (!isMultiSelectVolumes) {
+      multiSelectedVolumesMap.clear();
+      activeFocusedFeatureId = null;
+      document.querySelectorAll("#volumesList .saved-report-item").forEach(el => el.classList.remove("selected-item"));
+      updateMultiOverlaySvg();
+    }
+  });
 
   activeProject = getActiveProjectConfig();
   loadProject(activeProject).then(() => {});
@@ -1485,6 +1732,10 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Redraw the measurement line so it "sticks" to the terrain as the camera moves.
   function updateMeasureSvg() {
+    if (isMultiSelectReports && measureMode === "PROFILE") {
+      if (measureSvg) measureSvg.style.display = "none";
+      return;
+    }
     if ((measureMode === "SIMPLE" || measureMode === "PROFILE") && measureStartPoint && measureEndPoint) {
       const start = projectToScreen(measureStartPoint);
       const end = projectToScreen(measureEndPoint);
@@ -1681,6 +1932,10 @@ window.addEventListener("DOMContentLoaded", () => {
 
 
   function updateVolumeSvg() {
+    if (isMultiSelectVolumes && (measureMode === "VOLUME" || measureState === "FINISHED_VOLUME")) {
+      if (volumeSvg) volumeSvg.style.display = "none";
+      return;
+    }
     if ((measureMode === "VOLUME" || measureState === "FINISHED_VOLUME") && volumePoints.length > 0) {
       let pointsAttr = "";
       if (volumeVerticesSvg) volumeVerticesSvg.innerHTML = "";
@@ -1723,6 +1978,7 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   }
   controls.addEventListener("change", updateVolumeSvg);
+  controls.addEventListener("change", updateMultiOverlaySvg);
 
   // ── Top-Center Live Map Guidance HUD Helper ──
   const liveGuidanceHud = document.getElementById("liveGuidanceHud");
@@ -3032,9 +3288,45 @@ window.addEventListener("DOMContentLoaded", () => {
             }
 
             const reportName = pdfFile.fileName.split('/').pop().replace('.pdf', '');
-            document.querySelectorAll("#reportsList .saved-report-item").forEach(el => el.classList.remove("selected-item"));
-            item.classList.add("selected-item");
-            loadPathProfile();
+            const uniqueId = (jsonFile && jsonFile.fileName) ? jsonFile.fileName : pdfFile.fileName;
+
+            if (isMultiSelectReports) {
+              if (multiSelectedReportsMap.has(uniqueId)) {
+                multiSelectedReportsMap.delete(uniqueId);
+                item.classList.remove("selected-item");
+                if (activeFocusedFeatureId === uniqueId) {
+                  activeFocusedFeatureId = multiSelectedReportsMap.keys().next().value || null;
+                }
+                if (typeof updateMultiOverlaySvg === "function") updateMultiOverlaySvg();
+              } else {
+                item.classList.add("selected-item");
+                activeFocusedFeatureId = uniqueId;
+                if (jsonFile && jsonFile.url) {
+                  const _url = jsonFile.url;
+                  const _cacheBuster = _url.includes('?') ? `&t=${Date.now()}` : `?t=${Date.now()}`;
+                  fetch(_url + _cacheBuster, { cache: 'no-store' })
+                    .then(res => res.text())
+                    .then(text => {
+                      const m = JSON.parse(text);
+                      multiSelectedReportsMap.set(uniqueId, { file: jsonFile, metadata: m, data: m, name: reportName });
+                      showUnifiedInfoPanel("PROFILE", "ELEVATION PROFILE", m, true);
+                      if (typeof updateMultiOverlaySvg === "function") updateMultiOverlaySvg();
+                    }).catch(e => console.error("Error fetching report json", e));
+                } else {
+                  multiSelectedReportsMap.set(uniqueId, { file: jsonFile, metadata, data: metadata, name: reportName });
+                  showUnifiedInfoPanel("PROFILE", "ELEVATION PROFILE", metadata, true);
+                  if (typeof updateMultiOverlaySvg === "function") updateMultiOverlaySvg();
+                }
+              }
+            } else {
+              multiSelectedReportsMap.clear();
+              document.querySelectorAll("#reportsList .saved-report-item").forEach(el => el.classList.remove("selected-item"));
+              item.classList.add("selected-item");
+              activeFocusedFeatureId = uniqueId;
+              multiSelectedReportsMap.set(uniqueId, { file: jsonFile, metadata, data: metadata, name: reportName });
+              loadPathProfile();
+              if (typeof updateMultiOverlaySvg === "function") updateMultiOverlaySvg();
+            }
           });
           
           const promoteBtn = item.querySelector('.promote-btn');
@@ -3749,9 +4041,32 @@ window.addEventListener("DOMContentLoaded", () => {
             }
             if (e.target.closest("button.promote-btn") || e.target.closest("input")) return;
 
-            document.querySelectorAll("#volumesList .saved-report-item").forEach(el => el.classList.remove("selected-item"));
-            item.classList.add("selected-item");
-            loadVolumeAction();
+            const uniqueId = file.fileName || metadata.name || "Volume";
+            const volName = metadata.name || file.fileName.split('/').pop().replace('.json', '');
+
+            if (isMultiSelectVolumes) {
+              if (multiSelectedVolumesMap.has(uniqueId)) {
+                multiSelectedVolumesMap.delete(uniqueId);
+                item.classList.remove("selected-item");
+                if (activeFocusedFeatureId === uniqueId) {
+                  activeFocusedFeatureId = multiSelectedVolumesMap.keys().next().value || null;
+                }
+              } else {
+                multiSelectedVolumesMap.set(uniqueId, { file, metadata, data: metadata, name: volName });
+                item.classList.add("selected-item");
+                activeFocusedFeatureId = uniqueId;
+                showUnifiedInfoPanel("VOLUME", "SAVED VOLUME", metadata, true);
+              }
+              if (typeof updateMultiOverlaySvg === "function") updateMultiOverlaySvg();
+            } else {
+              multiSelectedVolumesMap.clear();
+              document.querySelectorAll("#volumesList .saved-report-item").forEach(el => el.classList.remove("selected-item"));
+              item.classList.add("selected-item");
+              activeFocusedFeatureId = uniqueId;
+              multiSelectedVolumesMap.set(uniqueId, { file, metadata, data: metadata, name: volName });
+              loadVolumeAction();
+              if (typeof updateMultiOverlaySvg === "function") updateMultiOverlaySvg();
+            }
           });
           
           fContent.appendChild(item);
@@ -4315,26 +4630,6 @@ window.addEventListener("DOMContentLoaded", () => {
     isContourOverlayActive = true;
     if (btnRightContour) btnRightContour.classList.add("overlay-active");
   });
-
-  // -------------------------------------------------------------------------
-  // MULTI-SELECT CONTROLLER & 3D FLOATING NAME LABEL OVERLAY RENDERER
-  // -------------------------------------------------------------------------
-  const multiPolygonsGroup = document.getElementById("multiPolygonsGroup");
-  const multiLinesGroup = document.getElementById("multiLinesGroup");
-  const multiBadgesGroup = document.getElementById("multiBadgesGroup");
-
-  const toggleMultiSelectReports = document.getElementById("toggleMultiSelectReports");
-  toggleMultiSelectReports?.addEventListener("click", () => {
-    isMultiSelectReports = !isMultiSelectReports;
-    toggleMultiSelectReports.classList.toggle("active", isMultiSelectReports);
-    if (!isMultiSelectReports) {
-      multiSelectedReportsMap.clear();
-      activeFocusedFeatureId = null;
-      document.querySelectorAll("#reportsList .saved-report-item").forEach(el => el.classList.remove("selected-item"));
-      updateMultiOverlaySvg();
-    }
-  });
-
 
 
   // -------------------------------------------------------------------------

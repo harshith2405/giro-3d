@@ -336,8 +336,6 @@ const flyoutPanel = document.getElementById('flyoutPanel');
 
   // --- Features Panel Draw Buttons ---
   const btnDrawFeaturePoint = document.getElementById('btnDrawFeaturePoint');
-  const btnDrawFeatureLine = document.getElementById('btnDrawFeatureLine');
-  const btnDrawFeaturePolygon = document.getElementById('btnDrawFeaturePolygon');
 
   btnDrawFeaturePoint?.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -349,20 +347,6 @@ const flyoutPanel = document.getElementById('flyoutPanel');
     pointDrawCoord = null;
     if(pointSvg) pointSvg.style.display = 'none';
     if(pointMiniContainer) pointMiniContainer.classList.add('hidden');
-  });
-
-  btnDrawFeatureLine?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    window._nextDrawIsDump = true;
-    const realBtn = document.getElementById('btnProfile');
-    if (realBtn) realBtn.click();
-  });
-
-  btnDrawFeaturePolygon?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    window._nextDrawIsDump = true;
-    const realBtn = document.getElementById('btnDrawVolume');
-    if (realBtn) realBtn.click();
   });
 
   instance.view.setControls(controls);
@@ -537,30 +521,71 @@ window.addEventListener("DOMContentLoaded", () => {
       }
     });
 
-    // 2. Render Multi-Selected Path Profiles
+    // 2. Render Multi-Selected Path Profiles (High-Density Terrain Draped)
     multiSelectedReportsMap.forEach((item, id) => {
-      let pts = item.data.originalProfile || item.data.points;
-      if (!pts || pts.length < 2) {
+      if (!item._drapedPoints3D) {
         if (item.data.startPoint && item.data.endPoint) {
-           pts = [item.data.startPoint, item.data.endPoint];
-        } else {
-           return;
+          const sPt = new Vector3(item.data.startPoint.x, item.data.startPoint.y, item.data.startPoint.z);
+          const ePt = new Vector3(item.data.endPoint.x, item.data.endPoint.y, item.data.endPoint.z);
+          
+          if (item.data.chartData && item.data.chartData.elevations && item.data.chartData.elevations.length >= 2) {
+            item._drapedPoints3D = buildProfile3DPointsFromElevations(sPt, ePt, item.data.chartData.elevations);
+          } else {
+            item._drapedPoints3D = [];
+            const sX = item.data.startCoord ? item.data.startCoord.x : (item.data.startPoint.x + (instance?.reference?.x || 0));
+            const sY = item.data.startCoord ? item.data.startCoord.y : (item.data.startPoint.y + (instance?.reference?.y || 0));
+            const eX = item.data.endCoord ? item.data.endCoord.x : (item.data.endPoint.x + (instance?.reference?.x || 0));
+            const eY = item.data.endCoord ? item.data.endCoord.y : (item.data.endPoint.y + (instance?.reference?.y || 0));
+            
+            const dX = eX - sX;
+            const dY = eY - sY;
+            const dist = Math.sqrt(dX * dX + dY * dY);
+            const samples = Math.max(60, Math.min(400, Math.floor(dist / 0.8)));
+            
+            const sZ = item.data.startPoint.z || (item.data.startCoord ? item.data.startCoord.z : 0);
+            const eZ = item.data.endPoint.z || (item.data.endCoord ? item.data.endCoord.z : 0);
+
+            for (let i = 0; i <= samples; i++) {
+              const t = i / samples;
+              const gx = sX + t * dX;
+              const gy = sY + t * dY;
+              const fallbackZ = sZ + t * (eZ - sZ);
+              let gz = fallbackZ;
+              try {
+                const sample = map ? map.getElevationFast(gx, gy) : null;
+                if (sample && typeof sample.elevation === "number" && !isNaN(sample.elevation)) {
+                  gz = sample.elevation;
+                }
+              } catch (e) {
+                gz = fallbackZ;
+              }
+              const xLocal = sPt.x + t * (ePt.x - sPt.x);
+              const yLocal = sPt.y + t * (ePt.y - sPt.y);
+              item._drapedPoints3D.push(new Vector3(xLocal, yLocal, gz + 0.35));
+            }
+          }
+        } else if (item.data.points || item.data.originalProfile) {
+          const pts = item.data.points || item.data.originalProfile;
+          item._drapedPoints3D = pts.map(p => new Vector3(
+            p.coord ? p.coord.x - (instance?.reference?.x || 0) : (p.x || 0),
+            p.coord ? p.coord.y - (instance?.reference?.y || 0) : (p.y || 0),
+            (p.coord ? p.coord.z : (p.z || 0)) + 0.35
+          ));
         }
       }
+
+      const pts3D = item._drapedPoints3D;
+      if (!pts3D || pts3D.length < 2) return;
       
       const isFocused = id === activeFocusedFeatureId;
 
       let sumX = 0, sumY = 0, sumZ = 0;
       const screenPoints = [];
-      for (const pt of pts) {
-        const x = pt.coord ? pt.coord.x : pt.x;
-        const y = pt.coord ? pt.coord.y : pt.y;
-        const z = pt.coord ? pt.coord.z : pt.z;
-        const v = new Vector3(x, y, z);
-        sumX += x; sumY += y; sumZ += z;
+      for (const v of pts3D) {
+        sumX += v.x; sumY += v.y; sumZ += v.z;
         const screenP = projectToScreen(v);
         if (screenP.z <= 1) {
-          screenPoints.push(`${screenP.x},${screenP.y}`);
+          screenPoints.push(`${screenP.x.toFixed(1)},${screenP.y.toFixed(1)}`);
         }
       }
       
@@ -568,7 +593,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
       const ptsAttr = screenPoints.join(" ");
       const strokeColor = isFocused ? "#5e19ea" : "#a855f7";
-      const strokeWidth = isFocused ? "4.5" : "2.5";
+      const strokeWidth = isFocused ? "4.5" : "2.8";
 
       const lineEl = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
       lineEl.setAttribute("points", ptsAttr);
@@ -588,7 +613,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
       if (multiLinesGroup) multiLinesGroup.appendChild(lineEl);
 
-      const count = pts.length;
+      const count = pts3D.length;
       const midWorld = new Vector3(sumX / count, sumY / count, sumZ / count);
       const projMid = projectToScreen(midWorld);
       
@@ -842,12 +867,14 @@ window.addEventListener("DOMContentLoaded", () => {
     contoursEnabled = true;
     btnEnableContours.disabled = true;
     btnDisableContours.disabled = false;
+    document.getElementById("infoContourExportCard")?.classList.remove("hidden");
     regenerateContours();
   });
   btnDisableContours?.addEventListener("click", () => {
     contoursEnabled = false;
     btnEnableContours.disabled = false;
     btnDisableContours.disabled = true;
+    document.getElementById("infoContourExportCard")?.classList.add("hidden");
     regenerateContours();
   });
 
@@ -883,6 +910,347 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     if (contoursEnabled) regenerateContours();
   });
+
+  // -------------------------------------------------------------------------
+  // CONTOUR & HEATMAP EXPORT GENERATORS (DXF, GeoJSON, High-Res PNG)
+  // -------------------------------------------------------------------------
+  function extractContourPolylines(minorStep = 2, majorStep = 10) {
+    if (!map) return [];
+    
+    const minMax = map.getElevationMinMax() || { min: 0, max: 100 };
+    const minZ = Math.floor(minMax.min);
+    const maxZ = Math.ceil(minMax.max);
+    
+    let minX, maxX, minY, maxY;
+    if (map.extent) {
+      minX = map.extent.minX;
+      maxX = map.extent.maxX;
+      minY = map.extent.minY;
+      maxY = map.extent.maxY;
+    } else if (activeProject?.extent) {
+      minX = activeProject.extent[0];
+      minY = activeProject.extent[1];
+      maxX = activeProject.extent[2];
+      maxY = activeProject.extent[3];
+    } else if (instance?.reference) {
+      minX = instance.reference.x - 500;
+      maxX = instance.reference.x + 500;
+      minY = instance.reference.y - 500;
+      maxY = instance.reference.y + 500;
+    } else {
+      minX = 0; maxX = 1000; minY = 0; maxY = 1000;
+    }
+
+    const GRID_RES = 100;
+    const dx = (maxX - minX) / (GRID_RES - 1);
+    const dy = (maxY - minY) / (GRID_RES - 1);
+
+    // Sample terrain grid
+    const grid = [];
+    for (let r = 0; r < GRID_RES; r++) {
+      const row = [];
+      const y = minY + r * dy;
+      for (let c = 0; c < GRID_RES; c++) {
+        const x = minX + c * dx;
+        let z = minZ;
+        try {
+          const s = map.getElevationFast(x, y);
+          if (s && typeof s.elevation === "number" && !isNaN(s.elevation)) {
+            z = s.elevation;
+          }
+        } catch(e) {}
+        row.push(z);
+      }
+      grid.push(row);
+    }
+
+    const contours = [];
+
+    // Marching Squares isocontour extraction
+    for (let L = minZ; L <= maxZ; L += minorStep) {
+      const isMajor = (Math.round(L) % Math.round(majorStep) === 0);
+      const segments = [];
+
+      for (let r = 0; r < GRID_RES - 1; r++) {
+        const y0 = minY + r * dy;
+        const y1 = y0 + dy;
+        for (let c = 0; c < GRID_RES - 1; c++) {
+          const x0 = minX + c * dx;
+          const x1 = x0 + dx;
+
+          const z00 = grid[r][c];
+          const z10 = grid[r][c + 1];
+          const z11 = grid[r + 1][c + 1];
+          const z01 = grid[r + 1][c];
+
+          const code = (z00 > L ? 1 : 0) | ((z10 > L ? 1 : 0) << 1) | ((z11 > L ? 1 : 0) << 2) | ((z01 > L ? 1 : 0) << 3);
+          if (code === 0 || code === 15) continue;
+
+          const pBottom = [x0 + ((L - z00) / (z10 - z00 || 0.0001)) * (x1 - x0), y0, L];
+          const pRight  = [x1, y0 + ((L - z10) / (z11 - z10 || 0.0001)) * (y1 - y0), L];
+          const pTop    = [x0 + ((L - z01) / (z11 - z01 || 0.0001)) * (x1 - x0), y1, L];
+          const pLeft   = [x0, y0 + ((L - z00) / (z01 - z00 || 0.0001)) * (y1 - y0), L];
+
+          switch(code) {
+            case 1: case 14: segments.push([pLeft, pBottom]); break;
+            case 2: case 13: segments.push([pBottom, pRight]); break;
+            case 3: case 12: segments.push([pLeft, pRight]); break;
+            case 4: case 11: segments.push([pRight, pTop]); break;
+            case 5: segments.push([pLeft, pTop]); segments.push([pBottom, pRight]); break;
+            case 6: case 9: segments.push([pBottom, pTop]); break;
+            case 7: case 8: segments.push([pLeft, pTop]); break;
+            case 10: segments.push([pLeft, pBottom]); segments.push([pTop, pRight]); break;
+          }
+        }
+      }
+
+      if (segments.length > 0) {
+        contours.push({ elevation: L, isMajor, segments });
+      }
+    }
+
+    return contours;
+  }
+
+  function downloadContoursDxf() {
+    const statusEl = document.getElementById("contourExportStatus");
+    if (statusEl) { statusEl.classList.remove("hidden"); statusEl.textContent = "Generating 3D CAD DXF file..."; }
+
+    setTimeout(() => {
+      try {
+        const minorStep = parseFloat(document.getElementById("infoContourInterval")?.value || 2);
+        const majorStep = parseFloat(document.getElementById("infoMajorInterval")?.value || 10);
+        const contours = extractContourPolylines(minorStep, majorStep);
+
+        let dxf = "";
+        dxf += "0\nSECTION\n2\nHEADER\n0\nENDSEC\n";
+        dxf += "0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n2\n";
+        dxf += "0\nLAYER\n2\nCONTOURS_MAJOR\n70\n0\n62\n1\n6\nCONTINUOUS\n";
+        dxf += "0\nLAYER\n2\nCONTOURS_MINOR\n70\n0\n62\n8\n6\nCONTINUOUS\n";
+        dxf += "0\nENDTAB\n0\nENDSEC\n";
+        dxf += "0\nSECTION\n2\nENTITIES\n";
+
+        let totalLines = 0;
+        contours.forEach(c => {
+          const layerName = c.isMajor ? "CONTOURS_MAJOR" : "CONTOURS_MINOR";
+          c.segments.forEach(seg => {
+            const [p1, p2] = seg;
+            dxf += `0\nLINE\n8\n${layerName}\n`;
+            dxf += `10\n${p1[0].toFixed(3)}\n20\n${p1[1].toFixed(3)}\n30\n${p1[2].toFixed(2)}\n`;
+            dxf += `11\n${p2[0].toFixed(3)}\n21\n${p2[1].toFixed(3)}\n31\n${p2[2].toFixed(2)}\n`;
+            totalLines++;
+          });
+        });
+
+        dxf += "0\nENDSEC\n0\nEOF\n";
+
+        const blob = new Blob([dxf], { type: "application/dxf" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        const projName = activeProject?.folderName || "site";
+        a.href = url;
+        a.download = `${projName}_contours_${minorStep}m_${majorStep}m.dxf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        if (statusEl) {
+          statusEl.textContent = `✓ Downloaded ${totalLines} contour lines (.dxf)`;
+          setTimeout(() => statusEl.classList.add("hidden"), 4000);
+        }
+      } catch (err) {
+        console.error("DXF export error", err);
+        if (statusEl) statusEl.textContent = "⚠️ Export failed: " + err.message;
+      }
+    }, 60);
+  }
+
+  function downloadContoursGeoJson() {
+    const statusEl = document.getElementById("contourExportStatus");
+    if (statusEl) { statusEl.classList.remove("hidden"); statusEl.textContent = "Generating GeoJSON contours..."; }
+
+    setTimeout(() => {
+      try {
+        const minorStep = parseFloat(document.getElementById("infoContourInterval")?.value || 2);
+        const majorStep = parseFloat(document.getElementById("infoMajorInterval")?.value || 10);
+        const contours = extractContourPolylines(minorStep, majorStep);
+
+        const features = [];
+        contours.forEach(c => {
+          c.segments.forEach(seg => {
+            features.push({
+              type: "Feature",
+              geometry: {
+                type: "LineString",
+                coordinates: [
+                  [seg[0][0], seg[0][1], seg[0][2]],
+                  [seg[1][0], seg[1][1], seg[1][2]]
+                ]
+              },
+              properties: {
+                elevation: c.elevation,
+                isMajor: c.isMajor,
+                layer: c.isMajor ? "CONTOURS_MAJOR" : "CONTOURS_MINOR",
+                unit: "meters"
+              }
+            });
+          });
+        });
+
+        const geojson = {
+          type: "FeatureCollection",
+          crs: {
+            type: "name",
+            properties: { name: activeProject?.crs || "urn:ogc:def:crs:OGC:1.3:CRS84" }
+          },
+          features
+        };
+
+        const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: "application/geo+json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        const projName = activeProject?.folderName || "site";
+        a.href = url;
+        a.download = `${projName}_contours.geojson`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        if (statusEl) {
+          statusEl.textContent = `✓ Downloaded ${features.length} GeoJSON contours`;
+          setTimeout(() => statusEl.classList.add("hidden"), 4000);
+        }
+      } catch(err) {
+        console.error("GeoJSON export error", err);
+        if (statusEl) statusEl.textContent = "⚠️ Export failed: " + err.message;
+      }
+    }, 60);
+  }
+
+  function downloadHeatmapPng() {
+    const statusEl = document.getElementById("heatmapExportStatus");
+    if (statusEl) { statusEl.classList.remove("hidden"); statusEl.textContent = "Rendering image with safety legend..."; }
+
+    setTimeout(() => {
+      try {
+        const canvas3D = instance?.renderer?.domElement || document.querySelector("#viewerContainer canvas") || document.querySelector("canvas");
+        if (!canvas3D) throw new Error("3D Canvas not found");
+
+        if (instance) instance.notifyChange();
+
+        const outCanvas = document.createElement("canvas");
+        outCanvas.width = canvas3D.width || 1920;
+        outCanvas.height = canvas3D.height || 1080;
+        const ctx = outCanvas.getContext("2d");
+
+        // Draw WebGL scene
+        ctx.drawImage(canvas3D, 0, 0, outCanvas.width, outCanvas.height);
+
+        // Draw Slope Safety Legend Overlay in Bottom-Left Corner
+        const legendW = 280;
+        const legendH = 150;
+        const marginX = 24;
+        const marginY = outCanvas.height - legendH - 24;
+
+        // Glass card background
+        ctx.fillStyle = "rgba(15, 23, 42, 0.88)";
+        ctx.strokeStyle = "rgba(14, 165, 233, 0.4)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        if (ctx.roundRect) {
+          ctx.roundRect(marginX, marginY, legendW, legendH, 12);
+        } else {
+          ctx.rect(marginX, marginY, legendW, legendH);
+        }
+        ctx.fill();
+        ctx.stroke();
+
+        // Title
+        ctx.fillStyle = "#38bdf8";
+        ctx.font = "bold 13px sans-serif";
+        ctx.fillText("SLOPE HEATMAP & SAFETY ANALYSIS", marginX + 14, marginY + 24);
+
+        const modeRadio = document.querySelector('input[name="infoHeatmapMode"]:checked') || { value: "predefined" };
+        const isHaulRoad = modeRadio.value === "haulroad";
+
+        const items = isHaulRoad ? [
+          { color: "#22c55e", label: "0° – 5° (Excellent Safety)" },
+          { color: "#eab308", label: "5° – 8° (Acceptable Grade)" },
+          { color: "#f97316", label: "8° – 10° (Caution / Moderate)" },
+          { color: "#ef4444", label: "> 10° (Unsafe for Haulage)" }
+        ] : [
+          { color: "#22c55e", label: "0° – 15° (Flat Terrain)" },
+          { color: "#eab308", label: "15° – 30° (Moderate Slope)" },
+          { color: "#f97316", label: "30° – 45° (Steep Pitch)" },
+          { color: "#ef4444", label: "> 45° (Extreme Gradient)" }
+        ];
+
+        let rowY = marginY + 46;
+        items.forEach(item => {
+          ctx.fillStyle = item.color;
+          ctx.beginPath();
+          if (ctx.roundRect) {
+            ctx.roundRect(marginX + 14, rowY - 10, 14, 14, 3);
+          } else {
+            ctx.rect(marginX + 14, rowY - 10, 14, 14);
+          }
+          ctx.fill();
+          ctx.strokeStyle = "rgba(255,255,255,0.3)";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
+          ctx.fillStyle = "#f1f5f9";
+          ctx.font = "11px sans-serif";
+          ctx.fillText(item.label, marginX + 36, rowY + 1);
+          rowY += 22;
+        });
+
+        // Project watermark in top-right
+        ctx.fillStyle = "rgba(15, 23, 42, 0.75)";
+        ctx.beginPath();
+        if (ctx.roundRect) {
+          ctx.roundRect(outCanvas.width - 220, 20, 200, 48, 8);
+        } else {
+          ctx.rect(outCanvas.width - 220, 20, 200, 48);
+        }
+        ctx.fill();
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 12px sans-serif";
+        const projTitle = activeProject?.folderName || "Polygon Site";
+        ctx.fillText(`Project: ${projTitle}`, outCanvas.width - 208, 40);
+        ctx.fillStyle = "#94a3b8";
+        ctx.font = "10px sans-serif";
+        ctx.fillText(new Date().toLocaleDateString(), outCanvas.width - 208, 56);
+
+        outCanvas.toBlob(blob => {
+          if (!blob) throw new Error("Canvas toBlob failed");
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `${projTitle}_slope_heatmap_${isHaulRoad ? 'haulroad' : 'gradient'}.png`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+
+          if (statusEl) {
+            statusEl.textContent = "✓ Downloaded High-Res Heatmap (.png)";
+            setTimeout(() => statusEl.classList.add("hidden"), 4000);
+          }
+        }, "image/png");
+
+      } catch(err) {
+        console.error("Heatmap PNG export error", err);
+        if (statusEl) statusEl.textContent = "⚠️ Export failed: " + err.message;
+      }
+    }, 60);
+  }
+
+  document.getElementById("btnExportContourDxf")?.addEventListener("click", downloadContoursDxf);
+  document.getElementById("btnExportContourGeoJson")?.addEventListener("click", downloadContoursGeoJson);
+  document.getElementById("btnExportHeatmapPng")?.addEventListener("click", downloadHeatmapPng);
 
   // -------------------------------------------------------------------------
   // ROI (Region Of Interest) rectangle clipping
@@ -981,10 +1349,59 @@ window.addEventListener("DOMContentLoaded", () => {
   const infoViewPolyRoi = document.getElementById("infoViewPolyRoi");
   const infoViewPoint = document.getElementById("infoViewPoint");
 
-  const topSaveBar = document.getElementById("topSaveBar");
+  // Central Universal Save Modal Elements
+  const universalSaveModal = document.getElementById("universalSaveModal");
+  const btnCloseSaveModal = document.getElementById("btnCloseSaveModal");
+  const btnCancelSaveModal = document.getElementById("btnCancelSaveModal");
+  const saveModalTypeBadge = document.getElementById("saveModalTypeBadge");
+  const saveModalMetricsPreview = document.getElementById("saveModalMetricsPreview");
+  const saveModalTitle = document.getElementById("saveModalTitle");
 
   let activeInfoTool = null;
   let activeToolSaveData = null;
+
+  function openUniversalSaveModal() {
+    if (!universalSaveModal) return;
+    universalSaveModal.classList.remove("hidden");
+    if (universalSaveName) {
+      universalSaveName.classList.remove("input-invalid");
+      universalSaveName.value = "";
+      setTimeout(() => universalSaveName.focus(), 60);
+    }
+
+    if (activeInfoTool === "PROFILE") {
+      if (saveModalTypeBadge) saveModalTypeBadge.textContent = "📈 Path Profile";
+      const dist3D = document.getElementById("profile3D")?.textContent || "0.00 m";
+      if (saveModalMetricsPreview) saveModalMetricsPreview.textContent = `3D: ${dist3D}`;
+    } else if (activeInfoTool === "VOLUME") {
+      if (saveModalTypeBadge) saveModalTypeBadge.textContent = "🧊 Volume Area";
+      const cut = document.getElementById("volMiniCut")?.textContent || "0 m3";
+      const fill = document.getElementById("volMiniFill")?.textContent || "0 m3";
+      if (saveModalMetricsPreview) saveModalMetricsPreview.textContent = `Cut: ${cut} | Fill: ${fill}`;
+    } else if (activeInfoTool === "BOX_ROI" || activeInfoTool === "POLY_ROI") {
+      if (saveModalTypeBadge) saveModalTypeBadge.textContent = "✂️ ROI Boundary";
+      const area = (document.getElementById("boxRoiArea") || document.getElementById("polyRoiArea"))?.textContent || "0 m²";
+      if (saveModalMetricsPreview) saveModalMetricsPreview.textContent = `Area: ${area}`;
+    } else if (activeInfoTool === "POINT") {
+      if (saveModalTypeBadge) saveModalTypeBadge.textContent = "📍 Point Pin";
+      const elev = document.getElementById("pointMiniElev")?.textContent || "-";
+      if (saveModalMetricsPreview) saveModalMetricsPreview.textContent = `Elev: ${elev}`;
+    }
+    syncFolderDropdowns();
+  }
+
+  function closeUniversalSaveModal() {
+    if (universalSaveModal) universalSaveModal.classList.add("hidden");
+  }
+
+  btnCloseSaveModal?.addEventListener("click", closeUniversalSaveModal);
+  btnCancelSaveModal?.addEventListener("click", closeUniversalSaveModal);
+
+  document.getElementById("btnSaveFromInfoProfile")?.addEventListener("click", openUniversalSaveModal);
+  document.getElementById("btnSaveFromInfoVolume")?.addEventListener("click", openUniversalSaveModal);
+  document.getElementById("btnSaveFromInfoBoxRoi")?.addEventListener("click", openUniversalSaveModal);
+  document.getElementById("btnSaveFromInfoPolyRoi")?.addEventListener("click", openUniversalSaveModal);
+  document.getElementById("btnSaveFromInfoPoint")?.addEventListener("click", openUniversalSaveModal);
 
   function showUnifiedInfoPanel(toolType, headerText, data, isSavedView = false) {
     activeInfoTool = toolType;
@@ -1003,6 +1420,11 @@ window.addEventListener("DOMContentLoaded", () => {
     const infoViewHeatmap = document.getElementById("infoViewHeatmap");
     const infoViewContour = document.getElementById("infoViewContour");
     [infoViewProfile, infoViewVolume, infoViewBoxRoi, infoViewPolyRoi, infoViewPoint, infoViewGrid, infoViewHeatmap, infoViewContour].forEach(el => el?.classList.add("hidden"));
+
+    // Toggle visibility of Save buttons inside viewports
+    document.querySelectorAll(".info-save-btn").forEach(btn => {
+      btn.style.display = isSavedView ? "none" : "flex";
+    });
 
     // Display active tool viewport
     if (toolType === "PROFILE" && infoViewProfile) {
@@ -1030,19 +1452,12 @@ window.addEventListener("DOMContentLoaded", () => {
     if (toolType === "HEATMAP" && infoViewHeatmap) infoViewHeatmap.classList.remove("hidden");
     if (toolType === "CONTOUR" && infoViewContour) infoViewContour.classList.remove("hidden");
 
-    if (topSaveBar) {
-      if (isSavedView || ["GRID", "HEATMAP", "CONTOUR"].includes(toolType)) {
-        topSaveBar.classList.add("hidden");
-      } else {
-        topSaveBar.classList.remove("hidden");
-      }
-    }
     if (unifiedInfoPanel) unifiedInfoPanel.classList.remove("hidden");
   }
 
   closeInfoPanelBtn?.addEventListener("click", () => {
     if (unifiedInfoPanel) unifiedInfoPanel.classList.add("hidden");
-    if (topSaveBar) topSaveBar.classList.add("hidden");
+    closeUniversalSaveModal();
     activeInfoTool = null;
     activeToolSaveData = null;
   });
@@ -1055,7 +1470,7 @@ window.addEventListener("DOMContentLoaded", () => {
       id: Date.now(),
       type: type,
       name: name,
-    folder: folder,
+      folder: folder,
       timestamp: new Date().toISOString(),
       data: data
     });
@@ -1169,8 +1584,8 @@ window.addEventListener("DOMContentLoaded", () => {
       }
 
       alert(`✅ Saved "${nameVal}" to folder '${folderVal}'!`);
-      if (unifiedInfoPanel) unifiedInfoPanel.classList.add("hidden");
-      if (topSaveBar) topSaveBar.classList.add("hidden");
+      closeUniversalSaveModal();
+      showUnifiedInfoPanel(activeInfoTool, "SAVED ITEM", null, true);
 
     } catch(err) {
       console.error("Save error:", err);
@@ -1669,6 +2084,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // -------------------------------------------------------------------------
   const measureSvg = document.getElementById("measureSvg");
   const measureSvgLine = document.getElementById("measureSvgLine");
+  const measureSvgPolyline = document.getElementById("measureSvgPolyline");
   const measureSvgStart = document.getElementById("measureSvgStart");
   const measureSvgEnd = document.getElementById("measureSvgEnd");
 
@@ -1689,6 +2105,7 @@ window.addEventListener("DOMContentLoaded", () => {
   let measureEndPoint = null;
   let measureStartCoord = null;
   let measureEndCoord = null;
+  let currentProfilePoints3D = [];
   
   // Point Draw specific variables
   let pointDrawPoint = null;
@@ -1714,11 +2131,13 @@ window.addEventListener("DOMContentLoaded", () => {
   // Clear the current measurement overlay + points.
   function clearMeasure() {
     if (measureSvg) measureSvg.style.display = "none";
+    if (measureSvgPolyline) measureSvgPolyline.style.display = "none";
     if (elevationMiniContainer) elevationMiniContainer.classList.add("hidden");
     measureStartPoint = null;
     measureEndPoint = null;
     measureStartCoord = null;
     measureEndCoord = null;
+    currentProfilePoints3D = [];
   }
 
   // Project a world-space point to screen pixel coordinates.
@@ -1739,19 +2158,42 @@ window.addEventListener("DOMContentLoaded", () => {
     if ((measureMode === "SIMPLE" || measureMode === "PROFILE") && measureStartPoint && measureEndPoint) {
       const start = projectToScreen(measureStartPoint);
       const end = projectToScreen(measureEndPoint);
-      if (start.z > 1 || end.z > 1) {
+      if (start.z > 1 && end.z > 1) {
         measureSvg.style.display = "none";
         return;
       }
       measureSvg.style.display = "block";
-      measureSvgLine.setAttribute("x1", start.x);
-      measureSvgLine.setAttribute("y1", start.y);
+      
       measureSvgStart.setAttribute("cx", start.x);
       measureSvgStart.setAttribute("cy", start.y);
-      measureSvgLine.setAttribute("x2", end.x);
-      measureSvgLine.setAttribute("y2", end.y);
       measureSvgEnd.setAttribute("cx", end.x);
       measureSvgEnd.setAttribute("cy", end.y);
+
+      // If finished profile with high-density draped terrain points, render smooth SVG polyline
+      if (measureMode === "PROFILE" && currentProfilePoints3D.length >= 2) {
+        let ptsStr = "";
+        for (let i = 0; i < currentProfilePoints3D.length; i++) {
+          const ptScreen = projectToScreen(currentProfilePoints3D[i]);
+          if (ptScreen.z <= 1) {
+            ptsStr += `${ptScreen.x.toFixed(1)},${ptScreen.y.toFixed(1)} `;
+          }
+        }
+        if (measureSvgPolyline) {
+          measureSvgPolyline.setAttribute("points", ptsStr);
+          measureSvgPolyline.style.display = "block";
+        }
+        if (measureSvgLine) measureSvgLine.style.display = "none";
+      } else {
+        // Active dragging or simple distance measurement
+        if (measureSvgPolyline) measureSvgPolyline.style.display = "none";
+        if (measureSvgLine) {
+          measureSvgLine.style.display = "block";
+          measureSvgLine.setAttribute("x1", start.x);
+          measureSvgLine.setAttribute("y1", start.y);
+          measureSvgLine.setAttribute("x2", end.x);
+          measureSvgLine.setAttribute("y2", end.y);
+        }
+      }
     } else if (measureSvg) {
       measureSvg.style.display = "none";
     }
@@ -2032,8 +2474,6 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // --- Path Profile ---
   btnProfile?.addEventListener("click", () => {
-    window.isDumpDraw = window._nextDrawIsDump === true;
-    window._nextDrawIsDump = false;
     resetRoiState();
     measureState = "SELECTING";
     measureMode = "PROFILE";
@@ -2078,8 +2518,6 @@ window.addEventListener("DOMContentLoaded", () => {
   const volumeMiniContainer = document.getElementById("volumeMiniContainer");
 
   btnDrawVolume?.addEventListener("click", () => {
-    window.isDumpDraw = window._nextDrawIsDump === true;
-    window._nextDrawIsDump = false;
     resetRoiState();
     measureState = "SELECTING";
     measureMode = "VOLUME";
@@ -2360,7 +2798,7 @@ window.addEventListener("DOMContentLoaded", () => {
       const {ctx} = chart;
       ctx.save();
       ctx.globalCompositeOperation = 'destination-over';
-      ctx.fillStyle = options.color || '#0f172a'; // Dark background
+      ctx.fillStyle = options.color || '#ffffff'; // Clean pure white background
       ctx.fillRect(0, 0, chart.width, chart.height);
       ctx.restore();
     }
@@ -2376,29 +2814,20 @@ window.addEventListener("DOMContentLoaded", () => {
     const fullCtx = fullCanvas.getContext("2d");
     if (!miniCtx || !fullCtx) return;
 
-    const commonOptions = {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false, // critical for smooth live dragging
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { 
-          title: { display: true, text: 'Distance (m)', color: '#1e293b' },
-          ticks: { color: '#64748b' },
-          grid: { color: '#e2e8f0' }
-        },
-        y: { 
-          title: { display: true, text: 'Elevation (m)', color: '#1e293b' },
-          ticks: { color: '#64748b' },
-          grid: { color: '#e2e8f0' },
-          grace: '5%'
-        }
-      }
-    };
-
     miniChart = new Chart(miniCtx, {
       type: 'line',
-      data: { labels: [], datasets: [{ data: [], borderColor: '#5e19ea', backgroundColor: 'rgba(94, 25, 234, 0.2)', fill: true, tension: 0.2, pointRadius: 0, borderWidth: 2.5 }] },
+      data: {
+        labels: [],
+        datasets: [{
+          data: [],
+          borderColor: '#2563eb', // Clean crisp blue
+          backgroundColor: 'rgba(37, 99, 235, 0.12)',
+          fill: true,
+          tension: 0.2,
+          pointRadius: 0,
+          borderWidth: 2
+        }]
+      },
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -2418,8 +2847,57 @@ window.addEventListener("DOMContentLoaded", () => {
 
     fullChart = new Chart(fullCtx, {
       type: 'line',
-      data: { labels: [], datasets: [{ label: 'Elevation', data: [], borderColor: '#5e19ea', backgroundColor: 'rgba(94, 25, 234, 0.15)', fill: true, tension: 0.1, pointRadius: 2, pointHoverRadius: 5, borderWidth: 3 }] },
-      options: commonOptions,
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'Elevation',
+          data: [],
+          borderColor: '#2563eb', // Crisp Tech Blue
+          backgroundColor: 'rgba(37, 99, 235, 0.12)',
+          fill: true,
+          tension: 0.15,
+          pointRadius: 3,
+          pointBackgroundColor: '#2563eb',
+          pointBorderColor: '#ffffff',
+          pointBorderWidth: 1.5,
+          pointHoverRadius: 6,
+          pointHoverBackgroundColor: '#1d4ed8',
+          borderWidth: 2.5
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#1e293b',
+            titleColor: '#f8fafc',
+            bodyColor: '#93c5fd',
+            borderColor: '#3b82f6',
+            borderWidth: 1,
+            padding: 10,
+            displayColors: false,
+            callbacks: {
+              label: (ctx) => `Elevation: ${ctx.parsed.y.toFixed(2)} m`
+            }
+          }
+        },
+        scales: {
+          x: { 
+            title: { display: true, text: 'Distance (m)', color: '#334155', font: { weight: '600' } },
+            ticks: { color: '#64748b' },
+            grid: { color: '#e2e8f0' }
+          },
+          y: { 
+            title: { display: true, text: 'Elevation (m)', color: '#334155', font: { weight: '600' } },
+            ticks: { color: '#64748b' },
+            grid: { color: '#e2e8f0' },
+            grace: '5%'
+          }
+        }
+      },
       plugins: [customBgPlugin]
     });
   }
@@ -2512,6 +2990,22 @@ window.addEventListener("DOMContentLoaded", () => {
     showUnifiedInfoPanel("VOLUME", "VOLUME ANALYSIS", { area2D, perimeter, cutVolume, fillVolume, coords });
   }
 
+  function buildProfile3DPointsFromElevations(startPt, endPt, elevationsArray) {
+    if (!startPt || !endPt || !elevationsArray || elevationsArray.length < 2) return [];
+    const count = elevationsArray.length;
+    const pts = [];
+    for (let i = 0; i < count; i++) {
+      const t = i / (count - 1);
+      const x = startPt.x + t * (endPt.x - startPt.x);
+      const y = startPt.y + t * (endPt.y - startPt.y);
+      const rawZ = Number(elevationsArray[i]);
+      const fallbackZ = (startPt.z || 0) + t * ((endPt.z || 0) - (startPt.z || 0));
+      const z = (!isNaN(rawZ) && typeof rawZ === 'number') ? rawZ : fallbackZ;
+      pts.push(new Vector3(x, y, z + 0.35));
+    }
+    return pts;
+  }
+
   function updateElevationProfile() {
     if (!measureStartCoord || !measureEndCoord || !map) {
       return;
@@ -2524,30 +3018,46 @@ window.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    // Dynamic sampling: 1 sample every 2 meters, min 10, max 200
-    let numSamples = Math.max(10, Math.min(200, Math.floor(totalDist / 2)));
+    // Ultra High-Density sampling: sample every 0.8 meters (min 60, max 400 points)
+    let numSamples = Math.max(60, Math.min(400, Math.floor(totalDist / 0.8)));
     
     const distances = [];
     const elevations = [];
     currentProfileData = [];
+    currentProfilePoints3D = [];
+
+    const startZ = (measureStartPoint && typeof measureStartPoint.z === 'number') ? measureStartPoint.z : (measureStartCoord.z || 0);
+    const endZ = (measureEndPoint && typeof measureEndPoint.z === 'number') ? measureEndPoint.z : (measureEndCoord.z || 0);
+    const startLocal = measureStartPoint || { x: measureStartCoord.x - (instance?.reference?.x || 0), y: measureStartCoord.y - (instance?.reference?.y || 0), z: startZ };
+    const endLocal = measureEndPoint || { x: measureEndCoord.x - (instance?.reference?.x || 0), y: measureEndCoord.y - (instance?.reference?.y || 0), z: endZ };
 
     for (let i = 0; i <= numSamples; i++) {
       const t = i / numSamples;
       const x = measureStartCoord.x + t * dx;
       const y = measureStartCoord.y + t * dy;
-      let z = 0;
+      const fallbackZ = startZ + t * (endZ - startZ);
+      let z = fallbackZ;
       try {
-        const sample = map.getElevationFast(x, y);
-        z = sample ? sample.elevation : 0;
+        const sample = map ? map.getElevationFast(x, y) : null;
+        if (sample && typeof sample.elevation === "number" && !isNaN(sample.elevation)) {
+          z = sample.elevation;
+        }
       } catch (err) {
-        z = 0;
+        z = fallbackZ;
       }
       
       const currentDist = t * totalDist;
       distances.push(currentDist.toFixed(1));
       elevations.push(z);
-      currentProfileData.push({ dist: currentDist, elev: z, x, y });
+      currentProfileData.push({ dist: currentDist, elev: z, x, y, z });
+
+      const xLocal = startLocal.x + t * (endLocal.x - startLocal.x);
+      const yLocal = startLocal.y + t * (endLocal.y - startLocal.y);
+      currentProfilePoints3D.push(new Vector3(xLocal, yLocal, z + 0.35));
     }
+
+    // Immediately trigger 3D draped line update
+    updateMeasureSvg();
 
     const elevChange = Math.abs(elevations[elevations.length - 1] - elevations[0]);
     const surfDist = currentProfileData.reduce((acc, curr, idx) => {
@@ -2892,6 +3402,7 @@ window.addEventListener("DOMContentLoaded", () => {
       btnDisableHeatmap.disabled = false;
       heatmapLoading?.classList.add('hidden');
       heatmapSettings?.classList.remove('hidden');
+      document.getElementById("infoHeatmapExportCard")?.classList.remove("hidden");
     }, 600);
   });
 
@@ -2907,6 +3418,7 @@ window.addEventListener("DOMContentLoaded", () => {
     btnEnableHeatmap.disabled = false;
     btnDisableHeatmap.disabled = true;
     heatmapSettings?.classList.add('hidden');
+    document.getElementById("infoHeatmapExportCard")?.classList.add("hidden");
   });
 
   heatmapOpacity?.addEventListener('input', (e) => {
@@ -3158,7 +3670,7 @@ window.addEventListener("DOMContentLoaded", () => {
           const _cacheBuster = _url.includes('?') ? `&t=${Date.now()}` : `?t=${Date.now()}`;
           const res = await fetch(_url + _cacheBuster, { cache: 'no-store' });
              metadata = await res.json();
-          } catch(e) {}
+        } catch(e) {}
         }
         return { pdfFile, jsonFile, metadata };
       });
@@ -3166,27 +3678,18 @@ window.addEventListener("DOMContentLoaded", () => {
       let items = await Promise.all(itemsPromises);
       items = items.sort((a,b) => new Date(b.pdfFile.lastModified) - new Date(a.pdfFile.lastModified));
 
-      let hasOfficial = false;
+      let hasItems = false;
       if (reportsList) reportsList.innerHTML = '';
       if (featuresListLines) featuresListLines.innerHTML = '';
 
       items.forEach(({ pdfFile, jsonFile, metadata }) => {
-        const createItem = (isDump) => {
+        const createItem = () => {
           const item = document.createElement("div");
           item.className = "saved-report-item";
-          
-          
           
           const svg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`;
           const dateStr = new Date(pdfFile.lastModified).toLocaleDateString();
           
-          const viewBtnHtml = jsonFile ? `<button class="btn-action-icon view view-path-btn" title="View Path on Map"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg> View</button>` : '';
-          
-          let promoteBtnHtml = '';
-          if (isDump && metadata.isOfficial === false && jsonFile) {
-            promoteBtnHtml = `<button class="btn-action-icon promote-btn" title="Save as Official Profile"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg> Save</button>`;
-          }
-
           const cbHtml = `<input type="checkbox" class="report-checkbox feature-checkbox premium-checkbox" data-filename="${pdfFile.fileName}" value="${pdfFile.fileName}" style="display: none; margin-right: 8px;">`;
           const pdfLinkHtml = `<a href="${pdfFile.url}" target="_blank" class="btn-action-icon pdf-link" title="Download PDF" onclick="event.stopPropagation();" style="display: inline-flex; align-items: center; gap: 3px; font-size: 11px; padding: 2px 6px; border-radius: 4px; text-decoration: none; color: #8b5cf6; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.2);"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> PDF</a>`;
           
@@ -3196,7 +3699,6 @@ window.addEventListener("DOMContentLoaded", () => {
               ${svg} <span style="flex: 1; margin-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${pdfFile.fileName}">${pdfFile.fileName.split('/').pop().replace('.pdf', '')}</span>
             </div>
             <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
-              ${promoteBtnHtml}
               ${pdfLinkHtml}
               <span style="color: #94a3b8; font-size: 10px;">${dateStr}</span>
             </div>
@@ -3220,27 +3722,31 @@ window.addEventListener("DOMContentLoaded", () => {
                  if (m.startCoord) {
                    measureStartCoord = new Coordinates(giroCrs, m.startCoord.x, m.startCoord.y, m.startCoord.z);
                  } else {
-                   measureStartCoord = new Coordinates(giroCrs, instance.reference.x + measureStartPoint.x, instance.reference.y + measureStartPoint.y, measureStartPoint.z);
+                   measureStartCoord = new Coordinates(giroCrs, (instance?.reference?.x || 0) + measureStartPoint.x, (instance?.reference?.y || 0) + measureStartPoint.y, measureStartPoint.z);
                  }
                  
                  if (m.endCoord) {
                    measureEndCoord = new Coordinates(giroCrs, m.endCoord.x, m.endCoord.y, m.endCoord.z);
                  } else {
-                   measureEndCoord = new Coordinates(giroCrs, instance.reference.x + measureEndPoint.x, instance.reference.y + measureEndPoint.y, measureEndPoint.z);
+                   measureEndCoord = new Coordinates(giroCrs, (instance?.reference?.x || 0) + measureEndPoint.x, (instance?.reference?.y || 0) + measureEndPoint.y, measureEndPoint.z);
                  }
                  
                  measureMode = "PROFILE";
                  measureState = "FINISHED";
+                 
+                 if (m.chartData && m.chartData.elevations && m.chartData.elevations.length >= 2) {
+                   currentProfilePoints3D = buildProfile3DPointsFromElevations(measureStartPoint, measureEndPoint, m.chartData.elevations);
+                 } else {
+                   updateElevationProfile();
+                 }
                  updateMeasureSvg();
                  
-                 // Expand Path Profile tool if closed
-                 if (profileSettings.style.display === "none") {
-                   profileHeader.click();
-                 }
-                 
-                 btnProfile.classList.remove("active");
-                 btnProfile.textContent = "Draw Path Profile";
-                 btnClearProfile.disabled = false;
+                 let midX = (measureStartPoint.x + measureEndPoint.x) / 2;
+                 let midY = (measureStartPoint.y + measureEndPoint.y) / 2;
+                 let midZ = activeProject.zOffset || 0;
+                 const centerWorld = new Vector3(midX, midY, midZ);
+                 controls.target.copy(centerWorld);
+                 controls.update();
                  
                  if (m.chartData && m.chartData.distances && m.chartData.elevations) {
                    currentProfileData = m.chartData.currentProfileData || [];
@@ -3258,7 +3764,6 @@ window.addEventListener("DOMContentLoaded", () => {
                    }
                    showUnifiedInfoPanel("PROFILE", "SAVED PATH PROFILE", null, true);
                     
-                   // Delay chart population to ensure container is visible and has real dimensions
                    const _savedDistances = m.chartData.distances;
                    const _savedElevations = m.chartData.elevations;
                    setTimeout(() => {
@@ -3269,23 +3774,27 @@ window.addEventListener("DOMContentLoaded", () => {
                        miniChart.resize();
                        miniChart.update('none');
                      }
-                   }, 200);
+                   }, 100);
                  } else {
                    updateElevationProfile();
+                   showUnifiedInfoPanel("PROFILE", "SAVED PATH PROFILE", null, true);
                  }
               }
-            } catch(err) {
-              alert("Failed to load path metadata from S3.\nError: " + err.message);
+            } catch(e) {
+              console.error("Error loading path profile", e);
             }
           };
 
           item.addEventListener("click", (e) => {
-            if (e.target.closest(".promote-btn") || e.target.closest(".pdf-link") || e.target.closest("input")) return;
             if (window.isReportManageMode) {
-              const cb = item.querySelector(".report-checkbox");
-              if (cb) cb.checked = !cb.checked;
+              if (e.target.tagName.toLowerCase() !== 'input') {
+                e.preventDefault();
+                const cb = item.querySelector(".report-checkbox");
+                if (cb) cb.checked = !cb.checked;
+              }
               return;
             }
+            if (e.target.closest("a.pdf-link") || e.target.closest("input")) return;
 
             const reportName = pdfFile.fileName.split('/').pop().replace('.pdf', '');
             const uniqueId = (jsonFile && jsonFile.fileName) ? jsonFile.fileName : pdfFile.fileName;
@@ -3329,60 +3838,16 @@ window.addEventListener("DOMContentLoaded", () => {
             }
           });
           
-          const promoteBtn = item.querySelector('.promote-btn');
-          if (promoteBtn) {
-            promoteBtn.addEventListener('click', async (e) => {
-              e.stopPropagation();
-              e.preventDefault();
-              promoteBtn.disabled = true;
-              promoteBtn.style.opacity = "0.5";
-              try {
-                metadata.isOfficial = true;
-                const jsonStr = JSON.stringify(metadata, null, 2);
-                const putUrlRes = await fetch(`https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`, {
-                  method: "POST", headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    projectId: activeProject.folderName, surveyId: activeProject.surveyId,
-                    type: "reports", fileName: jsonFile.fileName
-                  })
-                });
-                if (!putUrlRes.ok) throw new Error("Failed upload url");
-                const { uploadUrl } = await putUrlRes.json();
-                
-                await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: jsonStr });
-                fetchSavedReports(); // Refresh both lists!
-              } catch(err) {
-                alert("Failed to promote: " + err.message);
-                promoteBtn.disabled = false;
-                promoteBtn.style.opacity = "1";
-              }
-            });
-          }
-
-          item.addEventListener("click", (e) => {
-            if (window.isReportManageMode) {
-              if (e.target.tagName.toLowerCase() !== 'input') {
-                e.preventDefault();
-                const cb = item.querySelector(".report-checkbox");
-                if (cb) cb.checked = !cb.checked;
-              }
-            }
-          });
-          
           return item;
         };
         
-                  if (metadata.isOfficial !== false) {
-            hasOfficial = true;
-            if (reportsList) reportsList.appendChild(createItem(false));
-            if (featuresListLines) featuresListLines.appendChild(createItem(true));
-          } else {
-            if (featuresListLines) featuresListLines.appendChild(createItem(true));
-          }
+        hasItems = true;
+        if (reportsList) reportsList.appendChild(createItem());
+        if (featuresListLines) featuresListLines.appendChild(createItem());
       });
       
-      if (!hasOfficial && reportsList) {
-        reportsList.innerHTML = '<i style="color: var(--muted); padding: 4px;">No official profiles saved yet.</i>';
+      if (!hasItems && reportsList) {
+        reportsList.innerHTML = '<i style="color: var(--muted); padding: 4px;">No saved profiles yet.</i>';
       }
       
       // Restore UI state if re-fetched during manage mode
@@ -3880,8 +4345,7 @@ window.addEventListener("DOMContentLoaded", () => {
       }
 
       // Group by folder
-      const officialFolders = {};
-      const dumpFolders = {};
+      const volumeFolders = {};
 
       for (let file of jsonFiles) {
         try {
@@ -3893,22 +4357,14 @@ window.addEventListener("DOMContentLoaded", () => {
           const folderName = metadata.folder || "General";
           addKnownFolder(folderName);
           
-          if (metadata.isOfficial !== false) {
-            if (!officialFolders[folderName]) officialFolders[folderName] = [];
-            officialFolders[folderName].push({ file, metadata });
-            if (!dumpFolders[folderName]) dumpFolders[folderName] = [];
-            dumpFolders[folderName].push({ file, metadata });
-          } else {
-            if (!dumpFolders[folderName]) dumpFolders[folderName] = [];
-            dumpFolders[folderName].push({ file, metadata });
-          }
-          
+          if (!volumeFolders[folderName]) volumeFolders[folderName] = [];
+          volumeFolders[folderName].push({ file, metadata });
         } catch (e) {
           console.error("Error parsing volume json", e);
         }
       }
 
-      const renderFolder = (folderName, folderItems, isDump, targetContainer) => {
+      const renderFolder = (folderName, folderItems, targetContainer) => {
         const folderGroup = document.createElement("div");
         folderGroup.className = "folder-group";
         
@@ -3932,14 +4388,7 @@ window.addEventListener("DOMContentLoaded", () => {
           const item = document.createElement("div");
           item.className = "saved-report-item";
           
-          
           const niceName = file.fileName.split('/').pop().replace(/_[0-9]+\.json$/, '').replace(/_/g, ' ');
-          
-          let promoteBtnHtml = '';
-          if (isDump && metadata.isOfficial === false) {
-            promoteBtnHtml = `<button class="btn-outline promote-btn" style="padding: 4px 6px; display: flex; align-items: center; gap: 4px; font-size: 11px; border-radius: 4px; margin-right: 4px; color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.05); transition: all 0.2s; cursor: pointer;" title="Save as Official Volume"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg> Save</button>`;
-          }
-
           const cbHtml = `<input type="checkbox" class="volume-checkbox feature-checkbox premium-checkbox" data-filename="${file.fileName}" value="${file.fileName}" style="display: none; margin-right: 8px;">`;
           item.innerHTML = `
             <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
@@ -3950,42 +4399,8 @@ window.addEventListener("DOMContentLoaded", () => {
                   <span style="font-size: 10px; color: #64748b;">${new Date(file.lastModified).toLocaleDateString()}</span>
                 </div>
               </div>
-              <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
-                ${promoteBtnHtml}
-              </div>
             </div>
           `;
-
-          const promoteBtn = item.querySelector('.promote-btn');
-          if (promoteBtn) {
-            promoteBtn.addEventListener('click', async (e) => {
-              e.stopPropagation();
-              e.preventDefault();
-              promoteBtn.disabled = true;
-              promoteBtn.style.opacity = "0.5";
-              try {
-                metadata.isOfficial = true;
-                const jsonStr = JSON.stringify(metadata, null, 2);
-                const putUrlRes = await fetch(`https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`, {
-                  method: "POST", headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    projectId: activeProject.folderName, surveyId: activeProject.surveyId,
-                    type: "volumes", fileName: file.fileName
-                  })
-                });
-                if (!putUrlRes.ok) throw new Error("Failed upload url");
-                const { uploadUrl } = await putUrlRes.json();
-                
-                await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: jsonStr });
-                fetchSavedVolumes(); // Refresh both lists!
-              } catch(err) {
-                alert("Failed to promote: " + err.message);
-                promoteBtn.disabled = false;
-                promoteBtn.style.opacity = "1";
-              }
-            });
-          }
-
 
           const loadVolumeAction = async () => {
             if (window.isVolumeManageMode || window.isFeatureManageMode) return;
@@ -4039,7 +4454,7 @@ window.addEventListener("DOMContentLoaded", () => {
               }
               return;
             }
-            if (e.target.closest("button.promote-btn") || e.target.closest("input")) return;
+            if (e.target.closest("input")) return;
 
             const uniqueId = file.fileName || metadata.name || "Volume";
             const volName = metadata.name || file.fileName.split('/').pop().replace('.json', '');
@@ -4077,22 +4492,15 @@ window.addEventListener("DOMContentLoaded", () => {
         targetContainer.appendChild(folderGroup);
       };
 
-      let hasDump = false;
-      Object.keys(dumpFolders).sort().forEach(folderName => {
-        if (featuresListPolygons) renderFolder(folderName, dumpFolders[folderName], true, featuresListPolygons);
-        hasDump = true;
+      let hasVolumes = false;
+      Object.keys(volumeFolders).sort().forEach(folderName => {
+        if (volumesList) renderFolder(folderName, volumeFolders[folderName], volumesList);
+        if (featuresListPolygons) renderFolder(folderName, volumeFolders[folderName], featuresListPolygons);
+        hasVolumes = true;
       });
-      if (!hasDump && featuresListPolygons) {
-        featuresListPolygons.innerHTML = '<i style="color: var(--muted); padding: 4px;">No volumes drawn yet.</i>';
-      }
-      
-      let hasOfficial = false;
-      Object.keys(officialFolders).sort().forEach(folderName => {
-        if (volumesList) renderFolder(folderName, officialFolders[folderName], false, volumesList);
-        hasOfficial = true;
-      });
-      if (!hasOfficial && volumesList) {
-        volumesList.innerHTML = '<i style="color: var(--muted); padding: 4px;">No official volumes yet.</i>';
+      if (!hasVolumes) {
+        if (volumesList) volumesList.innerHTML = '<i style="color: var(--muted); padding: 4px;">No saved volumes yet.</i>';
+        if (featuresListPolygons) featuresListPolygons.innerHTML = '<i style="color: var(--muted); padding: 4px;">No volumes drawn yet.</i>';
       }
 
       // Restore UI state if re-fetched during manage mode
@@ -4505,6 +4913,8 @@ window.addEventListener("DOMContentLoaded", () => {
     } else {
       // Show panel without turning ON
       showUnifiedInfoPanel("HEATMAP", "SLOPE HEATMAP", null, false);
+      // Sync export card visibility
+      document.getElementById("infoHeatmapExportCard")?.classList.toggle("hidden", !isHeatmapOverlayActive);
       // Sync opacity
       const origOpacity = document.getElementById("heatmapOpacity");
       const infoOpacity = document.getElementById("infoHeatmapOpacity");
@@ -4551,10 +4961,12 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btnDisableHeatmap")?.addEventListener("click", () => {
     isHeatmapOverlayActive = false;
     if (btnRightHeatmap) btnRightHeatmap.classList.remove("overlay-active");
+    document.getElementById("infoHeatmapExportCard")?.classList.add("hidden");
   });
   document.getElementById("btnEnableHeatmap")?.addEventListener("click", () => {
     isHeatmapOverlayActive = true;
     if (btnRightHeatmap) btnRightHeatmap.classList.add("overlay-active");
+    document.getElementById("infoHeatmapExportCard")?.classList.remove("hidden");
   });
 
   // --- Contour Toggle ---
@@ -4570,6 +4982,8 @@ window.addEventListener("DOMContentLoaded", () => {
     } else {
       // Show panel without turning ON
       showUnifiedInfoPanel("CONTOUR", "TOPOGRAPHIC CONTOURS", null, false);
+      // Sync export card visibility
+      document.getElementById("infoContourExportCard")?.classList.toggle("hidden", !isContourOverlayActive);
       // Sync all contour values
       const syncContourField = (origId, infoId) => {
         const orig = document.getElementById(origId);
@@ -4625,10 +5039,12 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btnDisableContours")?.addEventListener("click", () => {
     isContourOverlayActive = false;
     if (btnRightContour) btnRightContour.classList.remove("overlay-active");
+    document.getElementById("infoContourExportCard")?.classList.add("hidden");
   });
   document.getElementById("btnEnableContours")?.addEventListener("click", () => {
     isContourOverlayActive = true;
     if (btnRightContour) btnRightContour.classList.add("overlay-active");
+    document.getElementById("infoContourExportCard")?.classList.remove("hidden");
   });
 
 
@@ -4683,9 +5099,20 @@ window.addEventListener("DOMContentLoaded", () => {
       if (pointSvg) pointSvg.style.display = "none";
       if (map) map.clippingPlanes = [];
 
+      // Clear saved & multi-selected items on map and deselect UI items
+      if (typeof setActiveSavedItem === 'function') setActiveSavedItem(null);
+      document.querySelectorAll("#reportsList .saved-report-item, #volumesList .saved-report-item, .saved-report-item").forEach(el => el.classList.remove("selected-item"));
+      
+      multiSelectedReportsMap.clear();
+      multiSelectedVolumesMap.clear();
+      activeFocusedFeatureId = null;
+      if (typeof updateMultiOverlaySvg === 'function') updateMultiOverlaySvg();
+
       // Hide active tool panels, modals & guidance
       if (unifiedInfoPanel) unifiedInfoPanel.classList.add("hidden");
-      if (topSaveBar) topSaveBar.classList.add("hidden");
+      closeUniversalSaveModal();
+      const quickGuideModal = document.getElementById("quickGuideModal");
+      if (quickGuideModal) quickGuideModal.classList.add("hidden");
       if (elevationModal) elevationModal.classList.add("hidden");
       const volumeSaveModal = document.getElementById("volumeSaveModal");
       if (volumeSaveModal) volumeSaveModal.classList.add("hidden");
@@ -4814,5 +5241,103 @@ window.addEventListener("DOMContentLoaded", () => {
 
     animFrameId = requestAnimationFrame(updateCamVelocity);
   }
+
+  // -------------------------------------------------------------------------
+  // QUICK USER GUIDE & CHEATSHEET MODAL (One-by-One Step Carousel)
+  // -------------------------------------------------------------------------
+  const quickGuideModal = document.getElementById("quickGuideModal");
+  const btnSidebarQuickGuide = document.getElementById("btnSidebarQuickGuide");
+  const btnFlyoutQuickGuide = document.getElementById("btnFlyoutQuickGuide");
+  const btnCloseQuickGuide = document.getElementById("btnCloseQuickGuide");
+  const btnPrevGuideSlide = document.getElementById("btnPrevGuideSlide");
+  const btnNextGuideSlide = document.getElementById("btnNextGuideSlide");
+  const guideTabBtns = document.querySelectorAll(".guide-tab-btn");
+  const guideDots = document.querySelectorAll(".guide-dot");
+
+  let currentGuideSlideIdx = 0;
+  const TOTAL_GUIDE_SLIDES = 5;
+
+  function showGuideSlide(idx) {
+    currentGuideSlideIdx = (idx + TOTAL_GUIDE_SLIDES) % TOTAL_GUIDE_SLIDES;
+
+    // Toggle slide visibility
+    for (let i = 0; i < TOTAL_GUIDE_SLIDES; i++) {
+      const slide = document.getElementById(`guideSlide${i}`);
+      if (slide) slide.classList.toggle("hidden", i !== currentGuideSlideIdx);
+    }
+
+    // Toggle tab active state
+    guideTabBtns.forEach(btn => {
+      const bIdx = parseInt(btn.getAttribute("data-idx"), 10);
+      btn.classList.toggle("active", bIdx === currentGuideSlideIdx);
+    });
+
+    // Toggle dot active state
+    guideDots.forEach(dot => {
+      const dIdx = parseInt(dot.getAttribute("data-idx"), 10);
+      dot.classList.toggle("active", dIdx === currentGuideSlideIdx);
+    });
+
+    // Update Next button text on last slide
+    if (btnNextGuideSlide) {
+      btnNextGuideSlide.textContent = (currentGuideSlideIdx === TOTAL_GUIDE_SLIDES - 1) ? "Got it! ✓" : "Next ▶";
+    }
+  }
+
+  function openQuickGuide() {
+    if (quickGuideModal) {
+      quickGuideModal.classList.remove("hidden");
+      showGuideSlide(0);
+    }
+  }
+
+  function closeQuickGuide() {
+    if (quickGuideModal) quickGuideModal.classList.add("hidden");
+  }
+
+  btnSidebarQuickGuide?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openQuickGuide();
+  });
+
+  btnFlyoutQuickGuide?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openQuickGuide();
+  });
+
+  btnCloseQuickGuide?.addEventListener("click", closeQuickGuide);
+
+  btnPrevGuideSlide?.addEventListener("click", () => {
+    showGuideSlide(currentGuideSlideIdx - 1);
+  });
+
+  btnNextGuideSlide?.addEventListener("click", () => {
+    if (currentGuideSlideIdx === TOTAL_GUIDE_SLIDES - 1) {
+      closeQuickGuide();
+    } else {
+      showGuideSlide(currentGuideSlideIdx + 1);
+    }
+  });
+
+  guideTabBtns.forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      const idx = parseInt(e.currentTarget.getAttribute("data-idx"), 10);
+      if (!isNaN(idx)) showGuideSlide(idx);
+    });
+  });
+
+  guideDots.forEach(dot => {
+    dot.addEventListener("click", (e) => {
+      const idx = parseInt(e.currentTarget.getAttribute("data-idx"), 10);
+      if (!isNaN(idx)) showGuideSlide(idx);
+    });
+  });
+
+  // Close when clicking outside the modal content card
+  quickGuideModal?.addEventListener("click", (e) => {
+    if (e.target === quickGuideModal) {
+      closeQuickGuide();
+    }
+  });
 
 });

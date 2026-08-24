@@ -54,6 +54,7 @@
       </filter>
     </defs>
     <line id="measureSvgLine" stroke="#ffff00" stroke-width="3" filter="url(#measureGlow)" />
+    <polyline id="measureSvgPolyline" stroke="#ffff00" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#measureGlow)" />
     <circle id="measureSvgStart" r="5" fill="#ffff00" stroke="#000" stroke-width="1" filter="url(#measureGlow)" />
     <circle id="measureSvgEnd" r="5" fill="#ffff00" stroke="#000" stroke-width="1" filter="url(#measureGlow)" />
   </svg>
@@ -119,27 +120,73 @@
   <div id="liveGuidanceHud" class="live-guidance-hud hidden">
     <span id="guidanceIcon" class="guidance-icon">📍</span>
     <span id="guidanceText" class="guidance-text">Select a tool to begin drawing</span>
-  </div>
+  </div>  <!-- Central Universal Save Modal (Popup Dialog) -->
+  <div id="universalSaveModal" class="hidden" style="
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(15, 23, 42, 0.5);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 10015;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  ">
+    <div style="
+      background: rgba(255, 255, 255, 0.98);
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      width: 90%;
+      max-width: 420px;
+      display: flex;
+      flex-direction: column;
+      padding: 24px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15), 0 4px 16px rgba(94, 25, 234, 0.1);
+      color: #1f2937;
+      font-family: 'Inter', sans-serif;
+    ">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span id="saveModalIcon" style="font-size: 18px;">💾</span>
+          <h3 id="saveModalTitle" style="margin: 0; font-size: 16px; font-weight: 700; background: linear-gradient(135deg, #5e19ea, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Save to Project</h3>
+        </div>
+        <button id="btnCloseSaveModal" style="background: none; border: none; font-size: 20px; color: #64748b; cursor: pointer; padding: 2px 6px; line-height: 1;">&times;</button>
+      </div>
 
-  <!-- Independent Top-Right Save Bar (Below Project Selection) -->
-  <div id="topSaveBar" class="top-save-bar hidden">
-    <div class="save-input-row">
-      <!-- 1.1 Custom Name Input (Compulsory) -->
-      <input type="text" id="universalSaveName" class="save-name-input" placeholder="Name (Required)..." />
-      
-      <!-- 1.2 Folder Selection Dropdown -->
-      <select id="universalSaveFolder" class="save-folder-select">
-        <option value="General">General</option>
-        <option value="Pits">Pits</option>
-        <option value="Stockpiles">Stockpiles</option>
-      </select>
-      <button id="btnUniversalNewFolder" class="btn-outline" style="flex-shrink: 0; white-space: nowrap; padding: 4px 8px; font-size: 11px; border-radius: 6px; border: 1px solid var(--panel-border); color: var(--text); background: white; cursor: pointer;">+ New</button>
+      <div id="saveModalSummaryPill" style="display: flex; align-items: center; justify-content: space-between; background: rgba(94, 25, 234, 0.06); border: 1px solid rgba(94, 25, 234, 0.15); border-radius: 8px; padding: 8px 12px; margin-bottom: 16px; font-size: 12px;">
+        <span id="saveModalTypeBadge" style="font-weight: 600; color: #5e19ea;">Path Profile</span>
+        <span id="saveModalMetricsPreview" style="color: #64748b; font-weight: 500;">--</span>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 14px; margin-bottom: 22px;">
+        <div>
+          <label style="display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px;">Feature Name <span style="color: #ef4444;">*</span></label>
+          <input type="text" id="universalSaveName" class="input" placeholder="e.g. Pit A - Line 1..." style="width: 100%; box-sizing: border-box; padding: 9px 12px; font-size: 13px; border-radius: 8px;" />
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px;">Assign Folder</label>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <select id="universalSaveFolder" class="save-folder-select" style="flex: 1; padding: 9px 12px; font-size: 13px; border-radius: 8px;">
+              <option value="General">General</option>
+              <option value="Pits">Pits</option>
+              <option value="Stockpiles">Stockpiles</option>
+            </select>
+            <button id="btnUniversalNewFolder" class="btn-outline" title="Add New Folder" style="width: 38px; height: 38px; flex-shrink: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid #cbd5e1; color: #1f2937; background: white; cursor: pointer; transition: all 0.2s;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 10px; justify-content: flex-end;">
+        <button id="btnCancelSaveModal" class="btn btn-outline" style="padding: 9px 16px; font-size: 13px; border-radius: 8px;">Cancel</button>
+        <button id="btnUniversalSave" class="btn" style="padding: 9px 20px; font-size: 13px; font-weight: 600; border-radius: 8px; background: linear-gradient(135deg, #5e19ea, #8b5cf6); color: white; border: none; cursor: pointer; box-shadow: 0 4px 12px rgba(94, 25, 234, 0.3);">Save to Cloud</button>
+      </div>
     </div>
-    <!-- Block 2: Action Save Button -->
-    <button id="btnUniversalSave" class="btn-save-action">Save Item</button>
   </div>
 
-  <!-- Unified Fixed Info Panel (Extends vertically to Camera Controls) -->
+  <!-- Unified Fixed Info Panel (Full Vertical Height) -->
   <div id="unifiedInfoPanel" class="unified-info-panel hidden">
     <!-- Panel Header -->
     <div class="unified-info-header">
@@ -150,7 +197,7 @@
     <!-- Viewport 1: Path Profile Chart & Metrics -->
     <div id="infoViewProfile" class="info-viewport hidden" style="height: 100%; display: flex; flex-direction: column;">
       <div style="font-size: 11px; font-weight: bold; margin-bottom: 6px; color: var(--muted);">ELEVATION PROFILE GRAPH (click graph to expand)</div>
-      <div id="elevationMiniContainer" style="position: relative; height: 180px; width: 100%; margin-bottom: 12px; cursor: pointer; background: #ffffff; border-radius: 8px; border: 1px solid var(--panel-border); padding: 6px;">
+      <div id="elevationMiniContainer" style="position: relative; height: 220px; width: 100%; margin-bottom: 12px; cursor: pointer; background: #ffffff; border-radius: 8px; border: 1px solid var(--panel-border); padding: 6px;">
         <canvas id="elevationMiniChart" style="width: 100%; height: 100%; display: block;"></canvas>
       </div>
       <div style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; padding: 10px; background: rgba(94, 25, 234, 0.04); border-radius: 10px; border: 1px solid rgba(94, 25, 234, 0.12);">
@@ -158,6 +205,10 @@
         <div style="display: flex; justify-content: space-between;"><span>Vertical (Z):</span><strong id="profileVert">0.00 m</strong></div>
         <div style="display: flex; justify-content: space-between; border-top: 1px solid rgba(94, 25, 234, 0.12); padding-top: 6px;"><span>3D Distance:</span><strong id="profile3D" style="color: var(--purple-primary); font-size: 13px;">0.00 m</strong></div>
       </div>
+      <button id="btnSaveFromInfoProfile" class="btn btn-save-action info-save-btn" style="margin-top: 14px; width: 100%; padding: 10px; font-weight: 600; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 6px; background: linear-gradient(135deg, #5e19ea, #8b5cf6); color: white; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 12px rgba(94, 25, 234, 0.25);">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+        Save Path Profile
+      </button>
     </div>
 
     <!-- Viewport 2: Volume Analysis Metrics -->
@@ -165,9 +216,13 @@
       <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px; padding: 4px 0;">
         <div style="display: flex; justify-content: space-between;"><span style="color: var(--muted);">Area (2D):</span><strong id="volMiniArea" style="color: var(--text); font-size: 13px;">0.00 m²</strong></div>
         <div style="display: flex; justify-content: space-between;"><span style="color: var(--muted);">Perimeter:</span><strong id="volMiniPerim" style="color: var(--text); font-size: 13px;">0.00 m</strong></div>
-        <div style="display: flex; justify-content: space-between; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--panel-border);"><span style="color: #ef4444; font-weight: bold; font-size: 13px;">Cut Vol (Pit):</span><strong id="volMiniCut" style="color: #ef4444; font-size: 14px;">0.00 m³</strong></div>
-        <div style="display: flex; justify-content: space-between;"><span style="color: #10b981; font-weight: bold; font-size: 13px;">Fill Vol (Stockpile):</span><strong id="volMiniFill" style="color: #10b981; font-size: 14px;">0.00 m³</strong></div>
+        <div style="display: flex; justify-content: space-between; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--panel-border);"><span style="color: #ef4444; font-weight: bold; font-size: 13px;">Cut Vol (Pit):</span><strong id="volMiniCut" style="color: #ef4444; font-size: 14px;">0.00 m3</strong></div>
+        <div style="display: flex; justify-content: space-between;"><span style="color: #10b981; font-weight: bold; font-size: 13px;">Fill Vol (Stockpile):</span><strong id="volMiniFill" style="color: #10b981; font-size: 14px;">0.00 m3</strong></div>
       </div>
+      <button id="btnSaveFromInfoVolume" class="btn btn-save-action info-save-btn" style="margin-top: 14px; width: 100%; padding: 10px; font-weight: 600; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 6px; background: linear-gradient(135deg, #5e19ea, #8b5cf6); color: white; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 12px rgba(94, 25, 234, 0.25);">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+        Save Volume Area
+      </button>
     </div>
 
     <!-- Viewport 3: Box / Regular ROI Metrics -->
@@ -177,6 +232,10 @@
         <div style="display: flex; justify-content: space-between;"><span style="color: var(--muted);">Perimeter:</span><strong id="boxRoiPerim" style="font-size: 13px;">0.00 m</strong></div>
         <div style="display: flex; justify-content: space-between;"><span style="color: var(--muted);">Area (2D):</span><strong id="boxRoiArea" style="font-size: 13px;">0.00 m²</strong></div>
       </div>
+      <button id="btnSaveFromInfoBoxRoi" class="btn btn-save-action info-save-btn" style="margin-top: 14px; width: 100%; padding: 10px; font-weight: 600; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 6px; background: linear-gradient(135deg, #5e19ea, #8b5cf6); color: white; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 12px rgba(94, 25, 234, 0.25);">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+        Save Box ROI
+      </button>
     </div>
 
     <!-- Viewport 4: Polygon ROI Metrics -->
@@ -186,6 +245,10 @@
         <div style="display: flex; justify-content: space-between;"><span style="color: var(--muted);">Perimeter:</span><strong id="polyRoiPerim" style="font-size: 13px;">0.00 m</strong></div>
         <div style="display: flex; justify-content: space-between;"><span style="color: var(--muted);">Area (2D):</span><strong id="polyRoiArea" style="font-size: 13px;">0.00 m²</strong></div>
       </div>
+      <button id="btnSaveFromInfoPolyRoi" class="btn btn-save-action info-save-btn" style="margin-top: 14px; width: 100%; padding: 10px; font-weight: 600; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 6px; background: linear-gradient(135deg, #5e19ea, #8b5cf6); color: white; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 12px rgba(94, 25, 234, 0.25);">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+        Save Polygon ROI
+      </button>
     </div>
 
     <!-- Viewport 6: Elevations Grid Settings -->
@@ -257,6 +320,21 @@
           <div id="infoCustomHeatmapError" style="color: #ef4444; font-size: 11px; margin-bottom: 10px; display: none;">Error msg</div>
           <button id="infoApplyCustomHeatmap" class="btn" style="width: 100%; font-size: 12px;">Apply Custom Ranges</button>
         </div>
+
+        <!-- Export Heatmap Card (Revealed only after Heatmap is enabled) -->
+        <div id="infoHeatmapExportCard" class="hidden" style="margin-top: 10px; padding: 12px; background: rgba(14, 165, 233, 0.04); border: 1px solid rgba(14, 165, 233, 0.18); border-radius: 10px;">
+          <div style="font-size: 11px; font-weight: 700; color: #0284c7; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            EXPORT SLOPE HEATMAP
+          </div>
+          <button id="btnExportHeatmapPng" class="btn" style="width: 100%; padding: 8px 12px; font-size: 12px; font-weight: 600; background: linear-gradient(135deg, #0284c7, #0ea5e9); color: white; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 8px rgba(14, 165, 233, 0.25);">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+            Download Heatmap Image (.png)
+          </button>
+          <div id="heatmapExportStatus" class="hidden" style="font-size: 11px; color: #059669; font-weight: 600; text-align: center; margin-top: 6px;">
+            Exporting image with safety legend...
+          </div>
+        </div>
       </div>
     </div>
 
@@ -303,9 +381,28 @@
         <div class="hint" style="margin-top: 4px;">
           Terrain Range: <span id="infoContourRange">Loading...</span>
         </div>
+
+        <!-- Export Contours Card (Revealed only after Contours is enabled) -->
+        <div id="infoContourExportCard" class="hidden" style="margin-top: 10px; padding: 12px; background: rgba(94, 25, 234, 0.04); border: 1px solid rgba(94, 25, 234, 0.15); border-radius: 10px;">
+          <div style="font-size: 11px; font-weight: 700; color: #5e19ea; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            EXPORT CONTOURS
+          </div>
+          <div style="display: flex; gap: 6px; margin-bottom: 6px;">
+            <button id="btnExportContourDxf" class="btn" style="flex: 1; padding: 8px 10px; font-size: 11px; font-weight: 600; background: linear-gradient(135deg, #5e19ea, #8b5cf6); color: white; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px; box-shadow: 0 2px 8px rgba(94, 25, 234, 0.25);">
+              <span>📐</span> DXF (CAD)
+            </button>
+            <button id="btnExportContourGeoJson" class="btn btn-outline" style="flex: 1; padding: 8px 10px; font-size: 11px; font-weight: 600; border-radius: 6px; display: flex; align-items: center; justify-content: center; gap: 4px; background: white; border: 1px solid #cbd5e1; color: #1f2937; cursor: pointer;">
+              <span>🗺️</span> GeoJSON
+            </button>
+          </div>
+          <div id="contourExportStatus" class="hidden" style="font-size: 11px; color: #059669; font-weight: 600; text-align: center; margin-top: 4px;">
+            Generating contours file...
+          </div>
+        </div>
+
       </div>
     </div>
-  </div>
 
     <!-- Viewport 5: Point Coordinate Metrics -->
     <div id="infoViewPoint" class="info-viewport hidden">
@@ -314,7 +411,13 @@
         <div style="display: flex; justify-content: space-between;"><span style="color: var(--muted);">Latitude:</span><strong id="pointMiniLat" style="color: var(--text); font-size: 13px;">-</strong></div>
         <div style="display: flex; justify-content: space-between; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--panel-border);"><span style="color: #10b981; font-weight: bold; font-size: 13px;">Elevation:</span><strong id="pointMiniElev" style="color: #10b981; font-size: 14px;">-</strong></div>
       </div>
+      <button id="btnSaveFromInfoPoint" class="btn btn-save-action info-save-btn" style="margin-top: 14px; width: 100%; padding: 10px; font-weight: 600; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 6px; background: linear-gradient(135deg, #5e19ea, #8b5cf6); color: white; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 12px rgba(94, 25, 234, 0.25);">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+        Save Point Pin
+      </button>
     </div>
+
+  </div>
 
   <!-- Camera Controls -->
   <!-- Full Elevation Profile Modal -->
@@ -352,9 +455,170 @@
           <button id="btnCloseModal" class="btn btn-outline" style="padding: 8px 16px; border-radius: 8px; border: 1px solid var(--panel-border); color: var(--text); background: white; font-weight: 500; margin-left: 8px; cursor: pointer;">Close</button>
         </div>
       </div>
-      <div style="flex: 1; position: relative; background: #f8fafc; border: 1px solid var(--panel-border); border-radius: 12px; padding: 20px;">
+      <div style="flex: 1; position: relative; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
         <canvas id="elevationFullChart"></canvas>
       </div>
+    </div>
+  </div>
+
+  <!-- Quick User Guide & Step-by-Step Instructions Modal (One-by-One) -->
+  <div id="quickGuideModal" class="hidden" style="
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(15, 23, 42, 0.5);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 10020;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+    box-sizing: border-box;
+  ">
+    <div class="guide-modal-card" style="
+      background: rgba(255, 255, 255, 0.98);
+      border: 1px solid #e2e8f0;
+      border-radius: 20px;
+      width: 100%;
+      max-width: 520px;
+      display: flex;
+      flex-direction: column;
+      padding: 24px 28px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.2), 0 0 25px rgba(94, 25, 234, 0.12);
+      color: #1f2937;
+      font-family: 'Inter', sans-serif;
+    ">
+      <!-- Header -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #e2e8f0;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, #5e19ea, #8b5cf6); color: white; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: bold; box-shadow: 0 4px 12px rgba(94, 25, 234, 0.3);">
+            ⓘ
+          </div>
+          <div>
+            <h2 style="margin: 0; font-size: 16px; font-weight: 700; background: linear-gradient(135deg, #5e19ea, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">How to Use the Viewer</h2>
+            <span style="font-size: 11px; color: #64748b;">Step-by-step interactive tool instructions</span>
+          </div>
+        </div>
+        <button id="btnCloseQuickGuide" style="background: none; border: none; font-size: 24px; color: #94a3b8; cursor: pointer; padding: 2px 6px; line-height: 1; transition: color 0.2s;" title="Close (Esc)">&times;</button>
+      </div>
+
+      <!-- Tool Category Horizontal Tabs -->
+      <div class="guide-tabs" style="display: flex; gap: 6px; margin-bottom: 16px; overflow-x: auto; padding-bottom: 4px;">
+        <button class="guide-tab-btn active" data-idx="0">📈 Profile</button>
+        <button class="guide-tab-btn" data-idx="1">🧊 Volume</button>
+        <button class="guide-tab-btn" data-idx="2">✂️ ROI</button>
+        <button class="guide-tab-btn" data-idx="3">🎛️ Layers</button>
+        <button class="guide-tab-btn" data-idx="4">🎮 3D Nav</button>
+      </div>
+
+      <!-- Single Active Tool Instruction Container (One by One) -->
+      <div id="guideSlideContainer" style="min-height: 220px; display: flex; flex-direction: column; justify-content: space-between;">
+        
+        <!-- Slide 1: Path Profile -->
+        <div class="guide-slide" id="guideSlide0">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+            <span style="font-size: 18px;">📈</span>
+            <strong style="font-size: 14px; color: #1f2937;">Path Profile &amp; Elevation</strong>
+          </div>
+          <div class="guide-card-body" style="gap: 10px;">
+            <div class="guide-step"><span class="step-num">1</span> Click <strong>Path Profile</strong> on the left icon dock.</div>
+            <div class="guide-step"><span class="step-num">2</span> Click <strong>two points</strong> on the 3D terrain to create the measurement path.</div>
+            <div class="guide-step"><span class="step-num">3</span> <strong>Drag yellow spherical handles</strong> to dynamically refine path endpoints.</div>
+            <div class="guide-step"><span class="step-num">4</span> Click the <strong>graph in the right info panel</strong> to expand, or click <strong>Save</strong>.</div>
+          </div>
+          <div style="margin-top: 14px; padding: 8px 12px; background: rgba(94, 25, 234, 0.05); border-radius: 8px; border-left: 3px solid #5e19ea; font-size: 11px; color: #475569;">
+            💡 <strong>Pro Tip:</strong> The 3D line drapes directly over ground hills and dips following actual DEM elevations.
+          </div>
+        </div>
+
+        <!-- Slide 2: Volume Analysis -->
+        <div class="guide-slide hidden" id="guideSlide1">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+            <span style="font-size: 18px;">🧊</span>
+            <strong style="font-size: 14px; color: #1f2937;">Volume &amp; Cut/Fill Volumetrics</strong>
+          </div>
+          <div class="guide-card-body" style="gap: 10px;">
+            <div class="guide-step"><span class="step-num">1</span> Click <strong>Volume Analysis</strong> on the left icon dock.</div>
+            <div class="guide-step"><span class="step-num">2</span> Click across terrain to place polygon boundary vertices.</div>
+            <div class="guide-step"><span class="step-num">3</span> <strong>Double-click</strong> or click the starting vertex to close the boundary.</div>
+            <div class="guide-step"><span class="step-num">4</span> Review real-time <strong>Pit Cut Volume</strong> &amp; <strong>Stockpile Fill Volume</strong> in the Right Info Panel.</div>
+          </div>
+          <div style="margin-top: 14px; padding: 8px 12px; background: rgba(94, 25, 234, 0.05); border-radius: 8px; border-left: 3px solid #5e19ea; font-size: 11px; color: #475569;">
+            💡 <strong>Pro Tip:</strong> Click <strong>Save Volume Area</strong> to store with custom folder tags on the cloud.
+          </div>
+        </div>
+
+        <!-- Slide 3: ROI Clipping -->
+        <div class="guide-slide hidden" id="guideSlide2">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+            <span style="font-size: 18px;">✂️</span>
+            <strong style="font-size: 14px; color: #1f2937;">ROI (Region of Interest) Clipping</strong>
+          </div>
+          <div class="guide-card-body" style="gap: 10px;">
+            <div class="guide-step"><span class="step-num">1</span> Click <strong>ROI</strong> on the right toolbar to choose Box, Poly, or KML.</div>
+            <div class="guide-step"><span class="step-num">2</span> <strong>Box Mode</strong>: Click and drag a 2D bounding rectangle across the map.</div>
+            <div class="guide-step"><span class="step-num">3</span> <strong>Poly / KML Mode</strong>: Draw multi-point polygon boundaries or upload `.kml`.</div>
+            <div class="guide-step"><span class="step-num">4</span> Click <strong>Reset ROI</strong> anytime to restore full site terrain extents.</div>
+          </div>
+          <div style="margin-top: 14px; padding: 8px 12px; background: rgba(94, 25, 234, 0.05); border-radius: 8px; border-left: 3px solid #5e19ea; font-size: 11px; color: #475569;">
+            💡 <strong>Pro Tip:</strong> Clipping an ROI dramatically speeds up rendering on massive mine sites!
+          </div>
+        </div>
+
+        <!-- Slide 4: Overlays & Shaders -->
+        <div class="guide-slide hidden" id="guideSlide3">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+            <span style="font-size: 18px;">🎛️</span>
+            <strong style="font-size: 14px; color: #1f2937;">Analytical Overlays &amp; Shaders</strong>
+          </div>
+          <div class="guide-card-body" style="gap: 10px;">
+            <div class="guide-step"><span class="step-num">1</span> <strong>Elevations Grid (#)</strong>: Live elevation altitude numbers across visible terrain.</div>
+            <div class="guide-step"><span class="step-num">2</span> <strong>Slope Heatmap</strong>: Color gradient terrain steepness analysis with Haul Road safety thresholds (0–10°).</div>
+            <div class="guide-step"><span class="step-num">3</span> <strong>Topographic Contours</strong>: Dynamic contour line shader with Mining, Survey, and Overview presets.</div>
+          </div>
+          <div style="margin-top: 14px; padding: 8px 12px; background: rgba(94, 25, 234, 0.05); border-radius: 8px; border-left: 3px solid #5e19ea; font-size: 11px; color: #475569;">
+            💡 <strong>Pro Tip:</strong> All layer settings can be customized in real time in the Right Info Panel!
+          </div>
+        </div>
+
+        <!-- Slide 5: 3D Camera Navigation -->
+        <div class="guide-slide hidden" id="guideSlide4">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+            <span style="font-size: 18px;">🎮</span>
+            <strong style="font-size: 14px; color: #1f2937;">3D Camera Navigation &amp; Hotkeys</strong>
+          </div>
+          <div class="guide-card-body" style="gap: 10px;">
+            <div class="guide-step"><span class="step-num">🖱️</span> <strong>Left Click + Drag:</strong> Orbit and rotate the 3D terrain freely.</div>
+            <div class="guide-step"><span class="step-num">✋</span> <strong>Right Click + Drag:</strong> Pan / slide across the site.</div>
+            <div class="guide-step"><span class="step-num">🔍</span> <strong>Scroll Wheel:</strong> Smooth zoom in and out.</div>
+            <div class="guide-step"><span class="step-num">⌨️</span> <strong>Arrow Keys:</strong> Continuous smooth inertia fly-through gliding.</div>
+          </div>
+          <div style="margin-top: 14px; padding: 8px 12px; background: rgba(94, 25, 234, 0.05); border-radius: 8px; border-left: 3px solid #5e19ea; font-size: 11px; color: #475569;">
+            💡 <strong>Pro Tip:</strong> Use the bottom-right camera widget to quickly toggle 2D, 2.5D, and 3D views.
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Bottom Carousel Navigation Controls -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px; padding-top: 14px; border-top: 1px solid #e2e8f0;">
+        <button id="btnPrevGuideSlide" class="btn btn-outline" style="padding: 6px 14px; font-size: 12px; border-radius: 8px; display: flex; align-items: center; gap: 4px;">
+          ◀ Prev
+        </button>
+        
+        <div id="guideDotsContainer" style="display: flex; gap: 6px; align-items: center;">
+          <span class="guide-dot active" data-idx="0"></span>
+          <span class="guide-dot" data-idx="1"></span>
+          <span class="guide-dot" data-idx="2"></span>
+          <span class="guide-dot" data-idx="3"></span>
+          <span class="guide-dot" data-idx="4"></span>
+        </div>
+
+        <button id="btnNextGuideSlide" class="btn" style="padding: 6px 16px; font-size: 12px; font-weight: 600; border-radius: 8px; background: linear-gradient(135deg, #5e19ea, #8b5cf6); color: white; border: none; cursor: pointer; display: flex; align-items: center; gap: 4px; box-shadow: 0 4px 12px rgba(94, 25, 234, 0.25);">
+          Next ▶
+        </button>
+      </div>
+
     </div>
   </div>
 
@@ -375,11 +639,17 @@
       <button class="icon-btn left-icon-btn" data-target="panel-profile" title="Path Profile">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
       </button>
-      <button class="icon-btn hidden left-icon-btn" data-target="panel-measure" title="Measurement">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
-      </button>
       <button class="icon-btn left-icon-btn" data-target="panel-volume" title="Volume Analysis">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+      </button>
+
+      <!-- Quick Guide Icon Button (Directly in main icon stack) -->
+      <button id="btnSidebarQuickGuide" class="icon-btn left-icon-btn guide-trigger-btn" title="How to use the Viewer (Guide)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
       </button>
 
     </div>
@@ -388,7 +658,12 @@
     <div class="flyout-panel closed" id="flyoutPanel">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
         <h2 id="flyoutTitle" style="margin: 0;">Features & Shapes</h2>
-        <button id="toggleFlyoutPanel" style="background: none; border: none; font-size: 14px; cursor: pointer; color: var(--muted); padding: 0 5px;" title="Close Panel">◀</button>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button id="btnFlyoutQuickGuide" style="background: rgba(94, 25, 234, 0.08); border: 1px solid rgba(94, 25, 234, 0.25); border-radius: 6px; color: #5e19ea; font-size: 11px; font-weight: 600; padding: 4px 8px; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.2s;" title="View Tool Guide">
+            ⓘ Guide
+          </button>
+          <button id="toggleFlyoutPanel" style="background: none; border: none; font-size: 14px; cursor: pointer; color: var(--muted); padding: 0 5px;" title="Close Panel">◀</button>
+        </div>
       </div>
       
       <div id="toolPanelContent">
@@ -418,15 +693,11 @@
                 </div>
               </div>
               
-<div id="featuresLinesHeader" class="feature-accordion-header">
+              <div id="featuresLinesHeader" class="feature-accordion-header">
                 <div style="display: flex; align-items: center; gap: 8px;">
                   LINES
-                  <button id="btnDrawFeatureLine" class="feature-draw-btn">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                    Draw
-                  </button>
                 </div>
-                <span id="featuresLinesCarrot" style="font-size: 10px; opacity: 0.5;">▼</span>
+                <span id="featuresLinesCarrot" style="font-size: 10px; opacity: 0.5;"> </span>
               </div>
               <div id="featuresListLines" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: 12px; max-height: 200px; overflow-y: auto; padding-left: 4px;">
                 <i style="color: var(--muted); padding: 4px;">No lines drawn yet.</i>
@@ -435,13 +706,9 @@
               <div id="featuresPolygonsHeader" class="feature-accordion-header">
                 <div style="display: flex; align-items: center; gap: 8px;">
                   POLYGONS
-                  <button id="btnDrawFeaturePolygon" class="feature-draw-btn">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                    Draw
-                  </button>
                 </div>
-                <span id="featuresPolygonsCarrot" style="font-size: 10px; opacity: 0.5;">▼</span>
-              </div>
+                <span id="featuresPolygonsCarrot" style="font-size: 10px; opacity: 0.5;"> </span>
+              </div>          
               <div id="featuresListPolygons" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: 12px; max-height: 200px; overflow-y: auto;">
                 <i style="color: var(--muted); padding: 4px;">No polygons drawn yet.</i>
               </div>
@@ -808,15 +1075,15 @@
           <div class="roi-horizontal-bar" id="roiHorizontalBar">
             <button id="optRoiRect" class="roi-bar-btn" title="Rectangular ROI">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
-              <span>Box ROI</span>
+              <span>Box</span>
             </button>
             <button id="optRoiPoly" class="roi-bar-btn" title="Polygonal ROI">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 22 8.5 18 20 6 20 2 8.5 12 2"></polygon></svg>
-              <span>Poly ROI</span>
+              <span>Poly</span>
             </button>
             <button id="optRoiKml" class="roi-bar-btn" title="Upload KML Boundary">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-              <span>KML ROI</span>
+              <span>KML</span>
             </button>
           </div>
         </div>

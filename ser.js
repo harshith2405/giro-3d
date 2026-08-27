@@ -274,7 +274,7 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.05;
 controls.minDistance = 50;
 controls.maxDistance = 150000;
-controls.maxPolarAngle = Math.PI / 2.1;
+controls.maxPolarAngle = Math.PI / 2;
 
 const flyoutPanel = document.getElementById('flyoutPanel');
   const toggleFlyoutPanel = document.getElementById('toggleFlyoutPanel');
@@ -624,9 +624,8 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   const toggleMultiSelectReports = document.getElementById("toggleMultiSelectReports");
-  toggleMultiSelectReports?.addEventListener("click", () => {
-    isMultiSelectReports = !isMultiSelectReports;
-    toggleMultiSelectReports.classList.toggle("active", isMultiSelectReports);
+  toggleMultiSelectReports?.addEventListener("change", (e) => {
+    isMultiSelectReports = e.target.checked;
     if (!isMultiSelectReports) {
       multiSelectedReportsMap.clear();
       activeFocusedFeatureId = null;
@@ -636,9 +635,8 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   const toggleMultiSelectVolumes = document.getElementById("toggleMultiSelectVolumes");
-  toggleMultiSelectVolumes?.addEventListener("click", () => {
-    isMultiSelectVolumes = !isMultiSelectVolumes;
-    toggleMultiSelectVolumes.classList.toggle("active", isMultiSelectVolumes);
+  toggleMultiSelectVolumes?.addEventListener("change", (e) => {
+    isMultiSelectVolumes = e.target.checked;
     if (!isMultiSelectVolumes) {
       multiSelectedVolumesMap.clear();
       activeFocusedFeatureId = null;
@@ -765,13 +763,13 @@ window.addEventListener("DOMContentLoaded", () => {
         }
       }
     } else {
-      if (coordLonLat) coordLonLat.textContent = "-";
-      if (coordElev) coordElev.textContent = "-";
+      if (coordLonLat) coordLonLat.textContent = "Lon: --, Lat: --";
+      if (coordElev) coordElev.textContent = "--";
     }
   });
   canvas.addEventListener("mouseleave", () => {
-    if (coordLonLat) coordLonLat.textContent = "-";
-    if (coordElev) coordElev.textContent = "-";
+    if (coordLonLat) coordLonLat.textContent = "Lon: --, Lat: --";
+    if (coordElev) coordElev.textContent = "--";
   });
 
   // -------------------------------------------------------------------------
@@ -1289,59 +1287,117 @@ window.addEventListener("DOMContentLoaded", () => {
   const btnUniversalSave = document.getElementById("btnUniversalSave");
   const btnUniversalNewFolder = document.getElementById("btnUniversalNewFolder");
 
-  // ── Universal Dynamic Folder Store & Sync System ──
-  const defaultFolders = ["General", "Pits", "Stockpiles"];
-  const knownFolders = new Set(defaultFolders);
+  // ── Scoped Dynamic Folder Stores (Path Profiles & Volumes) ──
+  const knownProfileFolders = new Set();
+  const knownVolumeFolders = new Set();
 
   function loadStoredFolders() {
     try {
-      const stored = localStorage.getItem("polygon_known_folders");
-      if (stored) {
-        const parsed = JSON.parse(stored);
+      const storedProfiles = localStorage.getItem("polygon_profile_folders");
+      if (storedProfiles !== null) {
+        const parsed = JSON.parse(storedProfiles);
         if (Array.isArray(parsed)) {
+          knownProfileFolders.clear();
           parsed.forEach(f => {
-            if (f && typeof f === "string" && f.trim() !== "") knownFolders.add(f.trim());
+            if (f && typeof f === "string" && f.trim() !== "") knownProfileFolders.add(f.trim());
           });
         }
+      } else {
+        ["General", "Haul Roads", "Pit Profiles"].forEach(f => knownProfileFolders.add(f));
+        saveStoredFolders();
       }
-    } catch(e) {}
+
+      const storedVolumes = localStorage.getItem("polygon_volume_folders");
+      if (storedVolumes !== null) {
+        const parsed = JSON.parse(storedVolumes);
+        if (Array.isArray(parsed)) {
+          knownVolumeFolders.clear();
+          parsed.forEach(f => {
+            if (f && typeof f === "string" && f.trim() !== "") knownVolumeFolders.add(f.trim());
+          });
+        }
+      } else {
+        ["General", "Face", "Stockpiles", "Over burden"].forEach(f => knownVolumeFolders.add(f));
+        saveStoredFolders();
+      }
+    } catch(e) {
+      console.error("Error loading stored folders", e);
+    }
   }
 
   function saveStoredFolders() {
     try {
-      localStorage.setItem("polygon_known_folders", JSON.stringify(Array.from(knownFolders)));
+      localStorage.setItem("polygon_profile_folders", JSON.stringify(Array.from(knownProfileFolders)));
+      localStorage.setItem("polygon_volume_folders", JSON.stringify(Array.from(knownVolumeFolders)));
     } catch(e) {}
   }
 
-  function addKnownFolder(folderName, autoSync = true, selectTarget = null) {
+  function addKnownProfileFolder(folderName, autoSync = true, selectTarget = null) {
     if (!folderName || typeof folderName !== "string") return;
     const trimmed = folderName.trim();
     if (trimmed === "") return;
-    knownFolders.add(trimmed);
+    knownProfileFolders.add(trimmed);
     saveStoredFolders();
-    if (autoSync) syncFolderDropdowns(selectTarget || trimmed);
+    if (autoSync) syncFolderDropdowns("PROFILE", selectTarget || trimmed);
   }
 
-  function syncFolderDropdowns(selectedFolder = null) {
-    const dropdowns = document.querySelectorAll("#universalSaveFolder, #saveFolder, #volSaveFolder, #roiSaveFolder, #reportSaveFolder, .save-folder-select");
-    dropdowns.forEach(select => {
-      if (!select) return;
+  function addKnownVolumeFolder(folderName, autoSync = true, selectTarget = null) {
+    if (!folderName || typeof folderName !== "string") return;
+    const trimmed = folderName.trim();
+    if (trimmed === "") return;
+    knownVolumeFolders.add(trimmed);
+    saveStoredFolders();
+    if (autoSync) syncFolderDropdowns("VOLUME", selectTarget || trimmed);
+  }
+
+  // Backward compatibility alias
+  function addKnownFolder(folderName, autoSync = true, selectTarget = null) {
+    addKnownVolumeFolder(folderName, autoSync, selectTarget);
+  }
+
+  function syncFolderDropdowns(toolType = null, selectedFolder = null) {
+    const targetTool = toolType || activeInfoTool || "PROFILE";
+    const select = document.getElementById("universalSaveFolder");
+    const volSelect = document.getElementById("volSaveFolder");
+
+    const volumeList = Array.from(knownVolumeFolders).sort();
+
+    if (select) {
+      const folderSet = (targetTool === "PROFILE") ? knownProfileFolders : knownVolumeFolders;
       const currentVal = selectedFolder || select.value || "General";
+      
       select.innerHTML = "";
-      knownFolders.forEach(folder => {
+      Array.from(folderSet).sort().forEach(folder => {
         const option = document.createElement("option");
         option.value = folder;
         option.textContent = folder;
         select.appendChild(option);
       });
-      if (knownFolders.has(currentVal)) {
+
+      if (folderSet.has(currentVal)) {
         select.value = currentVal;
+      } else if (select.options.length > 0) {
+        select.selectedIndex = 0;
       }
-    });
+    }
+
+    if (volSelect) {
+      const currentVal = selectedFolder || volSelect.value || "General";
+      volSelect.innerHTML = "";
+      volumeList.forEach(folder => {
+        const option = document.createElement("option");
+        option.value = folder;
+        option.textContent = folder;
+        volSelect.appendChild(option);
+      });
+      if (knownVolumeFolders.has(currentVal)) {
+        volSelect.value = currentVal;
+      }
+    }
   }
 
   loadStoredFolders();
-  setTimeout(() => syncFolderDropdowns(), 100);
+  setTimeout(() => syncFolderDropdowns("PROFILE"), 100);
 
   const infoViewProfile = document.getElementById("infoViewProfile");
   const infoViewVolume = document.getElementById("infoViewVolume");
@@ -1387,7 +1443,7 @@ window.addEventListener("DOMContentLoaded", () => {
       const elev = document.getElementById("pointMiniElev")?.textContent || "-";
       if (saveModalMetricsPreview) saveModalMetricsPreview.textContent = `Elev: ${elev}`;
     }
-    syncFolderDropdowns();
+    syncFolderDropdowns(activeInfoTool);
   }
 
   function closeUniversalSaveModal() {
@@ -1597,10 +1653,18 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   btnUniversalNewFolder?.addEventListener("click", () => {
-    const newFolder = prompt("Enter new folder name:");
+    const isProfile = activeInfoTool === "PROFILE";
+    const typeLabel = isProfile ? "Path Profile" : "Volume";
+    const newFolder = prompt(`Enter new folder name for ${typeLabel}:`);
     if (newFolder && newFolder.trim() !== "") {
       const trimmed = newFolder.trim();
-      addKnownFolder(trimmed, true, trimmed);
+      if (isProfile) {
+        addKnownProfileFolder(trimmed, true, trimmed);
+        fetchSavedReports();
+      } else {
+        addKnownVolumeFolder(trimmed, true, trimmed);
+        fetchSavedVolumes();
+      }
     }
   });
 
@@ -1632,7 +1696,10 @@ window.addEventListener("DOMContentLoaded", () => {
     if (mainRoiBtn) {
       mainRoiBtn.classList.remove("active", "overlay-active");
     }
-    [optRoiRect, optRoiPoly, optRoiKml].forEach(btn => btn?.classList.remove("active"));
+    const btnLeftBoxRoi = document.getElementById("btnLeftBoxRoi");
+    const btnLeftPolyRoi = document.getElementById("btnLeftPolyRoi");
+    const btnLeftKmlRoi = document.getElementById("btnLeftKmlRoi");
+    [optRoiRect, optRoiPoly, optRoiKml, btnLeftBoxRoi, btnLeftPolyRoi, btnLeftKmlRoi].forEach(btn => btn?.classList.remove("active"));
     const roiSvg = document.getElementById("roiSvg");
     if (roiSvg) roiSvg.style.display = "none";
   }
@@ -1729,18 +1796,39 @@ window.addEventListener("DOMContentLoaded", () => {
     startRoiPolyDrawing(e);
   });
 
+  const btnLeftBoxRoi = document.getElementById("btnLeftBoxRoi");
   const btnLeftPolyRoi = document.getElementById("btnLeftPolyRoi");
+  const btnLeftKmlRoi = document.getElementById("btnLeftKmlRoi");
   const btnResetRoiLeft = document.getElementById("btnResetRoiLeft");
   const leftRoisHeader = document.getElementById("leftRoisHeader");
   const leftRoisContent = document.getElementById("leftRoisContent");
   const leftRoisCarrot = document.getElementById("leftRoisCarrot");
 
+  function highlightLeftRoiBtn(activeBtn) {
+    [btnLeftBoxRoi, btnLeftPolyRoi, btnLeftKmlRoi].forEach(b => b?.classList.remove("active"));
+    if (activeBtn) activeBtn.classList.add("active");
+  }
+
+  btnLeftBoxRoi?.addEventListener("click", () => {
+    setActiveRoiSubMode("BOX");
+    highlightLeftRoiBtn(btnLeftBoxRoi);
+    triggerRectRoi();
+  });
+
   btnLeftPolyRoi?.addEventListener("click", (e) => {
     setActiveRoiSubMode("POLY");
+    highlightLeftRoiBtn(btnLeftPolyRoi);
     startRoiPolyDrawing(e);
   });
 
+  btnLeftKmlRoi?.addEventListener("click", () => {
+    setActiveRoiSubMode("KML");
+    highlightLeftRoiBtn(btnLeftKmlRoi);
+    document.getElementById("kmlUpload")?.click();
+  });
+
   btnResetRoiLeft?.addEventListener("click", () => {
+    highlightLeftRoiBtn(null);
     const resetRoiBtn = document.getElementById("resetROI");
     if (resetRoiBtn) resetRoiBtn.click();
     if (map) map.clippingPlanes = [];
@@ -3642,35 +3730,37 @@ window.addEventListener("DOMContentLoaded", () => {
     if (reportsList) reportsList.innerHTML = '';
 
     try {
-      const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url?projectId=${activeProject.folderName}&surveyId=${activeProject.surveyId}&type=reports`;
-      const response = await fetch(apiUrl, { method: "GET", cache: "no-store" });
-      
-      if (!response.ok) throw new Error("Failed to fetch reports");
-      
-      const files = await response.json();
-      if (reportsListLoading) reportsListLoading.style.display = 'none';
+      if (!activeProject) return;
+      let pdfFiles = [];
+      let jsonFiles = [];
 
-      const pdfFiles = files.filter(f => f.fileName.endsWith('.pdf'));
-      const jsonFiles = files.filter(f => f.fileName.endsWith('.json'));
-
-      if (pdfFiles.length === 0) {
-        if (reportsList) reportsList.innerHTML = '<i style="color: var(--muted); padding: 4px;">No official profiles saved yet.</i>';
-        if (featuresListLines) featuresListLines.innerHTML = '<i style="color: var(--muted); padding: 4px;">No profiles drawn yet.</i>';
-        return;
+      try {
+        const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=reports`;
+        const response = await fetch(apiUrl, { method: "GET", cache: "no-store" });
+        if (response.ok) {
+          const rawFiles = await response.json();
+          const files = Array.isArray(rawFiles) ? rawFiles : [];
+          pdfFiles = files.filter(f => f && f.fileName && f.fileName.endsWith('.pdf'));
+          jsonFiles = files.filter(f => f && f.fileName && f.fileName.endsWith('.json'));
+        }
+      } catch (netErr) {
+        console.warn("Could not load reports from S3 API", netErr);
       }
 
-      // Fetch metadata for isOfficial flag
+      if (reportsListLoading) reportsListLoading.style.display = 'none';
+
+      // Fetch metadata for isOfficial & folder
       const itemsPromises = pdfFiles.map(async pdfFile => {
         const baseName = pdfFile.fileName.replace('.pdf', '');
         const jsonFile = jsonFiles.find(j => j.fileName === `${baseName}.json`);
-        let metadata = { isOfficial: false };
+        let metadata = { isOfficial: false, folder: "General" };
         if (jsonFile) {
           try {
-             const _url = jsonFile.url;
-          const _cacheBuster = _url.includes('?') ? `&t=${Date.now()}` : `?t=${Date.now()}`;
-          const res = await fetch(_url + _cacheBuster, { cache: 'no-store' });
-             metadata = await res.json();
-        } catch(e) {}
+            const _url = jsonFile.url;
+            const _cacheBuster = _url.includes('?') ? `&t=${Date.now()}` : `?t=${Date.now()}`;
+            const res = await fetch(_url + _cacheBuster, { cache: 'no-store' });
+            metadata = await res.json();
+          } catch(e) {}
         }
         return { pdfFile, jsonFile, metadata };
       });
@@ -3678,176 +3768,267 @@ window.addEventListener("DOMContentLoaded", () => {
       let items = await Promise.all(itemsPromises);
       items = items.sort((a,b) => new Date(b.pdfFile.lastModified) - new Date(a.pdfFile.lastModified));
 
-      let hasItems = false;
       if (reportsList) reportsList.innerHTML = '';
       if (featuresListLines) featuresListLines.innerHTML = '';
 
-      items.forEach(({ pdfFile, jsonFile, metadata }) => {
-        const createItem = () => {
-          const item = document.createElement("div");
-          item.className = "saved-report-item";
-          
-          const svg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`;
-          const dateStr = new Date(pdfFile.lastModified).toLocaleDateString();
-          
-          const cbHtml = `<input type="checkbox" class="report-checkbox feature-checkbox premium-checkbox" data-filename="${pdfFile.fileName}" value="${pdfFile.fileName}" style="display: none; margin-right: 8px;">`;
-          const pdfLinkHtml = `<a href="${pdfFile.url}" target="_blank" class="btn-action-icon pdf-link" title="Download PDF" onclick="event.stopPropagation();" style="display: inline-flex; align-items: center; gap: 3px; font-size: 11px; padding: 2px 6px; border-radius: 4px; text-decoration: none; color: #8b5cf6; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.2);"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> PDF</a>`;
-          
-          item.innerHTML = `
-            ${cbHtml}
-            <div style="display: flex; align-items: center; flex: 1; overflow: hidden; cursor: pointer;">
-              ${svg} <span style="flex: 1; margin-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${pdfFile.fileName}">${pdfFile.fileName.split('/').pop().replace('.pdf', '')}</span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
-              ${pdfLinkHtml}
-              <span style="color: #94a3b8; font-size: 10px;">${dateStr}</span>
-            </div>
-          `;
-          
-          const loadPathProfile = async () => {
-            if (window.isFeatureManageMode || window.isVolumeManageMode) return;
-            setActiveSavedItem(item);
-            if (!jsonFile) return;
+      // Group profiles by folder (and ensure known folders exist)
+      const profileFolders = {};
+      knownProfileFolders.forEach(f => {
+        profileFolders[f] = [];
+      });
+
+      items.forEach(itemData => {
+        const folderName = itemData.metadata.folder || "General";
+        addKnownProfileFolder(folderName, false);
+        if (!profileFolders[folderName]) profileFolders[folderName] = [];
+        profileFolders[folderName].push(itemData);
+      });
+
+      const renderProfileFolder = (folderName, folderItems, targetContainer) => {
+        const folderGroup = document.createElement("div");
+        folderGroup.className = "folder-group";
+
+        const svgFolder = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px; flex-shrink: 0;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
+        const svgChevron = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chevron-icon" style="transition: transform 0.2s ease; transform: rotate(-90deg);"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
+
+        const fHeader = document.createElement("div");
+        fHeader.className = "folder-header";
+        fHeader.innerHTML = `
+          <span style="display: flex; align-items: center; font-weight: 600; font-size: 13.5px; color: #1e293b;">${svgFolder} ${folderName}</span>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <button class="btn-delete-folder-trigger" title="Delete folder & items" data-folder="${folderName}" data-type="profile" style="display: ${window.isReportManageMode || window.isFeatureManageMode ? 'inline-flex' : 'none'}; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); color: #ef4444; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; align-items: center;">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 2px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>Delete
+            </button>
+            ${svgChevron}
+          </div>
+        `;
+
+        const delBtn = fHeader.querySelector(".btn-delete-folder-trigger");
+        delBtn?.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+
+          if (folderItems.length === 0) {
+            if (confirm(`Delete empty subfolder "${folderName}"?`)) {
+              knownProfileFolders.delete(folderName);
+              saveStoredFolders();
+              fetchSavedReports();
+              syncFolderDropdowns("PROFILE");
+            }
+            return;
+          }
+
+          if (confirm(`Delete folder "${folderName}" and all ${folderItems.length} path profile(s) in it?`)) {
+            delBtn.disabled = true;
+            delBtn.textContent = "...";
             try {
-              const _url = jsonFile.url;
-              const _cacheBuster = _url.includes('?') ? `&t=${Date.now()}` : `?t=${Date.now()}`;
-              const res = await fetch(_url + _cacheBuster, { cache: 'no-store' });
-              const text = await res.text();
-              const m = JSON.parse(text);
-              
-              if (m.startPoint && m.endPoint) {
-                 measureStartPoint = new Vector3(m.startPoint.x, m.startPoint.y, m.startPoint.z);
-                 measureEndPoint = new Vector3(m.endPoint.x, m.endPoint.y, m.endPoint.z);
-                 
-                 if (m.startCoord) {
-                   measureStartCoord = new Coordinates(giroCrs, m.startCoord.x, m.startCoord.y, m.startCoord.z);
-                 } else {
-                   measureStartCoord = new Coordinates(giroCrs, (instance?.reference?.x || 0) + measureStartPoint.x, (instance?.reference?.y || 0) + measureStartPoint.y, measureStartPoint.z);
-                 }
-                 
-                 if (m.endCoord) {
-                   measureEndCoord = new Coordinates(giroCrs, m.endCoord.x, m.endCoord.y, m.endCoord.z);
-                 } else {
-                   measureEndCoord = new Coordinates(giroCrs, (instance?.reference?.x || 0) + measureEndPoint.x, (instance?.reference?.y || 0) + measureEndPoint.y, measureEndPoint.z);
-                 }
-                 
-                 measureMode = "PROFILE";
-                 measureState = "FINISHED";
-                 
-                 if (m.chartData && m.chartData.elevations && m.chartData.elevations.length >= 2) {
-                   currentProfilePoints3D = buildProfile3DPointsFromElevations(measureStartPoint, measureEndPoint, m.chartData.elevations);
-                 } else {
-                   updateElevationProfile();
-                 }
-                 updateMeasureSvg();
-                 
-                 let midX = (measureStartPoint.x + measureEndPoint.x) / 2;
-                 let midY = (measureStartPoint.y + measureEndPoint.y) / 2;
-                 let midZ = activeProject.zOffset || 0;
-                 const centerWorld = new Vector3(midX, midY, midZ);
-                 controls.target.copy(centerWorld);
-                 controls.update();
-                 
-                 if (m.chartData && m.chartData.distances && m.chartData.elevations) {
-                   currentProfileData = m.chartData.currentProfileData || [];
-                   const profHoriz = document.getElementById("profileHoriz");
-                   const profVert = document.getElementById("profileVert");
-                   const prof3D = document.getElementById("profile3D");
-                   if (profHoriz) profHoriz.textContent = (m.chartData.totalDist || 0).toFixed(2) + " m";
-                   if (profVert) profVert.textContent = (m.chartData.elevChange || 0).toFixed(2) + " m";
-                   if (prof3D) prof3D.textContent = (m.chartData.surfDist || 0).toFixed(2) + " m";
+              const deletePromises = folderItems.map(async ({ pdfFile, jsonFile }) => {
+                const p1 = deleteFile("reports", pdfFile.fileName).catch(() => {});
+                const p2 = jsonFile ? deleteFile("reports", jsonFile.fileName).catch(() => {}) : Promise.resolve();
+                return Promise.all([p1, p2]);
+              });
+              await Promise.all(deletePromises);
+              knownProfileFolders.delete(folderName);
+              saveStoredFolders();
+              fetchSavedReports();
+              syncFolderDropdowns("PROFILE");
+            } catch (err) {
+              console.error("Error deleting folder items", err);
+              alert("Failed to delete all items in folder.");
+              fetchSavedReports();
+            }
+          }
+        });
+
+        const fContent = document.createElement("div");
+        fContent.className = "folder-content";
+        fContent.style.display = "none";
+        fHeader.addEventListener("click", (e) => {
+          if (e.target.closest(".btn-delete-folder-trigger")) return;
+          const isHidden = fContent.style.display === "none";
+          fContent.style.display = isHidden ? "flex" : "none";
+          const chevron = fHeader.querySelector(".chevron-icon");
+          if (chevron) chevron.style.transform = isHidden ? "rotate(0deg)" : "rotate(-90deg)";
+        });
+
+        if (folderItems.length === 0) {
+          fContent.innerHTML = `<i style="color: var(--muted); font-size: 11px; padding: 6px 12px; display: block;">No profiles in this folder</i>`;
+        } else {
+          folderItems.forEach(({ pdfFile, jsonFile, metadata }) => {
+            const item = document.createElement("div");
+            item.className = "saved-report-item";
+            
+            const svg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`;
+            const dateStr = new Date(pdfFile.lastModified).toLocaleDateString();
+            
+            const cbHtml = `<input type="checkbox" class="report-checkbox feature-checkbox premium-checkbox" data-filename="${pdfFile.fileName}" value="${pdfFile.fileName}" style="display: none; margin-right: 8px;">`;
+            const pdfLinkHtml = `<a href="${pdfFile.url}" target="_blank" class="pdf-pill-badge" title="Download PDF" onclick="event.stopPropagation();"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> PDF</a>`;
+            const rawName = pdfFile.fileName.split('/').pop().replace('.pdf', '').replace(/_/g, ' ');
+            
+            item.innerHTML = `
+              ${cbHtml}
+              <div style="display: flex; align-items: center; flex: 1; min-width: 0; overflow: hidden; cursor: pointer; gap: 8px;">
+                ${svg}
+                <span class="item-title" style="flex: 1; font-weight: 500; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: capitalize;" title="${rawName}">${rawName}</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: 8px;">
+                ${pdfLinkHtml}
+                <span style="color: #94a3b8; font-size: 11px; font-weight: 500;">${dateStr}</span>
+              </div>
+            `;
+            
+            const loadPathProfile = async () => {
+              if (window.isFeatureManageMode || window.isVolumeManageMode) return;
+              setActiveSavedItem(item);
+              if (!jsonFile) return;
+              try {
+                const _url = jsonFile.url;
+                const _cacheBuster = _url.includes('?') ? `&t=${Date.now()}` : `?t=${Date.now()}`;
+                const res = await fetch(_url + _cacheBuster, { cache: 'no-store' });
+                const text = await res.text();
+                const m = JSON.parse(text);
+                
+                if (m.startPoint && m.endPoint) {
+                   measureStartPoint = new Vector3(m.startPoint.x, m.startPoint.y, m.startPoint.z);
+                   measureEndPoint = new Vector3(m.endPoint.x, m.endPoint.y, m.endPoint.z);
                    
-                   if (elevationMiniContainer) elevationMiniContainer.classList.remove('hidden');
-                   if (miniChart && (miniChart.width === 0 || miniChart.height === 0)) {
-                     miniChart.destroy();
-                     miniChart = null;
+                   if (m.startCoord) {
+                     measureStartCoord = new Coordinates(giroCrs, m.startCoord.x, m.startCoord.y, m.startCoord.z);
+                   } else {
+                     measureStartCoord = new Coordinates(giroCrs, (instance?.reference?.x || 0) + measureStartPoint.x, (instance?.reference?.y || 0) + measureStartPoint.y, measureStartPoint.z);
                    }
-                   showUnifiedInfoPanel("PROFILE", "SAVED PATH PROFILE", null, true);
-                    
-                   const _savedDistances = m.chartData.distances;
-                   const _savedElevations = m.chartData.elevations;
-                   setTimeout(() => {
-                     initCharts();
-                     if (miniChart) {
-                       miniChart.data.labels = _savedDistances;
-                       miniChart.data.datasets[0].data = _savedElevations;
-                       miniChart.resize();
-                       miniChart.update('none');
+                   
+                   if (m.endCoord) {
+                     measureEndCoord = new Coordinates(giroCrs, m.endCoord.x, m.endCoord.y, m.endCoord.z);
+                   } else {
+                     measureEndCoord = new Coordinates(giroCrs, (instance?.reference?.x || 0) + measureEndPoint.x, (instance?.reference?.y || 0) + measureEndPoint.y, measureEndPoint.z);
+                   }
+                   
+                   measureMode = "PROFILE";
+                   measureState = "FINISHED";
+                   
+                   if (m.chartData && m.chartData.elevations && m.chartData.elevations.length >= 2) {
+                     currentProfilePoints3D = buildProfile3DPointsFromElevations(measureStartPoint, measureEndPoint, m.chartData.elevations);
+                   } else {
+                     updateElevationProfile();
+                   }
+                   updateMeasureSvg();
+                   
+                   let midX = (measureStartPoint.x + measureEndPoint.x) / 2;
+                   let midY = (measureStartPoint.y + measureEndPoint.y) / 2;
+                   let midZ = activeProject.zOffset || 0;
+                   const centerWorld = new Vector3(midX, midY, midZ);
+                   controls.target.copy(centerWorld);
+                   controls.update();
+                   
+                   if (m.chartData && m.chartData.distances && m.chartData.elevations) {
+                     currentProfileData = m.chartData.currentProfileData || [];
+                     const profHoriz = document.getElementById("profileHoriz");
+                     const profVert = document.getElementById("profileVert");
+                     const prof3D = document.getElementById("profile3D");
+                     if (profHoriz) profHoriz.textContent = (m.chartData.totalDist || 0).toFixed(2) + " m";
+                     if (profVert) profVert.textContent = (m.chartData.elevChange || 0).toFixed(2) + " m";
+                     if (prof3D) prof3D.textContent = (m.chartData.surfDist || 0).toFixed(2) + " m";
+                     
+                     if (elevationMiniContainer) elevationMiniContainer.classList.remove('hidden');
+                     if (miniChart && (miniChart.width === 0 || miniChart.height === 0)) {
+                       miniChart.destroy();
+                       miniChart = null;
                      }
-                   }, 100);
-                 } else {
-                   updateElevationProfile();
-                   showUnifiedInfoPanel("PROFILE", "SAVED PATH PROFILE", null, true);
-                 }
-              }
-            } catch(e) {
-              console.error("Error loading path profile", e);
-            }
-          };
-
-          item.addEventListener("click", (e) => {
-            if (window.isReportManageMode) {
-              if (e.target.tagName.toLowerCase() !== 'input') {
-                e.preventDefault();
-                const cb = item.querySelector(".report-checkbox");
-                if (cb) cb.checked = !cb.checked;
-              }
-              return;
-            }
-            if (e.target.closest("a.pdf-link") || e.target.closest("input")) return;
-
-            const reportName = pdfFile.fileName.split('/').pop().replace('.pdf', '');
-            const uniqueId = (jsonFile && jsonFile.fileName) ? jsonFile.fileName : pdfFile.fileName;
-
-            if (isMultiSelectReports) {
-              if (multiSelectedReportsMap.has(uniqueId)) {
-                multiSelectedReportsMap.delete(uniqueId);
-                item.classList.remove("selected-item");
-                if (activeFocusedFeatureId === uniqueId) {
-                  activeFocusedFeatureId = multiSelectedReportsMap.keys().next().value || null;
+                     showUnifiedInfoPanel("PROFILE", "SAVED PATH PROFILE", null, true);
+                      
+                     const _savedDistances = m.chartData.distances;
+                     const _savedElevations = m.chartData.elevations;
+                     setTimeout(() => {
+                       initCharts();
+                       if (miniChart) {
+                         miniChart.data.labels = _savedDistances;
+                         miniChart.data.datasets[0].data = _savedElevations;
+                         miniChart.resize();
+                         miniChart.update('none');
+                       }
+                     }, 100);
+                   } else {
+                     updateElevationProfile();
+                     showUnifiedInfoPanel("PROFILE", "SAVED PATH PROFILE", null, true);
+                   }
                 }
-                if (typeof updateMultiOverlaySvg === "function") updateMultiOverlaySvg();
+              } catch(e) {
+                console.error("Error loading path profile", e);
+              }
+            };
+
+            item.addEventListener("click", (e) => {
+              if (window.isReportManageMode) {
+                if (e.target.tagName.toLowerCase() !== 'input') {
+                  e.preventDefault();
+                  const cb = item.querySelector(".report-checkbox");
+                  if (cb) cb.checked = !cb.checked;
+                }
+                return;
+              }
+              if (e.target.closest("a.pdf-link") || e.target.closest("input")) return;
+
+              const reportName = pdfFile.fileName.split('/').pop().replace('.pdf', '');
+              const uniqueId = (jsonFile && jsonFile.fileName) ? jsonFile.fileName : pdfFile.fileName;
+
+              if (isMultiSelectReports) {
+                if (multiSelectedReportsMap.has(uniqueId)) {
+                  multiSelectedReportsMap.delete(uniqueId);
+                  item.classList.remove("selected-item");
+                  if (activeFocusedFeatureId === uniqueId) {
+                    activeFocusedFeatureId = multiSelectedReportsMap.keys().next().value || null;
+                  }
+                  if (typeof updateMultiOverlaySvg === "function") updateMultiOverlaySvg();
+                } else {
+                  item.classList.add("selected-item");
+                  activeFocusedFeatureId = uniqueId;
+                  if (jsonFile && jsonFile.url) {
+                    const _url = jsonFile.url;
+                    const _cacheBuster = _url.includes('?') ? `&t=${Date.now()}` : `?t=${Date.now()}`;
+                    fetch(_url + _cacheBuster, { cache: 'no-store' })
+                      .then(res => res.text())
+                      .then(text => {
+                        const m = JSON.parse(text);
+                        multiSelectedReportsMap.set(uniqueId, { file: jsonFile, metadata: m, data: m, name: reportName });
+                        showUnifiedInfoPanel("PROFILE", "ELEVATION PROFILE", m, true);
+                        if (typeof updateMultiOverlaySvg === "function") updateMultiOverlaySvg();
+                      }).catch(e => console.error("Error fetching report json", e));
+                  } else {
+                    multiSelectedReportsMap.set(uniqueId, { file: jsonFile, metadata, data: metadata, name: reportName });
+                    showUnifiedInfoPanel("PROFILE", "ELEVATION PROFILE", metadata, true);
+                    if (typeof updateMultiOverlaySvg === "function") updateMultiOverlaySvg();
+                  }
+                }
               } else {
+                multiSelectedReportsMap.clear();
+                document.querySelectorAll("#reportsList .saved-report-item").forEach(el => el.classList.remove("selected-item"));
                 item.classList.add("selected-item");
                 activeFocusedFeatureId = uniqueId;
-                if (jsonFile && jsonFile.url) {
-                  const _url = jsonFile.url;
-                  const _cacheBuster = _url.includes('?') ? `&t=${Date.now()}` : `?t=${Date.now()}`;
-                  fetch(_url + _cacheBuster, { cache: 'no-store' })
-                    .then(res => res.text())
-                    .then(text => {
-                      const m = JSON.parse(text);
-                      multiSelectedReportsMap.set(uniqueId, { file: jsonFile, metadata: m, data: m, name: reportName });
-                      showUnifiedInfoPanel("PROFILE", "ELEVATION PROFILE", m, true);
-                      if (typeof updateMultiOverlaySvg === "function") updateMultiOverlaySvg();
-                    }).catch(e => console.error("Error fetching report json", e));
-                } else {
-                  multiSelectedReportsMap.set(uniqueId, { file: jsonFile, metadata, data: metadata, name: reportName });
-                  showUnifiedInfoPanel("PROFILE", "ELEVATION PROFILE", metadata, true);
-                  if (typeof updateMultiOverlaySvg === "function") updateMultiOverlaySvg();
-                }
+                multiSelectedReportsMap.set(uniqueId, { file: jsonFile, metadata, data: metadata, name: reportName });
+                loadPathProfile();
+                if (typeof updateMultiOverlaySvg === "function") updateMultiOverlaySvg();
               }
-            } else {
-              multiSelectedReportsMap.clear();
-              document.querySelectorAll("#reportsList .saved-report-item").forEach(el => el.classList.remove("selected-item"));
-              item.classList.add("selected-item");
-              activeFocusedFeatureId = uniqueId;
-              multiSelectedReportsMap.set(uniqueId, { file: jsonFile, metadata, data: metadata, name: reportName });
-              loadPathProfile();
-              if (typeof updateMultiOverlaySvg === "function") updateMultiOverlaySvg();
-            }
+            });
+            
+            fContent.appendChild(item);
           });
-          
-          return item;
-        };
-        
-        hasItems = true;
-        if (reportsList) reportsList.appendChild(createItem());
-        if (featuresListLines) featuresListLines.appendChild(createItem());
+        }
+
+        folderGroup.appendChild(fHeader);
+        folderGroup.appendChild(fContent);
+        targetContainer.appendChild(folderGroup);
+      };
+
+      let hasItems = false;
+      Object.keys(profileFolders).sort().forEach(folderName => {
+        if (reportsList) renderProfileFolder(folderName, profileFolders[folderName], reportsList);
+        if (featuresListLines) renderProfileFolder(folderName, profileFolders[folderName], featuresListLines);
+        if (profileFolders[folderName].length > 0) hasItems = true;
       });
-      
+
       if (!hasItems && reportsList) {
-        reportsList.innerHTML = '<i style="color: var(--muted); padding: 4px;">No saved profiles yet.</i>';
+        reportsList.innerHTML = '<i style="color: var(--muted); padding: 4px;">No saved path profiles yet.</i>';
       }
       
       // Restore UI state if re-fetched during manage mode
@@ -3878,8 +4059,8 @@ window.addEventListener("DOMContentLoaded", () => {
       cb.style.display = enable ? "block" : "none";
       if (!enable) cb.checked = false;
     });
-    document.querySelectorAll(".report-link").forEach(link => {
-      link.pointerEvents = enable ? "none" : "auto";
+    document.querySelectorAll("#panel-profile .btn-delete-folder-trigger, #featuresListLines .btn-delete-folder-trigger").forEach(b => {
+      b.style.display = enable ? "inline-flex" : "none";
     });
     if (!enable && selectAllReports) selectAllReports.checked = false;
   }
@@ -3956,6 +4137,52 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Fetch immediately on load
   fetchSavedReports();
+
+  // Direct Panel Add Folder Buttons
+  const btnNewProfileFolder = document.getElementById("btnNewProfileFolder");
+  btnNewProfileFolder?.addEventListener("click", () => {
+    const newFolder = prompt("Enter new folder name for Path Profiles:");
+    if (newFolder && newFolder.trim() !== "") {
+      const trimmed = newFolder.trim();
+      addKnownProfileFolder(trimmed, true, trimmed);
+      fetchSavedReports();
+    }
+  });
+
+  const btnNewVolumeFolder = document.getElementById("btnNewVolumeFolder");
+  btnNewVolumeFolder?.addEventListener("click", () => {
+    const newFolder = prompt("Enter new folder name for Volumes:");
+    if (newFolder && newFolder.trim() !== "") {
+      const trimmed = newFolder.trim();
+      addKnownVolumeFolder(trimmed, true, trimmed);
+      fetchSavedVolumes();
+    }
+  });
+
+  const btnNewFeatureFolder = document.getElementById("btnNewFeatureFolder");
+  btnNewFeatureFolder?.addEventListener("click", () => {
+    const choice = prompt("Create folder in:\n1: Path Profiles\n2: Volumes\n\nEnter 1 or 2 (or type folder name):", "1");
+    if (!choice) return;
+    if (choice === "1") {
+      const name = prompt("Enter new folder name for Path Profiles:");
+      if (name && name.trim()) {
+        addKnownProfileFolder(name.trim(), true, name.trim());
+        fetchSavedReports();
+      }
+    } else if (choice === "2") {
+      const name = prompt("Enter new folder name for Volumes:");
+      if (name && name.trim()) {
+        addKnownVolumeFolder(name.trim(), true, name.trim());
+        fetchSavedVolumes();
+      }
+    } else {
+      const trimmed = choice.trim();
+      addKnownProfileFolder(trimmed, true, trimmed);
+      addKnownVolumeFolder(trimmed, true, trimmed);
+      fetchSavedReports();
+      fetchSavedVolumes();
+    }
+  });
 
   // -------------------------------------------------------------------------
   // VOLUME SAVING AND FOLDERS LOGIC
@@ -4327,25 +4554,28 @@ window.addEventListener("DOMContentLoaded", () => {
     if (featuresListPolygons) featuresListPolygons.innerHTML = '';
 
     try {
-      if (!activeProject) throw new Error("No active project");
-      const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url?projectId=${activeProject.folderName}&surveyId=${activeProject.surveyId}&type=volumes`;
-      const response = await fetch(apiUrl, { method: "GET", cache: "no-store" });
-      
-      if (!response.ok) throw new Error("Failed to fetch volumes");
-      
-      const files = await response.json();
-      if (volumesListLoading) volumesListLoading.style.display = 'none';
+      if (!activeProject) return;
+      let jsonFiles = [];
 
-      const jsonFiles = files.filter(f => f.fileName.endsWith('.json'));
-
-      if (jsonFiles.length === 0) {
-        if (volumesList) volumesList.innerHTML = '<i style="color: var(--muted); padding: 4px;">No official volumes yet.</i>';
-        if (featuresListPolygons) featuresListPolygons.innerHTML = '<i style="color: var(--muted); padding: 4px;">No volumes drawn yet.</i>';
-        return;
+      try {
+        const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=volumes`;
+        const response = await fetch(apiUrl, { method: "GET", cache: "no-store" });
+        if (response.ok) {
+          const rawFiles = await response.json();
+          const files = Array.isArray(rawFiles) ? rawFiles : [];
+          jsonFiles = files.filter(f => f && f.fileName && f.fileName.endsWith('.json'));
+        }
+      } catch (netErr) {
+        console.warn("Could not load volumes from S3 API", netErr);
       }
 
-      // Group by folder
+      if (volumesListLoading) volumesListLoading.style.display = 'none';
+
+      // Group by folder (and ensure known folders exist)
       const volumeFolders = {};
+      knownVolumeFolders.forEach(f => {
+        volumeFolders[f] = [];
+      });
 
       for (let file of jsonFiles) {
         try {
@@ -4355,7 +4585,7 @@ window.addEventListener("DOMContentLoaded", () => {
           if (!res.ok) continue;
           const metadata = await res.json();
           const folderName = metadata.folder || "General";
-          addKnownFolder(folderName);
+          addKnownVolumeFolder(folderName, false);
           
           if (!volumeFolders[folderName]) volumeFolders[folderName] = [];
           volumeFolders[folderName].push({ file, metadata });
@@ -4368,39 +4598,87 @@ window.addEventListener("DOMContentLoaded", () => {
         const folderGroup = document.createElement("div");
         folderGroup.className = "folder-group";
         
-        const svgFolder = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5e19ea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px; flex-shrink: 0;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
-        const svgChevron = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chevron-icon" style="transition: transform 0.2s ease;"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
+        const svgFolder = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px; flex-shrink: 0;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
+        const svgChevron = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chevron-icon" style="transition: transform 0.2s ease; transform: rotate(-90deg);"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
 
         const fHeader = document.createElement("div");
         fHeader.className = "folder-header";
-        fHeader.innerHTML = `<span style="display: flex; align-items: center; font-weight: 600; color: #1f2937;">${svgFolder} ${folderName}</span>${svgChevron}`;
+        fHeader.innerHTML = `
+          <span style="display: flex; align-items: center; font-weight: 600; font-size: 13.5px; color: #1e293b;">${svgFolder} ${folderName}</span>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <button class="btn-delete-folder-trigger" title="Delete folder & items" data-folder="${folderName}" data-type="volume" style="display: ${window.isVolumeManageMode || window.isFeatureManageMode ? 'inline-flex' : 'none'}; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); color: #ef4444; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; align-items: center;">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 2px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>Delete
+            </button>
+            ${svgChevron}
+          </div>
+        `;
+
+        const delBtn = fHeader.querySelector(".btn-delete-folder-trigger");
+        delBtn?.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+
+          if (folderItems.length === 0) {
+            if (confirm(`Delete empty subfolder "${folderName}"?`)) {
+              knownVolumeFolders.delete(folderName);
+              saveStoredFolders();
+              fetchSavedVolumes();
+              syncFolderDropdowns("VOLUME");
+            }
+            return;
+          }
+
+          if (confirm(`Delete folder "${folderName}" and all ${folderItems.length} volume(s) in it?`)) {
+            delBtn.disabled = true;
+            delBtn.textContent = "...";
+            try {
+              const deletePromises = folderItems.map(async ({ file }) => {
+                return deleteFile("volumes", file.fileName).catch(() => {});
+              });
+              await Promise.all(deletePromises);
+              knownVolumeFolders.delete(folderName);
+              saveStoredFolders();
+              fetchSavedVolumes();
+              syncFolderDropdowns("VOLUME");
+            } catch (err) {
+              console.error("Error deleting volume folder items", err);
+              alert("Failed to delete all items in volume folder.");
+              fetchSavedVolumes();
+            }
+          }
+        });
         
         const fContent = document.createElement("div");
         fContent.className = "folder-content";
-        fHeader.addEventListener("click", () => {
+        fContent.style.display = "none";
+        fHeader.addEventListener("click", (e) => {
+          if (e.target.closest(".btn-delete-folder-trigger")) return;
           const isHidden = fContent.style.display === "none";
-          fContent.style.display = isHidden ? "block" : "none";
+          fContent.style.display = isHidden ? "flex" : "none";
           const chevron = fHeader.querySelector(".chevron-icon");
           if (chevron) chevron.style.transform = isHidden ? "rotate(0deg)" : "rotate(-90deg)";
         });
 
-        folderItems.forEach(({ file, metadata }) => {
-          const item = document.createElement("div");
-          item.className = "saved-report-item";
-          
-          const niceName = file.fileName.split('/').pop().replace(/_[0-9]+\.json$/, '').replace(/_/g, ' ');
-          const cbHtml = `<input type="checkbox" class="volume-checkbox feature-checkbox premium-checkbox" data-filename="${file.fileName}" value="${file.fileName}" style="display: none; margin-right: 8px;">`;
-          item.innerHTML = `
-            <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-              <div style="display: flex; align-items: center; flex: 1; min-width: 0;">
-                ${cbHtml}
-                <div style="display: flex; flex-direction: column; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                  <span style="font-weight: 500; font-size: 13px; text-transform: capitalize; overflow: hidden; text-overflow: ellipsis;">${niceName}</span>
-                  <span style="font-size: 10px; color: #64748b;">${new Date(file.lastModified).toLocaleDateString()}</span>
+        if (folderItems.length === 0) {
+          fContent.innerHTML = `<i style="color: var(--muted); font-size: 11px; padding: 6px 12px; display: block;">No volumes in this folder</i>`;
+        } else {
+          folderItems.forEach(({ file, metadata }) => {
+            const item = document.createElement("div");
+            item.className = "saved-report-item";
+            
+            const niceName = file.fileName.split('/').pop().replace(/_[0-9]+\.json$/, '').replace(/_/g, ' ');
+            const cbHtml = `<input type="checkbox" class="volume-checkbox feature-checkbox premium-checkbox" data-filename="${file.fileName}" value="${file.fileName}" style="display: none; margin-right: 8px;">`;
+            const svg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>`;
+            item.innerHTML = `
+              <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                <div style="display: flex; align-items: center; flex: 1; min-width: 0; gap: 8px;">
+                  ${cbHtml}
+                  ${svg}
+                  <span class="item-title" style="flex: 1; font-weight: 500; font-size: 14px; text-transform: capitalize; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${niceName}">${niceName}</span>
                 </div>
+                <span style="font-size: 11px; color: #94a3b8; font-weight: 500; flex-shrink: 0; margin-left: 8px;">${new Date(file.lastModified).toLocaleDateString()}</span>
               </div>
-            </div>
-          `;
+            `;
 
           const loadVolumeAction = async () => {
             if (window.isVolumeManageMode || window.isFeatureManageMode) return;
@@ -4486,6 +4764,7 @@ window.addEventListener("DOMContentLoaded", () => {
           
           fContent.appendChild(item);
         });
+        }
         
         folderGroup.appendChild(fHeader);
         folderGroup.appendChild(fContent);
@@ -4551,6 +4830,10 @@ window.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll(".volume-checkbox").forEach(cb => {
       cb.style.display = enable ? "block" : "none";
       if (!enable) cb.checked = false;
+    });
+    // Toggle folder delete buttons
+    document.querySelectorAll("#panel-volume .btn-delete-folder-trigger, #featuresListPolygons .btn-delete-folder-trigger").forEach(b => {
+      b.style.display = enable ? "inline-flex" : "none";
     });
     // Disable view clicks
     document.querySelectorAll("#volumesList .saved-report-item").forEach(item => {
@@ -4623,6 +4906,9 @@ window.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll("#panel-features .feature-checkbox").forEach(cb => {
       cb.style.display = enable ? "block" : "none";
       if (!enable) cb.checked = false;
+    });
+    document.querySelectorAll("#panel-features .btn-delete-folder-trigger").forEach(b => {
+      b.style.display = enable ? "inline-flex" : "none";
     });
     document.querySelectorAll("#panel-features .saved-report-item").forEach(item => {
       const buttons = item.querySelectorAll("button");
@@ -5105,6 +5391,12 @@ window.addEventListener("DOMContentLoaded", () => {
       
       multiSelectedReportsMap.clear();
       multiSelectedVolumesMap.clear();
+      isMultiSelectReports = false;
+      isMultiSelectVolumes = false;
+      const toggleMultiReportsEl = document.getElementById("toggleMultiSelectReports");
+      const toggleMultiVolumesEl = document.getElementById("toggleMultiSelectVolumes");
+      if (toggleMultiReportsEl) toggleMultiReportsEl.checked = false;
+      if (toggleMultiVolumesEl) toggleMultiVolumesEl.checked = false;
       activeFocusedFeatureId = null;
       if (typeof updateMultiOverlaySvg === 'function') updateMultiOverlaySvg();
 
@@ -5242,8 +5534,10 @@ window.addEventListener("DOMContentLoaded", () => {
     animFrameId = requestAnimationFrame(updateCamVelocity);
   }
 
-  // -------------------------------------------------------------------------
+  // =========================================================================
+  /*
   // QUICK USER GUIDE & CHEATSHEET MODAL (One-by-One Step Carousel)
+  // (Commented out for now)
   // -------------------------------------------------------------------------
   const quickGuideModal = document.getElementById("quickGuideModal");
   const btnSidebarQuickGuide = document.getElementById("btnSidebarQuickGuide");
@@ -5339,5 +5633,6 @@ window.addEventListener("DOMContentLoaded", () => {
       closeQuickGuide();
     }
   });
+  */
 
 });

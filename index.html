@@ -53,10 +53,12 @@
         <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
       </filter>
     </defs>
-    <line id="measureSvgLine" stroke="#ffff00" stroke-width="3" filter="url(#measureGlow)" />
-    <polyline id="measureSvgPolyline" stroke="#ffff00" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#measureGlow)" />
-    <circle id="measureSvgStart" r="5" fill="#ffff00" stroke="#000" stroke-width="1" filter="url(#measureGlow)" />
-    <circle id="measureSvgEnd" r="5" fill="#ffff00" stroke="#000" stroke-width="1" filter="url(#measureGlow)" />
+    <line id="measureSvgLineHalo" stroke="#ffffff" stroke-width="3.2" stroke-linecap="round" />
+    <polyline id="measureSvgPolylineHalo" stroke="#ffffff" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+    <line id="measureSvgLine" stroke="#5e19ea" stroke-width="2.0" stroke-linecap="round" filter="url(#measureGlow)" />
+    <polyline id="measureSvgPolyline" stroke="#5e19ea" stroke-width="2.0" fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#measureGlow)" />
+    <circle id="measureSvgStart" r="4.5" fill="#5e19ea" stroke="#ffffff" stroke-width="1.5" filter="url(#measureGlow)" />
+    <circle id="measureSvgEnd" r="4.5" fill="#5e19ea" stroke="#ffffff" stroke-width="1.5" filter="url(#measureGlow)" />
   </svg>
 
   <!-- KML SVG Overlay -->
@@ -79,15 +81,16 @@
   </svg>
 
   <!-- Volume SVG Overlay -->
-  <svg id="volumeSvg" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index: 9999; display:none;">
-    <polygon id="volumePolygonOverlay" fill="rgba(14, 165, 233, 0.3)" stroke="#0ea5e9" stroke-width="2" stroke-dasharray="4" filter="url(#kmlGlow)" stroke-linejoin="round" points=""></polygon>
+  <svg id="volumeSvg" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index: 10; display:none;">
+    <polygon id="volumePolygonHalo" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round" points=""></polygon>
+    <polygon id="volumePolygonOverlay" fill="none" stroke="#5e19ea" stroke-width="2.0" stroke-linejoin="round" stroke-linecap="round" filter="url(#kmlGlow)" points=""></polygon>
     <g id="volumeVerticesOverlay"></g>
   </svg>
 
 
 
   <!-- Multi-Selection Overlay SVG (Polygons, Lines & Floating 3D Name Badges) -->
-  <svg id="multiOverlaySvg" style="position:fixed; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index: 9998;">
+  <svg id="multiOverlaySvg" style="position:fixed; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index: 10;">
     <defs>
       <filter id="multiGlow" x="-20%" y="-20%" width="140%" height="140%">
         <feGaussianBlur stdDeviation="3" result="blur" />
@@ -100,7 +103,7 @@
   </svg>
 
   <!-- Elevations SVG Overlay -->
-  <svg id="elevationsSvg" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index: 100;"></svg>
+  <svg id="elevationsSvg" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index: 10;"></svg>
 
   <div id="cursorHint" class="cursor-hint hidden"></div>
 
@@ -551,6 +554,13 @@
   <div class="sidebar-layout">
     <!-- Icon Bar (1:1 Platform Style) -->
     <div class="icon-sidebar">
+      <div class="sidebar-brand-wrapper">
+        <button id="btnBrandLogo" class="sidebar-brand-btn" title="Reload 3D Viewer">
+          <img src="/favicon.png" alt="Polygon" class="sidebar-brand-img" />
+        </button>
+      </div>
+      <div class="sidebar-divider" style="margin: 4px 0 8px 0;"></div>
+
       <button class="icon-btn left-icon-btn active" data-target="panel-features" title="Layers & Features">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
@@ -626,8 +636,7 @@
         <div class="flyout-group left-group active" id="panel-features">
           <div class="feature-group-card" style="margin-bottom: 10px;">
             <div id="featuresLinesHeader" class="feature-accordion-header" style="padding: 8px 10px;">
-              <div style="display: flex; align-items: center; gap: 8px; font-weight: 700; color: #1e293b;">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+              <div style="display: flex; align-items: center; font-weight: 700; color: #1e293b;">
                 PATH PROFILES
               </div>
               <div style="display: flex; align-items: center; gap: 6px;">
@@ -647,8 +656,7 @@
 
           <div class="feature-group-card">
             <div id="featuresPolygonsHeader" class="feature-accordion-header" style="padding: 8px 10px;">
-              <div style="display: flex; align-items: center; gap: 8px; font-weight: 700; color: #1e293b;">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+              <div style="display: flex; align-items: center; font-weight: 700; color: #1e293b;">
                 VOLUMES
               </div>
               <div style="display: flex; align-items: center; gap: 6px;">
@@ -1077,6 +1085,8 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
         </button>
 
+        <div class="sidebar-divider" style="margin: 2px 0;"></div>
+
         <!-- Unified ROI Button with Horizontal Extension Sub-Panel -->
         <div class="roi-wrapper" id="roiWrapper">
           <button id="mainRoiBtn" class="icon-btn right-icon-btn" title="ROI Selection Tools">
@@ -1101,6 +1111,8 @@
             </button>
           </div>
         </div>
+
+        <div class="sidebar-divider" style="margin: 2px 0;"></div>
 
         <!-- Overlay Toggle Buttons -->
         <button id="btnRightGrid" class="icon-btn right-icon-btn" title="Elevations Grid">
@@ -1130,6 +1142,8 @@
             <path d="M 10,6.5 C 10,5 10.8,4.2 12,4.2 C 13.2,4.2 14,5 14,6.5 C 14,7.5 13.2,8 12,8 C 10.8,8 10,7.5 10,6.5 Z"/>
           </svg>
         </button>
+
+        <div class="sidebar-divider" style="margin: 2px 0;"></div>
 
         <button id="btnResetMap" class="icon-btn right-icon-btn" title="Reset Map">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><polyline points="3 3 3 8 8 8"></polyline></svg>
@@ -1227,14 +1241,23 @@
       z-index: 9999; pointer-events: none;
     ">
       <div style="background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(16px); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 14px; padding: 14px 16px; min-width: 240px; box-shadow: 0 8px 32px rgba(94, 25, 234, 0.25); font-family: 'Inter', sans-serif; color: #e2e8f0; position: absolute; right: 80px; top: 150px; pointer-events: auto;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-      <span style="font-weight: 700; font-size: 13px; background: linear-gradient(135deg, #5e19ea, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Save ROI Area</span>
-      <button id="closeRoiMiniBtn" style="background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 16px; padding: 0 4px;">✕</button>
-    </div>
-    <input type="text" id="roiSaveName" class="input" placeholder="e.g. Pit-A1" style="width: 100%; padding: 7px 10px; border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 8px; color: #e2e8f0; background: rgba(30, 41, 59, 0.8); font-size: 12px; box-sizing: border-box; margin-bottom: 8px;">
-    <button id="btnConfirmRoiSave" class="btn" style="width: 100%; background: linear-gradient(135deg, #5e19ea, #8b5cf6); border: none; color: white; font-weight: 600; padding: 8px; border-radius: 8px; box-shadow: 0 4px 12px rgba(94, 25, 234, 0.3); transition: all 0.2s; cursor: pointer; font-size: 12px;">Save ROI</button>
-  
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <span style="font-weight: 700; font-size: 13px; background: linear-gradient(135deg, #5e19ea, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Save ROI Area</span>
+          <button id="closeRoiMiniBtn" style="background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 16px; padding: 0 4px;">✕</button>
+        </div>
+        <input type="text" id="roiSaveName" class="input" placeholder="e.g. Pit-A1" style="width: 100%; padding: 7px 10px; border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 8px; color: #e2e8f0; background: rgba(30, 41, 59, 0.8); font-size: 12px; box-sizing: border-box; margin-bottom: 8px;">
+        <button id="btnConfirmRoiSave" class="btn" style="width: 100%; background: linear-gradient(135deg, #5e19ea, #8b5cf6); border: none; color: white; font-weight: 600; padding: 8px; border-radius: 8px; box-shadow: 0 4px 12px rgba(94, 25, 234, 0.3); transition: all 0.2s; cursor: pointer; font-size: 12px;">Save ROI</button>
       </div>
+  </div>
+
+  <!-- Floating Quick-Info Popover (Hover card for rows) -->
+  <div id="quickInfoPopover" class="quick-info-popover" style="display: none;">
+    <div class="popover-header">
+      <span class="popover-title" id="popoverTitle">Title</span>
+      <span class="popover-badge" id="popoverBadge">Info</span>
     </div>
-\n</body>
+    <div class="popover-body" id="popoverBody"></div>
+  </div>
+
+</body>
 </html>

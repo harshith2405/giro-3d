@@ -52,9 +52,13 @@ new Extent(
 const instance = new Instance({
   target: "view",
   crs: giroCrs,
-  backgroundColor: 0x0a3b59,
+  backgroundColor: 0x1e2229,
 });
-instance.renderer.localClippingEnabled = true;
+if (instance.scene) instance.scene.background = new Color(0x1e2229);
+if (instance.renderer) {
+  instance.renderer.setClearColor(0x1e2229, 1);
+  instance.renderer.localClippingEnabled = true;
+}
 
 // ---------------------------------------------------------------------------
 // Application state
@@ -93,7 +97,7 @@ async function loadProject(project, extentOverride = null) {
       discardNoData: true,
       maxSubdivisionLevel: 14, // Safely limits zoom to prevent mathematical infinity/crashes
     });
-    map.backgroundColor = 0xcccccc;
+    map.backgroundColor = 0x1e2229;
     instance.add(map);
 
     // Instantiate fresh sources per load to ensure clean WebGL layer binding
@@ -285,6 +289,11 @@ const flyoutPanel = document.getElementById('flyoutPanel');
   const iconBtns = document.querySelectorAll('.left-icon-btn');
   const flyoutGroups = document.querySelectorAll('.left-group');
   const flyoutTitle = document.getElementById('flyoutTitle');
+  const btnBrandLogo = document.getElementById('btnBrandLogo');
+
+  btnBrandLogo?.addEventListener('click', () => {
+    window.location.reload();
+  });
 
   // Helper to close flyout
   function closeFlyout() {
@@ -505,15 +514,16 @@ window.addEventListener("DOMContentLoaded", () => {
       updateMultiOverlaySvg();
     }
 
-    // 1. Render Multi-Selected Volumes
-    if (isMultiSelectVolumes) {
+    // 1. Render Multi-Selected Volumes (Dual-Stroke Option 1, No Fill)
+    if (multiSelectedVolumesMap.size > 0) {
       multiSelectedVolumesMap.forEach((item, id) => {
-        if (!item.data || !item.data.points || item.data.points.length < 3) return;
+        const volData = item.data || item.metadata;
+        if (!volData || !volData.points || volData.points.length < 3) return;
         const isFocused = id === activeFocusedFeatureId;
 
         let sumX = 0, sumY = 0, sumZ = 0;
         const screenPoints = [];
-        for (const pt of item.data.points) {
+        for (const pt of volData.points) {
           const v = new Vector3(pt.x, pt.y, pt.z);
           sumX += pt.x; sumY += pt.y; sumZ += pt.z;
           const screenP = projectToScreen(v);
@@ -525,16 +535,25 @@ window.addEventListener("DOMContentLoaded", () => {
         if (screenPoints.length < 3) return;
 
         const ptsAttr = screenPoints.join(" ");
-        const strokeColor = isFocused ? "#5e19ea" : "#0ea5e9";
-        const fillColor = isFocused ? "rgba(94, 25, 234, 0.28)" : "rgba(14, 165, 233, 0.18)";
-        const strokeWidth = isFocused ? "3.5" : "2";
 
+        // 1. Halo white line underneath (3.2px)
+        const haloEl = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+        haloEl.setAttribute("points", ptsAttr);
+        haloEl.setAttribute("fill", "none");
+        haloEl.setAttribute("stroke", "#ffffff");
+        haloEl.setAttribute("stroke-width", "3.2");
+        haloEl.setAttribute("stroke-linejoin", "round");
+        haloEl.setAttribute("stroke-linecap", "round");
+        haloEl.style.pointerEvents = "none";
+
+        // 2. Core Polygon Purple line on top (no fill)
         const polyEl = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
         polyEl.setAttribute("points", ptsAttr);
-        polyEl.setAttribute("fill", fillColor);
-        polyEl.setAttribute("stroke", strokeColor);
-        polyEl.setAttribute("stroke-width", strokeWidth);
+        polyEl.setAttribute("fill", "none");
+        polyEl.setAttribute("stroke", isFocused ? "#5e19ea" : "#7c3aed");
+        polyEl.setAttribute("stroke-width", isFocused ? "2.4" : "1.8");
         polyEl.setAttribute("stroke-linejoin", "round");
+        polyEl.setAttribute("stroke-linecap", "round");
         if (isFocused) polyEl.setAttribute("filter", "url(#multiGlow)");
         polyEl.style.cursor = "pointer";
         polyEl.style.pointerEvents = "auto";
@@ -544,9 +563,12 @@ window.addEventListener("DOMContentLoaded", () => {
           focusMultiFeature(id, "VOLUME");
         });
 
-        if (multiPolygonsGroup) multiPolygonsGroup.appendChild(polyEl);
+        if (multiPolygonsGroup) {
+          multiPolygonsGroup.appendChild(haloEl);
+          multiPolygonsGroup.appendChild(polyEl);
+        }
 
-        const count = item.data.points.length;
+        const count = volData.points.length;
         const centroidWorld = new Vector3(sumX / count, sumY / count, sumZ / count);
         const projCentroid = projectToScreen(centroidWorld);
         if (projCentroid.z <= 1) {
@@ -555,103 +577,118 @@ window.addEventListener("DOMContentLoaded", () => {
       });
     }
 
-    // 2. Render Multi-Selected Path Profiles (High-Density Terrain Draped)
-    if (isMultiSelectReports) {
+    // 2. Render Multi-Selected Path Profiles (High-Density Terrain Draped, Dual-Stroke Option 1)
+    if (multiSelectedReportsMap.size > 0) {
       multiSelectedReportsMap.forEach((item, id) => {
+        const repData = item.data || item.metadata;
+        if (!repData) return;
+
         if (!item._drapedPoints3D) {
-          if (item.data.startPoint && item.data.endPoint) {
-            const sPt = new Vector3(item.data.startPoint.x, item.data.startPoint.y, item.data.startPoint.z);
-            const ePt = new Vector3(item.data.endPoint.x, item.data.endPoint.y, item.data.endPoint.z);
+          if (repData.startPoint && repData.endPoint) {
+            const sPt = new Vector3(repData.startPoint.x, repData.startPoint.y, repData.startPoint.z);
+            const ePt = new Vector3(repData.endPoint.x, repData.endPoint.y, repData.endPoint.z);
             
-            if (item.data.chartData && item.data.chartData.elevations && item.data.chartData.elevations.length >= 2) {
-              item._drapedPoints3D = buildProfile3DPointsFromElevations(sPt, ePt, item.data.chartData.elevations);
+            if (repData.chartData && repData.chartData.elevations && repData.chartData.elevations.length >= 2) {
+              item._drapedPoints3D = buildProfile3DPointsFromElevations(sPt, ePt, repData.chartData.elevations);
             } else {
               item._drapedPoints3D = [];
-              const sX = item.data.startCoord ? item.data.startCoord.x : (item.data.startPoint.x + (instance?.reference?.x || 0));
-            const sY = item.data.startCoord ? item.data.startCoord.y : (item.data.startPoint.y + (instance?.reference?.y || 0));
-            const eX = item.data.endCoord ? item.data.endCoord.x : (item.data.endPoint.x + (instance?.reference?.x || 0));
-            const eY = item.data.endCoord ? item.data.endCoord.y : (item.data.endPoint.y + (instance?.reference?.y || 0));
-            
-            const dX = eX - sX;
-            const dY = eY - sY;
-            const dist = Math.sqrt(dX * dX + dY * dY);
-            const samples = Math.max(60, Math.min(400, Math.floor(dist / 0.8)));
-            
-            const sZ = item.data.startPoint.z || (item.data.startCoord ? item.data.startCoord.z : 0);
-            const eZ = item.data.endPoint.z || (item.data.endCoord ? item.data.endCoord.z : 0);
+              const sX = repData.startCoord ? repData.startCoord.x : (repData.startPoint.x + (instance?.reference?.x || 0));
+              const sY = repData.startCoord ? repData.startCoord.y : (repData.startPoint.y + (instance?.reference?.y || 0));
+              const eX = repData.endCoord ? repData.endCoord.x : (repData.endPoint.x + (instance?.reference?.x || 0));
+              const eY = repData.endCoord ? repData.endCoord.y : (repData.endPoint.y + (instance?.reference?.y || 0));
+              
+              const dX = eX - sX;
+              const dY = eY - sY;
+              const dist = Math.sqrt(dX * dX + dY * dY);
+              const samples = Math.max(60, Math.min(400, Math.floor(dist / 0.8)));
+              
+              const sZ = repData.startPoint.z || (repData.startCoord ? repData.startCoord.z : 0);
+              const eZ = repData.endPoint.z || (repData.endCoord ? repData.endCoord.z : 0);
 
-            for (let i = 0; i <= samples; i++) {
-              const t = i / samples;
-              const gx = sX + t * dX;
-              const gy = sY + t * dY;
-              const fallbackZ = sZ + t * (eZ - sZ);
-              let gz = fallbackZ;
-              try {
-                const sample = map ? map.getElevationFast(gx, gy) : null;
-                if (sample && typeof sample.elevation === "number" && !isNaN(sample.elevation)) {
-                  gz = sample.elevation;
+              for (let i = 0; i <= samples; i++) {
+                const t = i / samples;
+                const gx = sX + t * dX;
+                const gy = sY + t * dY;
+                const fallbackZ = sZ + t * (eZ - sZ);
+                let gz = fallbackZ;
+                try {
+                  const sample = map ? map.getElevationFast(gx, gy) : null;
+                  if (sample && typeof sample.elevation === "number" && !isNaN(sample.elevation)) {
+                    gz = sample.elevation;
+                  }
+                } catch (e) {
+                  gz = fallbackZ;
                 }
-              } catch (e) {
-                gz = fallbackZ;
+                const xLocal = sPt.x + t * (ePt.x - sPt.x);
+                const yLocal = sPt.y + t * (ePt.y - sPt.y);
+                item._drapedPoints3D.push(new Vector3(xLocal, yLocal, gz + 0.35));
               }
-              const xLocal = sPt.x + t * (ePt.x - sPt.x);
-              const yLocal = sPt.y + t * (ePt.y - sPt.y);
-              item._drapedPoints3D.push(new Vector3(xLocal, yLocal, gz + 0.35));
             }
+          } else if (repData.points || repData.originalProfile) {
+            const pts = repData.points || repData.originalProfile;
+            item._drapedPoints3D = pts.map(p => new Vector3(
+              p.coord ? p.coord.x - (instance?.reference?.x || 0) : (p.x || 0),
+              p.coord ? p.coord.y - (instance?.reference?.y || 0) : (p.y || 0),
+              (p.coord ? p.coord.z : (p.z || 0)) + 0.35
+            ));
           }
-        } else if (item.data.points || item.data.originalProfile) {
-          const pts = item.data.points || item.data.originalProfile;
-          item._drapedPoints3D = pts.map(p => new Vector3(
-            p.coord ? p.coord.x - (instance?.reference?.x || 0) : (p.x || 0),
-            p.coord ? p.coord.y - (instance?.reference?.y || 0) : (p.y || 0),
-            (p.coord ? p.coord.z : (p.z || 0)) + 0.35
-          ));
         }
-      }
 
-      const pts3D = item._drapedPoints3D;
-      if (!pts3D || pts3D.length < 2) return;
-      
-      const isFocused = id === activeFocusedFeatureId;
+        const pts3D = item._drapedPoints3D;
+        if (!pts3D || pts3D.length < 2) return;
+        
+        const isFocused = id === activeFocusedFeatureId;
 
-      let sumX = 0, sumY = 0, sumZ = 0;
-      const screenPoints = [];
-      for (const v of pts3D) {
-        sumX += v.x; sumY += v.y; sumZ += v.z;
-        const screenP = projectToScreen(v);
-        if (screenP.z <= 1) {
-          screenPoints.push(`${screenP.x.toFixed(1)},${screenP.y.toFixed(1)}`);
+        let sumX = 0, sumY = 0, sumZ = 0;
+        const screenPoints = [];
+        for (const v of pts3D) {
+          sumX += v.x; sumY += v.y; sumZ += v.z;
+          const screenP = projectToScreen(v);
+          if (screenP.z <= 1) {
+            screenPoints.push(`${screenP.x.toFixed(1)},${screenP.y.toFixed(1)}`);
+          }
         }
-      }
-      
-      if (screenPoints.length < 2) return;
+        
+        if (screenPoints.length < 2) return;
 
-      const ptsAttr = screenPoints.join(" ");
-      const strokeColor = isFocused ? "#5e19ea" : "#a855f7";
-      const strokeWidth = isFocused ? "4.5" : "2.8";
+        const ptsAttr = screenPoints.join(" ");
 
-      const lineEl = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
-      lineEl.setAttribute("points", ptsAttr);
-      lineEl.setAttribute("fill", "none");
-      lineEl.setAttribute("stroke", strokeColor);
-      lineEl.setAttribute("stroke-width", strokeWidth);
-      lineEl.setAttribute("stroke-linecap", "round");
-      lineEl.setAttribute("stroke-linejoin", "round");
-      if (isFocused) lineEl.setAttribute("filter", "url(#multiGlow)");
-      lineEl.style.cursor = "pointer";
-      lineEl.style.pointerEvents = "auto";
+        // 1. Halo white line underneath (3.2px)
+        const haloLine = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+        haloLine.setAttribute("points", ptsAttr);
+        haloLine.setAttribute("fill", "none");
+        haloLine.setAttribute("stroke", "#ffffff");
+        haloLine.setAttribute("stroke-width", "3.2");
+        haloLine.setAttribute("stroke-linecap", "round");
+        haloLine.setAttribute("stroke-linejoin", "round");
+        haloLine.style.pointerEvents = "none";
 
-      lineEl.addEventListener("click", (e) => {
-        e.stopPropagation();
-        focusMultiFeature(id, "PROFILE");
-      });
+        // 2. Core Polygon Purple line on top
+        const lineEl = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+        lineEl.setAttribute("points", ptsAttr);
+        lineEl.setAttribute("fill", "none");
+        lineEl.setAttribute("stroke", isFocused ? "#5e19ea" : "#7c3aed");
+        lineEl.setAttribute("stroke-width", isFocused ? "2.4" : "1.8");
+        lineEl.setAttribute("stroke-linecap", "round");
+        lineEl.setAttribute("stroke-linejoin", "round");
+        if (isFocused) lineEl.setAttribute("filter", "url(#multiGlow)");
+        lineEl.style.cursor = "pointer";
+        lineEl.style.pointerEvents = "auto";
 
-      if (multiLinesGroup) multiLinesGroup.appendChild(lineEl);
+        lineEl.addEventListener("click", (e) => {
+          e.stopPropagation();
+          focusMultiFeature(id, "PROFILE");
+        });
 
-      const count = pts3D.length;
-      const midWorld = new Vector3(sumX / count, sumY / count, sumZ / count);
-      const projMid = projectToScreen(midWorld);
-      
+        if (multiLinesGroup) {
+          multiLinesGroup.appendChild(haloLine);
+          multiLinesGroup.appendChild(lineEl);
+        }
+
+        const count = pts3D.length;
+        const midWorld = new Vector3(sumX / count, sumY / count, sumZ / count);
+        const projMid = projectToScreen(midWorld);
+        
         if (projMid.z <= 1) {
           renderMapBadge(item.name || "Profile", projMid.x, projMid.y, isFocused, () => focusMultiFeature(id, "PROFILE"));
         }
@@ -665,9 +702,11 @@ window.addEventListener("DOMContentLoaded", () => {
     const isChecked = e.target.checked;
     isMultiSelectReports = isChecked;
 
+    document.querySelectorAll(".toggle-folder-view-reports").forEach(cb => cb.checked = isChecked);
+
     if (isChecked) {
       restoreFullMapIfClipped();
-      document.querySelectorAll("#reportsList .saved-report-item").forEach(item => {
+      document.querySelectorAll("#reportsList .saved-report-item, #featuresListLines .saved-report-item").forEach(item => {
         item.classList.add("selected-item");
       });
 
@@ -683,7 +722,7 @@ window.addEventListener("DOMContentLoaded", () => {
     } else {
       multiSelectedReportsMap.clear();
       activeFocusedFeatureId = null;
-      document.querySelectorAll("#reportsList .saved-report-item").forEach(item => {
+      document.querySelectorAll("#reportsList .saved-report-item, #featuresListLines .saved-report-item").forEach(item => {
         item.classList.remove("selected-item");
       });
       updateMultiOverlaySvg();
@@ -696,9 +735,11 @@ window.addEventListener("DOMContentLoaded", () => {
     const isChecked = e.target.checked;
     isMultiSelectVolumes = isChecked;
 
+    document.querySelectorAll(".toggle-folder-view-volumes").forEach(cb => cb.checked = isChecked);
+
     if (isChecked) {
       restoreFullMapIfClipped();
-      document.querySelectorAll("#volumesList .saved-report-item").forEach(item => {
+      document.querySelectorAll("#volumesList .saved-report-item, #featuresListPolygons .saved-report-item").forEach(item => {
         item.classList.add("selected-item");
       });
 
@@ -714,7 +755,7 @@ window.addEventListener("DOMContentLoaded", () => {
     } else {
       multiSelectedVolumesMap.clear();
       activeFocusedFeatureId = null;
-      document.querySelectorAll("#volumesList .saved-report-item").forEach(item => {
+      document.querySelectorAll("#volumesList .saved-report-item, #featuresListPolygons .saved-report-item").forEach(item => {
         item.classList.remove("selected-item");
       });
       updateMultiOverlaySvg();
@@ -1378,9 +1419,6 @@ window.addEventListener("DOMContentLoaded", () => {
             if (f && typeof f === "string" && f.trim() !== "") knownProfileFolders.add(f.trim());
           });
         }
-      } else {
-        ["General", "Haul Roads", "Pit Profiles"].forEach(f => knownProfileFolders.add(f));
-        saveStoredFolders();
       }
 
       const storedVolumes = localStorage.getItem("polygon_volume_folders");
@@ -1392,9 +1430,6 @@ window.addEventListener("DOMContentLoaded", () => {
             if (f && typeof f === "string" && f.trim() !== "") knownVolumeFolders.add(f.trim());
           });
         }
-      } else {
-        ["General", "Face", "Stockpiles", "Over burden"].forEach(f => knownVolumeFolders.add(f));
-        saveStoredFolders();
       }
     } catch(e) {
       console.error("Error loading stored folders", e);
@@ -1534,6 +1569,64 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btnSaveFromInfoBoxRoi")?.addEventListener("click", openUniversalSaveModal);
   document.getElementById("btnSaveFromInfoPolyRoi")?.addEventListener("click", openUniversalSaveModal);
   document.getElementById("btnSaveFromInfoPoint")?.addEventListener("click", openUniversalSaveModal);
+
+  // -------------------------------------------------------------------------
+  // Floating Quick-Info Popover Logic (Hover Card for list rows)
+  // -------------------------------------------------------------------------
+  const quickInfoPopover = document.getElementById("quickInfoPopover");
+  const popoverTitle = document.getElementById("popoverTitle");
+  const popoverBadge = document.getElementById("popoverBadge");
+  const popoverBody = document.getElementById("popoverBody");
+
+  function showQuickInfoPopover(targetEl, type, title, rows) {
+    if (!quickInfoPopover || !targetEl) return;
+    if (popoverTitle) popoverTitle.textContent = title || "Details";
+    if (popoverBadge) popoverBadge.textContent = type || "Info";
+    
+    let html = '<div class="popover-grid">';
+    (rows || []).forEach(r => {
+      html += `
+        <div class="popover-row">
+          <span class="popover-label">${r.label}</span>
+          <span class="popover-value">${r.val}</span>
+        </div>
+      `;
+    });
+    html += '</div>';
+    if (popoverBody) popoverBody.innerHTML = html;
+
+    const rect = targetEl.getBoundingClientRect();
+    
+    let top = rect.top + (rect.height / 2) - 40;
+    let left = rect.right + 12;
+
+    if (left + 280 > window.innerWidth) {
+      left = Math.max(10, rect.left - 290);
+    }
+    if (top + 180 > window.innerHeight) {
+      top = Math.max(10, window.innerHeight - 190);
+    }
+    if (top < 10) top = 10;
+
+    quickInfoPopover.style.top = `${top}px`;
+    quickInfoPopover.style.left = `${left}px`;
+    quickInfoPopover.style.display = "block";
+    quickInfoPopover.classList.remove("hidden");
+    requestAnimationFrame(() => {
+      quickInfoPopover.classList.add("visible");
+    });
+  }
+
+  function hideQuickInfoPopover() {
+    if (!quickInfoPopover) return;
+    quickInfoPopover.classList.remove("visible");
+    setTimeout(() => {
+      if (!quickInfoPopover.classList.contains("visible")) {
+        quickInfoPopover.style.display = "none";
+        quickInfoPopover.classList.add("hidden");
+      }
+    }, 150);
+  }
 
   function showUnifiedInfoPanel(toolType, headerText, data, isSavedView = false) {
     activeInfoTool = toolType;
@@ -2248,6 +2341,8 @@ window.addEventListener("DOMContentLoaded", () => {
   // Shared Drawing Logic
   // -------------------------------------------------------------------------
   const measureSvg = document.getElementById("measureSvg");
+  const measureSvgLineHalo = document.getElementById("measureSvgLineHalo");
+  const measureSvgPolylineHalo = document.getElementById("measureSvgPolylineHalo");
   const measureSvgLine = document.getElementById("measureSvgLine");
   const measureSvgPolyline = document.getElementById("measureSvgPolyline");
   const measureSvgStart = document.getElementById("measureSvgStart");
@@ -2290,13 +2385,17 @@ window.addEventListener("DOMContentLoaded", () => {
  // Array of { point: Vector3, coord: Coordinates }
   let volumeMousePoint = null; // Vector3
   const volumeSvg = document.getElementById("volumeSvg");
+  const volumePolygonHalo = document.getElementById("volumePolygonHalo");
   const volumePolygonSvg = document.getElementById("volumePolygonOverlay");
   const volumeVerticesSvg = document.getElementById("volumeVerticesOverlay");
 
   // Clear the current measurement overlay + points.
   function clearMeasure() {
     if (measureSvg) measureSvg.style.display = "none";
+    if (measureSvgPolylineHalo) measureSvgPolylineHalo.style.display = "none";
     if (measureSvgPolyline) measureSvgPolyline.style.display = "none";
+    if (measureSvgLineHalo) measureSvgLineHalo.style.display = "none";
+    if (measureSvgLine) measureSvgLine.style.display = "none";
     if (elevationMiniContainer) elevationMiniContainer.classList.add("hidden");
     measureStartPoint = null;
     measureEndPoint = null;
@@ -2357,14 +2456,27 @@ window.addEventListener("DOMContentLoaded", () => {
             ptsStr += `${ptScreen.x.toFixed(1)},${ptScreen.y.toFixed(1)} `;
           }
         }
+        if (measureSvgPolylineHalo) {
+          measureSvgPolylineHalo.setAttribute("points", ptsStr);
+          measureSvgPolylineHalo.style.display = "block";
+        }
         if (measureSvgPolyline) {
           measureSvgPolyline.setAttribute("points", ptsStr);
           measureSvgPolyline.style.display = "block";
         }
+        if (measureSvgLineHalo) measureSvgLineHalo.style.display = "none";
         if (measureSvgLine) measureSvgLine.style.display = "none";
       } else {
         // Active dragging or simple distance measurement
+        if (measureSvgPolylineHalo) measureSvgPolylineHalo.style.display = "none";
         if (measureSvgPolyline) measureSvgPolyline.style.display = "none";
+        if (measureSvgLineHalo) {
+          measureSvgLineHalo.style.display = "block";
+          measureSvgLineHalo.setAttribute("x1", start.x);
+          measureSvgLineHalo.setAttribute("y1", start.y);
+          measureSvgLineHalo.setAttribute("x2", end.x);
+          measureSvgLineHalo.setAttribute("y2", end.y);
+        }
         if (measureSvgLine) {
           measureSvgLine.style.display = "block";
           measureSvgLine.setAttribute("x1", start.x);
@@ -2585,8 +2697,10 @@ window.addEventListener("DOMContentLoaded", () => {
             const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
             circle.setAttribute("cx", screenP.x);
             circle.setAttribute("cy", screenP.y);
-            circle.setAttribute("r", "3");
-            circle.setAttribute("fill", "#0ea5e9");
+            circle.setAttribute("r", "4");
+            circle.setAttribute("fill", "#5e19ea");
+            circle.setAttribute("stroke", "#ffffff");
+            circle.setAttribute("stroke-width", "1.5");
             volumeVerticesSvg.appendChild(circle);
           }
         }
@@ -2600,6 +2714,10 @@ window.addEventListener("DOMContentLoaded", () => {
         }
       }
       
+      if (volumePolygonHalo) {
+        volumePolygonHalo.style.display = "block";
+        volumePolygonHalo.setAttribute("points", pointsAttr.trim());
+      }
       if (volumePolygonSvg) {
         volumePolygonSvg.style.display = "block";
         volumePolygonSvg.setAttribute("points", pointsAttr.trim());
@@ -2607,6 +2725,7 @@ window.addEventListener("DOMContentLoaded", () => {
       if (volumeVerticesSvg) volumeVerticesSvg.style.display = "block";
       if (volumeSvg) volumeSvg.style.display = "block";
     } else if (measureMode !== "ROI_POLY" && measureState !== "FINISHED_ROI_POLY") {
+      if (volumePolygonHalo) volumePolygonHalo.style.display = "none";
       if (volumePolygonSvg) volumePolygonSvg.style.display = "none";
       if (volumeVerticesSvg) volumeVerticesSvg.style.display = "none";
       if (volumeSvg) volumeSvg.style.display = "none";
@@ -3016,8 +3135,8 @@ window.addEventListener("DOMContentLoaded", () => {
         labels: [],
         datasets: [{
           data: [],
-          borderColor: '#2563eb', // Clean crisp blue
-          backgroundColor: 'rgba(37, 99, 235, 0.12)',
+          borderColor: '#5e19ea', // Polygon Purple
+          backgroundColor: 'rgba(94, 25, 234, 0.12)',
           fill: true,
           tension: 0.2,
           pointRadius: 0,
@@ -3048,16 +3167,16 @@ window.addEventListener("DOMContentLoaded", () => {
         datasets: [{
           label: 'Elevation',
           data: [],
-          borderColor: '#2563eb', // Crisp Tech Blue
-          backgroundColor: 'rgba(37, 99, 235, 0.12)',
+          borderColor: '#5e19ea', // Polygon Purple
+          backgroundColor: 'rgba(94, 25, 234, 0.12)',
           fill: true,
           tension: 0.15,
           pointRadius: 3,
-          pointBackgroundColor: '#2563eb',
+          pointBackgroundColor: '#5e19ea',
           pointBorderColor: '#ffffff',
           pointBorderWidth: 1.5,
           pointHoverRadius: 6,
-          pointHoverBackgroundColor: '#1d4ed8',
+          pointHoverBackgroundColor: '#4c1d95',
           borderWidth: 2.5
         }]
       },
@@ -3068,10 +3187,10 @@ window.addEventListener("DOMContentLoaded", () => {
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: '#1e293b',
+            backgroundColor: '#0f172a',
             titleColor: '#f8fafc',
-            bodyColor: '#93c5fd',
-            borderColor: '#3b82f6',
+            bodyColor: '#c4b5fd',
+            borderColor: '#7c3aed',
             borderWidth: 1,
             padding: 10,
             displayColors: false,
@@ -3553,7 +3672,7 @@ window.addEventListener("DOMContentLoaded", () => {
       
       setTimeout(() => {
         btnSaveToSurvey.innerHTML = originalText;
-        btnSaveToSurvey.style.background = "#0ea5e9";
+        btnSaveToSurvey.style.background = "#5e19ea";
         btnSaveToSurvey.disabled = false;
       }, 3000);
 
@@ -3564,7 +3683,7 @@ window.addEventListener("DOMContentLoaded", () => {
       
       setTimeout(() => {
         btnSaveToSurvey.innerHTML = originalText;
-        btnSaveToSurvey.style.background = "#0ea5e9";
+        btnSaveToSurvey.style.background = "#5e19ea";
         btnSaveToSurvey.disabled = false;
       }, 3000);
     }
@@ -3893,11 +4012,21 @@ window.addEventListener("DOMContentLoaded", () => {
         profileFolders[folderName].push(itemData);
       });
 
+      // Clean up empty legacy default folders
+      const legacyDefaults = ["Haul Roads", "Pit Profiles", "Face", "Stockpiles", "Over burden"];
+      legacyDefaults.forEach(f => {
+        if (profileFolders[f] && profileFolders[f].length === 0) {
+          delete profileFolders[f];
+          knownProfileFolders.delete(f);
+        }
+      });
+      saveStoredFolders();
+
       const renderProfileFolder = (folderName, folderItems, targetContainer) => {
         const folderGroup = document.createElement("div");
         folderGroup.className = "folder-group";
 
-        const svgFolder = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px; flex-shrink: 0;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
+        const svgFolder = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5e19ea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px; flex-shrink: 0;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
         const svgChevron = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chevron-icon" style="transition: transform 0.2s ease; transform: rotate(-90deg);"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
 
         const fHeader = document.createElement("div");
@@ -3905,15 +4034,57 @@ window.addEventListener("DOMContentLoaded", () => {
         fHeader.innerHTML = `
           <span style="display: flex; align-items: center; font-weight: 600; font-size: 13.5px; color: #1e293b;">${svgFolder} ${folderName}</span>
           <div style="display: flex; align-items: center; gap: 6px;">
-            <button class="btn-rename-folder-trigger" title="Rename folder" data-folder="${folderName}" data-type="profile" style="display: ${window.isReportManageMode || window.isFeatureManageMode ? 'inline-flex' : 'none'}; background: rgba(94, 25, 234, 0.08); border: 1px solid rgba(94, 25, 234, 0.25); color: #5e19ea; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; align-items: center; justify-content: center; padding: 0;">
+            <label class="ui-toggle folder-view-toggle" title="View all in ${folderName}" onclick="event.stopPropagation();">
+              <input type="checkbox" class="toggle-folder-view-reports" data-folder="${folderName}">
+              <span class="ui-toggle-slider"></span>
+            </label>
+            <button class="btn-rename-folder-trigger" title="Rename folder" data-folder="${folderName}" data-type="profile" style="display: ${isProfilesEditMode ? 'inline-flex' : 'none'}; background: rgba(94, 25, 234, 0.08); border: 1px solid rgba(94, 25, 234, 0.25); color: #5e19ea; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; align-items: center; justify-content: center; padding: 0;">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
             </button>
-            <button class="btn-delete-folder-trigger" title="Delete folder & items" data-folder="${folderName}" data-type="profile" style="display: ${window.isReportManageMode || window.isFeatureManageMode ? 'inline-flex' : 'none'}; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); color: #ef4444; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; align-items: center; justify-content: center; padding: 0;">
+            <button class="btn-delete-folder-trigger" title="Delete folder & items" data-folder="${folderName}" data-type="profile" style="display: ${isProfilesEditMode ? 'inline-flex' : 'none'}; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); color: #ef4444; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; align-items: center; justify-content: center; padding: 0;">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
             </button>
             ${svgChevron}
           </div>
         `;
+
+        const folderToggle = fHeader.querySelector(".toggle-folder-view-reports");
+        folderToggle?.addEventListener("change", async (e) => {
+          e.stopPropagation();
+          const isChecked = e.target.checked;
+          if (isChecked) {
+            restoreFullMapIfClipped();
+            for (const { pdfFile, jsonFile, metadata } of folderItems) {
+              const uniqueId = (jsonFile && jsonFile.fileName) ? jsonFile.fileName : pdfFile.fileName;
+              const rawName = metadata?.name || metadata?.title || pdfFile.fileName.split('/').pop().replace('.pdf', '').replace(/_/g, ' ');
+              let meta = metadata;
+              if (!meta && jsonFile && jsonFile.url) {
+                try {
+                  const _u = jsonFile.url + (jsonFile.url.includes('?') ? '&' : '?') + `t=${Date.now()}`;
+                  const r = await fetch(_u, { cache: 'no-store' });
+                  if (r.ok) meta = await r.json();
+                } catch(err) {}
+              }
+              if (meta) {
+                multiSelectedReportsMap.set(uniqueId, {
+                  name: rawName,
+                  pdfUrl: pdfFile.url,
+                  metadata: meta,
+                  data: meta,
+                  file: jsonFile,
+                  folderName: folderName
+                });
+              }
+            }
+          } else {
+            for (const [key, val] of Array.from(multiSelectedReportsMap.entries())) {
+              if (val.folderName === folderName) {
+                multiSelectedReportsMap.delete(key);
+              }
+            }
+          }
+          updateMultiOverlaySvg();
+        });
 
         const renameBtn = fHeader.querySelector(".btn-rename-folder-trigger");
         renameBtn?.addEventListener("click", async (e) => {
@@ -4000,6 +4171,7 @@ window.addEventListener("DOMContentLoaded", () => {
           if (chevron) chevron.style.transform = isHidden ? "rotate(0deg)" : "rotate(-90deg)";
         });
 
+        const isFeaturesSection = (targetContainer === featuresListLines);
         if (folderItems.length === 0) {
           fContent.innerHTML = `<i style="color: var(--muted); font-size: 11px; padding: 6px 12px; display: block;">No profiles in this folder</i>`;
         } else {
@@ -4010,21 +4182,52 @@ window.addEventListener("DOMContentLoaded", () => {
             const svg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`;
             const dateStr = new Date(pdfFile.lastModified).toLocaleDateString();
             
-            const pdfLinkHtml = `<a href="${pdfFile.url}" target="_blank" class="btn-action-icon" title="Download PDF" onclick="event.stopPropagation();" style="width: 22px; height: 22px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; background: rgba(37, 99, 235, 0.08); border: 1px solid rgba(37, 99, 235, 0.25); color: #2563eb; text-decoration: none;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>`;
+            const pdfLinkHtml = `<a href="${pdfFile.url}" target="_blank" class="btn-action-icon" title="Download PDF" onclick="event.stopPropagation();" style="width: 22px; height: 22px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; background: rgba(94, 25, 234, 0.08); border: 1px solid rgba(94, 25, 234, 0.25); color: #5e19ea; text-decoration: none;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>`;
             const rawName = metadata?.name || metadata?.title || pdfFile.fileName.split('/').pop().replace('.pdf', '').replace(/_/g, ' ');
             const delBtnHtml = `<button class="btn-row-delete-icon btn-row-delete-profile" data-filename="${pdfFile.fileName}" title="Delete ${rawName}" style="display: ${isProfilesEditMode ? 'inline-flex' : 'none'};"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>`;
+            const infoBtnHtml = `<button class="btn-row-info-trigger" title="Quick Info" onclick="event.stopPropagation();"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>`;
             
             item.innerHTML = `
               <div style="display: flex; align-items: center; flex: 1; min-width: 0; overflow: hidden; cursor: pointer; gap: 8px;">
-                ${svg}
+                ${isFeaturesSection ? '' : svg}
                 <span class="item-title" style="flex: 1; font-weight: 500; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${rawName}">${rawName}</span>
               </div>
               <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: 8px;">
                 ${delBtnHtml}
-                ${pdfLinkHtml}
-                <span style="color: #94a3b8; font-size: 11px; font-weight: 500;">${dateStr}</span>
+                ${isFeaturesSection ? '' : pdfLinkHtml}
+                ${isFeaturesSection ? '' : infoBtnHtml}
               </div>
             `;
+
+            const infoBtn = item.querySelector(".btn-row-info-trigger");
+            const triggerProfileQuickInfo = async () => {
+              let m = metadata;
+              if (!m && jsonFile && jsonFile.url) {
+                try {
+                  const _u = jsonFile.url + (jsonFile.url.includes('?') ? '&' : '?') + `t=${Date.now()}`;
+                  const r = await fetch(_u, { cache: 'no-store' });
+                  if (r.ok) m = await r.json();
+                } catch(e) {}
+              }
+              const dist2D = m?.chartData?.totalDist != null ? `${Number(m.chartData.totalDist).toFixed(2)} m` : (m?.totalDistance ? `${Number(m.totalDistance).toFixed(2)} m` : "-");
+              const elevChg = m?.chartData?.elevChange != null ? `${Number(m.chartData.elevChange).toFixed(2)} m` : (m?.elevationChange ? `${Number(m.elevationChange).toFixed(2)} m` : "-");
+              const dist3D = m?.chartData?.surfDist != null ? `${Number(m.chartData.surfDist).toFixed(2)} m` : (m?.surfaceDistance ? `${Number(m.surfaceDistance).toFixed(2)} m` : "-");
+
+              const rows = [
+                { label: "2D Distance", val: dist2D },
+                { label: "Elevation Change", val: elevChg },
+                { label: "3D Surface Dist", val: dist3D },
+                { label: "Date", val: dateStr }
+              ];
+              showQuickInfoPopover(infoBtn, "Profile", rawName, rows);
+            };
+
+            infoBtn?.addEventListener("mouseenter", triggerProfileQuickInfo);
+            infoBtn?.addEventListener("click", (e) => {
+              e.stopPropagation();
+              triggerProfileQuickInfo();
+            });
+            infoBtn?.addEventListener("mouseleave", hideQuickInfoPopover);
 
             const delBtn = item.querySelector(".btn-row-delete-profile");
             delBtn?.addEventListener("click", async (e) => {
@@ -4110,7 +4313,7 @@ window.addEventListener("DOMContentLoaded", () => {
                        miniChart.destroy();
                        miniChart = null;
                      }
-                     showUnifiedInfoPanel("PROFILE", "SAVED PATH PROFILE", null, true);
+                     showUnifiedInfoPanel("PROFILE", `PATH PROFILE: ${rawName}`, null, true);
                       
                      const _savedDistances = m.chartData.distances;
                      const _savedElevations = m.chartData.elevations;
@@ -4125,7 +4328,7 @@ window.addEventListener("DOMContentLoaded", () => {
                      }, 100);
                    } else {
                      updateElevationProfile();
-                     showUnifiedInfoPanel("PROFILE", "SAVED PATH PROFILE", null, true);
+                     showUnifiedInfoPanel("PROFILE", `PATH PROFILE: ${rawName}`, null, true);
                    }
                 }
               } catch(e) {
@@ -4137,7 +4340,7 @@ window.addEventListener("DOMContentLoaded", () => {
               if (e.target.closest("a.pdf-link") || e.target.closest(".btn-row-delete-icon") || e.target.closest(".btn-action-icon")) return;
               if (e.target.closest("a.pdf-link") || e.target.closest("input")) return;
 
-              const reportName = pdfFile.fileName.split('/').pop().replace('.pdf', '');
+              const reportName = rawName || pdfFile.fileName.split('/').pop().replace('.pdf', '');
               const uniqueId = (jsonFile && jsonFile.fileName) ? jsonFile.fileName : pdfFile.fileName;
 
               if (isMultiSelectReports) {
@@ -4159,12 +4362,12 @@ window.addEventListener("DOMContentLoaded", () => {
                       .then(text => {
                         const m = JSON.parse(text);
                         multiSelectedReportsMap.set(uniqueId, { file: jsonFile, metadata: m, data: m, name: reportName });
-                        showUnifiedInfoPanel("PROFILE", "ELEVATION PROFILE", m, true);
+                        showUnifiedInfoPanel("PROFILE", `PATH PROFILE: ${reportName}`, m, true);
                         if (typeof updateMultiOverlaySvg === "function") updateMultiOverlaySvg();
                       }).catch(e => console.error("Error fetching report json", e));
                   } else {
                     multiSelectedReportsMap.set(uniqueId, { file: jsonFile, metadata, data: metadata, name: reportName });
-                    showUnifiedInfoPanel("PROFILE", "ELEVATION PROFILE", metadata, true);
+                    showUnifiedInfoPanel("PROFILE", `PATH PROFILE: ${reportName}`, metadata, true);
                     if (typeof updateMultiOverlaySvg === "function") updateMultiOverlaySvg();
                   }
                 }
@@ -4584,12 +4787,16 @@ window.addEventListener("DOMContentLoaded", () => {
   // Left Panel Exclusive State: only one feature can be active at a time
   // -------------------------------------------------------------------------
   function clearAllLeftPanelState() {
-    // 1. Clear Profile/Line
+    // 1. Clear Profile/Line & Distance Measurements
     const btnClearProfile = document.getElementById('btnClearProfile');
     if (btnClearProfile) {
       btnClearProfile.disabled = false;
       btnClearProfile.click();
     }
+    clearMeasure();
+    if (measureSvg) measureSvg.style.display = "none";
+    currentProfilePoints3D = [];
+    currentProfileData = [];
 
     // 2. Clear Volume/Polygon
     const btnClearVolume = document.getElementById('btnClearVolume');
@@ -4597,6 +4804,9 @@ window.addEventListener("DOMContentLoaded", () => {
       btnClearVolume.disabled = false;
       btnClearVolume.click();
     }
+    volumePoints = [];
+    volumeMousePoint = null;
+    if (volumeSvg) volumeSvg.style.display = "none";
 
     // 3. Clear Simple Measure
     const btnClearMeasureSimple = document.getElementById('btnClearMeasureSimple');
@@ -4611,10 +4821,40 @@ window.addEventListener("DOMContentLoaded", () => {
     pointDrawCoord = null;
     if (pointSvg) pointSvg.style.display = 'none';
 
-    // 5. Restore full unclipped map if ROI was active
+    // 5. Clear multi-selected overlay maps & SVG groups
+    if (typeof multiSelectedReportsMap !== 'undefined') multiSelectedReportsMap.clear();
+    if (typeof multiSelectedVolumesMap !== 'undefined') multiSelectedVolumesMap.clear();
+    const multiPolygonsGroup = document.getElementById("multiPolygonsGroup");
+    const multiLinesGroup = document.getElementById("multiLinesGroup");
+    const multiBadgesGroup = document.getElementById("multiBadgesGroup");
+    if (multiPolygonsGroup) multiPolygonsGroup.innerHTML = "";
+    if (multiLinesGroup) multiLinesGroup.innerHTML = "";
+    if (multiBadgesGroup) multiBadgesGroup.innerHTML = "";
+    if (typeof updateMultiOverlaySvg === 'function') updateMultiOverlaySvg();
+
+    // 6. Reset all View All switches (master and subfolders)
+    const toggleViewAllReports = document.getElementById("toggleViewAllReports");
+    const toggleViewAllVolumes = document.getElementById("toggleViewAllVolumes");
+    if (toggleViewAllReports) toggleViewAllReports.checked = false;
+    if (toggleViewAllVolumes) toggleViewAllVolumes.checked = false;
+    document.querySelectorAll(".toggle-folder-view-reports, .toggle-folder-view-volumes").forEach(cb => cb.checked = false);
+
+    // 7. Hide Info Panel & clear current viewing feature
+    if (unifiedInfoPanel) unifiedInfoPanel.classList.add("hidden");
+    const infoInlineRenameContainer = document.getElementById("infoInlineRenameContainer");
+    if (infoInlineRenameContainer) infoInlineRenameContainer.classList.add("hidden");
+    window.currentViewingFeature = null;
+
+    // 8. Remove active list highlights
+    document.querySelectorAll(".saved-report-item.active, .saved-item-card.active, .drawn-feature-item.active, .selected-item").forEach(el => {
+      el.classList.remove("active", "selected-item");
+    });
+
+    // 9. Restore full unclipped map if ROI was active
     restoreFullMapIfClipped();
   }
   window.clearAllLeftPanelState = clearAllLeftPanelState;
+  window.clearAllViewingState = clearAllLeftPanelState;
 
   async function fetchSavedRois() {
     const leftRoisList = document.getElementById("leftRoisList");
@@ -4721,11 +4961,21 @@ window.addEventListener("DOMContentLoaded", () => {
       }
       window._cachedAllVolumeItems = allVolumeItems;
 
+      // Clean up empty legacy default folders
+      const legacyDefaults = ["Haul Roads", "Pit Profiles", "Face", "Stockpiles", "Over burden"];
+      legacyDefaults.forEach(f => {
+        if (volumeFolders[f] && volumeFolders[f].length === 0) {
+          delete volumeFolders[f];
+          knownVolumeFolders.delete(f);
+        }
+      });
+      saveStoredFolders();
+
       const renderFolder = (folderName, folderItems, targetContainer) => {
         const folderGroup = document.createElement("div");
         folderGroup.className = "folder-group";
         
-        const svgFolder = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px; flex-shrink: 0;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
+        const svgFolder = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5e19ea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px; flex-shrink: 0;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
         const svgChevron = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chevron-icon" style="transition: transform 0.2s ease; transform: rotate(-90deg);"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
 
         const fHeader = document.createElement("div");
@@ -4733,15 +4983,46 @@ window.addEventListener("DOMContentLoaded", () => {
         fHeader.innerHTML = `
           <span style="display: flex; align-items: center; font-weight: 600; font-size: 13.5px; color: #1e293b;">${svgFolder} ${folderName}</span>
           <div style="display: flex; align-items: center; gap: 6px;">
-            <button class="btn-rename-folder-trigger" title="Rename folder" data-folder="${folderName}" data-type="volume" style="display: ${window.isVolumeManageMode || window.isFeatureManageMode ? 'inline-flex' : 'none'}; background: rgba(94, 25, 234, 0.08); border: 1px solid rgba(94, 25, 234, 0.25); color: #5e19ea; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; align-items: center; justify-content: center; padding: 0;">
+            <label class="ui-toggle folder-view-toggle" title="View all in ${folderName}" onclick="event.stopPropagation();">
+              <input type="checkbox" class="toggle-folder-view-volumes" data-folder="${folderName}">
+              <span class="ui-toggle-slider"></span>
+            </label>
+            <button class="btn-rename-folder-trigger" title="Rename folder" data-folder="${folderName}" data-type="volume" style="display: ${isVolumesEditMode ? 'inline-flex' : 'none'}; background: rgba(94, 25, 234, 0.08); border: 1px solid rgba(94, 25, 234, 0.25); color: #5e19ea; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; align-items: center; justify-content: center; padding: 0;">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
             </button>
-            <button class="btn-delete-folder-trigger" title="Delete folder & items" data-folder="${folderName}" data-type="volume" style="display: ${window.isVolumeManageMode || window.isFeatureManageMode ? 'inline-flex' : 'none'}; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); color: #ef4444; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; align-items: center; justify-content: center; padding: 0;">
+            <button class="btn-delete-folder-trigger" title="Delete folder & items" data-folder="${folderName}" data-type="volume" style="display: ${isVolumesEditMode ? 'inline-flex' : 'none'}; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); color: #ef4444; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; align-items: center; justify-content: center; padding: 0;">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
             </button>
             ${svgChevron}
           </div>
         `;
+
+        const folderVolToggle = fHeader.querySelector(".toggle-folder-view-volumes");
+        folderVolToggle?.addEventListener("change", (e) => {
+          e.stopPropagation();
+          const isChecked = e.target.checked;
+          if (isChecked) {
+            restoreFullMapIfClipped();
+            for (const { file, metadata } of folderItems) {
+              const uniqueId = file.fileName || metadata?.name || "Volume";
+              const volName = metadata?.name || file.fileName.split('/').pop().replace('.json', '');
+              multiSelectedVolumesMap.set(uniqueId, {
+                file,
+                metadata,
+                data: metadata,
+                name: volName,
+                folderName: folderName
+              });
+            }
+          } else {
+            for (const [key, val] of Array.from(multiSelectedVolumesMap.entries())) {
+              if (val.folderName === folderName) {
+                multiSelectedVolumesMap.delete(key);
+              }
+            }
+          }
+          updateMultiOverlaySvg();
+        });
 
         const renameBtn = fHeader.querySelector(".btn-rename-folder-trigger");
         renameBtn?.addEventListener("click", async (e) => {
@@ -4826,6 +5107,7 @@ window.addEventListener("DOMContentLoaded", () => {
           if (chevron) chevron.style.transform = isHidden ? "rotate(0deg)" : "rotate(-90deg)";
         });
 
+        const isFeaturesSection = (targetContainer === featuresListPolygons);
         if (folderItems.length === 0) {
           fContent.innerHTML = `<i style="color: var(--muted); font-size: 11px; padding: 6px 12px; display: block;">No volumes in this folder</i>`;
         } else {
@@ -4835,19 +5117,39 @@ window.addEventListener("DOMContentLoaded", () => {
             
             const niceName = metadata?.name || metadata?.title || file.fileName.split('/').pop().replace(/_[0-9]+\.json$/, '').replace(/_/g, ' ');
             const delVolBtnHtml = `<button class="btn-row-delete-icon btn-row-delete-vol" data-filename="${file.fileName}" title="Delete ${niceName}" style="display: ${isVolumesEditMode ? 'inline-flex' : 'none'};"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>`;
+            const infoVolBtnHtml = `<button class="btn-row-info-trigger" title="Quick Info" onclick="event.stopPropagation();"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>`;
             const svg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>`;
             item.innerHTML = `
               <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
                 <div style="display: flex; align-items: center; flex: 1; min-width: 0; gap: 8px;">
-                  ${svg}
+                  ${isFeaturesSection ? '' : svg}
                   <span class="item-title" style="flex: 1; font-weight: 500; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${niceName}">${niceName}</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: 8px;">
                   ${delVolBtnHtml}
-                  <span style="font-size: 11px; color: #94a3b8; font-weight: 500;">${new Date(file.lastModified).toLocaleDateString()}</span>
+                  ${isFeaturesSection ? '' : infoVolBtnHtml}
                 </div>
               </div>
             `;
+
+            const infoVolBtn = item.querySelector(".btn-row-info-trigger");
+            const triggerVolumeQuickInfo = () => {
+              const rows = [
+                { label: "2D Area", val: metadata?.area2D || metadata?.area || "-" },
+                { label: "Perimeter", val: metadata?.perimeter || "-" },
+                { label: "Cut Volume", val: metadata?.cutVolume || "-" },
+                { label: "Fill Volume", val: metadata?.fillVolume || "-" },
+                { label: "Date", val: new Date(file.lastModified).toLocaleDateString() }
+              ];
+              showQuickInfoPopover(infoVolBtn, "Volume", niceName, rows);
+            };
+
+            infoVolBtn?.addEventListener("mouseenter", triggerVolumeQuickInfo);
+            infoVolBtn?.addEventListener("click", (e) => {
+              e.stopPropagation();
+              triggerVolumeQuickInfo();
+            });
+            infoVolBtn?.addEventListener("mouseleave", hideQuickInfoPopover);
 
             const delVolBtn = item.querySelector(".btn-row-delete-vol");
             delVolBtn?.addEventListener("click", async (e) => {
@@ -4908,7 +5210,7 @@ window.addEventListener("DOMContentLoaded", () => {
               document.getElementById("volMiniCut").textContent = metadata.cutVolume;
               document.getElementById("volMiniFill").textContent = metadata.fillVolume;
               
-              showUnifiedInfoPanel("VOLUME", "SAVED VOLUME", metadata, true);
+              showUnifiedInfoPanel("VOLUME", `VOLUME: ${niceName}`, metadata, true);
               
               if (volumesPanelContent && volumesPanelContent.style.display === "none") {
                 savedVolumesHeader.click();
@@ -4927,7 +5229,7 @@ window.addEventListener("DOMContentLoaded", () => {
             if (e.target.closest("input")) return;
 
             const uniqueId = file.fileName || metadata.name || "Volume";
-            const volName = metadata.name || file.fileName.split('/').pop().replace('.json', '');
+            const volName = niceName || metadata.name || file.fileName.split('/').pop().replace('.json', '');
 
             if (isMultiSelectVolumes) {
               if (multiSelectedVolumesMap.has(uniqueId)) {
@@ -4940,7 +5242,7 @@ window.addEventListener("DOMContentLoaded", () => {
                 multiSelectedVolumesMap.set(uniqueId, { file, metadata, data: metadata, name: volName });
                 item.classList.add("selected-item");
                 activeFocusedFeatureId = uniqueId;
-                showUnifiedInfoPanel("VOLUME", "SAVED VOLUME", metadata, true);
+                showUnifiedInfoPanel("VOLUME", `VOLUME: ${volName}`, metadata, true);
               }
               if (typeof updateMultiOverlaySvg === "function") updateMultiOverlaySvg();
             } else {
@@ -4991,11 +5293,27 @@ window.addEventListener("DOMContentLoaded", () => {
     const carrot = document.getElementById(carrotId);
     if (!header || !list || !carrot) return;
     
-    header.addEventListener("click", () => {
+    header.addEventListener("click", (e) => {
+      if (e.target.closest("button") || e.target.closest("input")) return;
       const isHidden = list.style.display === "none";
       list.style.display = isHidden ? "flex" : "none";
       carrot.style.transform = isHidden ? "rotate(0deg)" : "rotate(-90deg)";
       carrot.style.transition = "transform 0.2s";
+
+      if (isHidden) {
+        // When expanding an accordion, isolate view
+        if (headerId === "featuresLinesHeader") {
+          clearVolumeState();
+          if (volumeSvg) volumeSvg.style.display = "none";
+          multiSelectedVolumesMap.clear();
+          updateMultiOverlaySvg();
+        } else if (headerId === "featuresPolygonsHeader") {
+          clearMeasure();
+          if (measureSvg) measureSvg.style.display = "none";
+          multiSelectedReportsMap.clear();
+          updateMultiOverlaySvg();
+        }
+      }
     });
   };
 

@@ -170,11 +170,11 @@ body {
 /* ── Flyout Panel (Pure White Card with 14px Rounded Corners) ── */
 .flyout-panel {
   background: #ffffff;
-  border-right: 1px solid #f1f5f9;
+  border-right: 1px solid #e2e8f0;
   border-left: none;
   border-top: none;
   border-bottom: none;
-  border-radius: 0 16px 16px 0;
+  border-radius: 0 !important;
   box-shadow: 6px 0 28px rgba(0, 0, 0, 0.06);
   width: 320px;
   height: 100vh;
@@ -403,7 +403,7 @@ body {
   position: fixed !important;
   left: auto !important;
   right: 16px !important;
-  top: 100px !important;
+  top: 80px !important;
   height: auto !important;
   flex-direction: row-reverse !important;
   z-index: 1001 !important;
@@ -411,29 +411,21 @@ body {
 }
 .sidebar-layout.right .icon-sidebar {
   height: auto !important;
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.06);
-  padding: 6px;
-  gap: 6px;
-  background: #ffffff;
+  border-radius: 0 !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08) !important;
+  padding: 6px !important;
+  gap: 6px !important;
+  background: #ffffff !important;
+  opacity: 1 !important;
   pointer-events: auto !important;
 }
+.sidebar-layout.right .icon-btn {
+  border-radius: 0 !important;
+}
+#rightFlyoutPanel,
 .sidebar-layout.right .flyout-panel.right {
-  border-radius: 14px;
-  margin-left: 0;
-  margin-right: 8px;
-  padding: 16px 20px;
-  transform-origin: right center;
-  height: auto !important;
-  max-height: calc(100vh - 180px);
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08);
-  background: #ffffff;
-  pointer-events: auto !important;
-}
-.sidebar-layout.right .flyout-panel.right.closed {
-  transform: translateX(110%);
+  display: none !important;
 }
 
 /* ── Modern iOS-Style Toggle Switch (Multi-Select & Layers) ── */
@@ -1205,10 +1197,11 @@ body {
 
 .bottom-coord-panel .coordinate-display {
   pointer-events: auto;
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(226, 232, 240, 0.8);
+  background: #ffffff !important;
+  opacity: 1 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 1px solid #e2e8f0 !important;
   padding: 8px 14px;
   border-radius: 20px;
   font-size: 11px;
@@ -1437,13 +1430,40 @@ body {
 .top-save-bar,
 .unified-info-panel,
 .cam-controls-panel,
-.viewer-card {
-  background: rgba(255, 255, 255, 0.94) !important;
-  backdrop-filter: blur(16px) !important;
-  -webkit-backdrop-filter: blur(16px) !important;
+.viewer-card,
+.feature-group-card {
+  background: #ffffff !important;
+  opacity: 1 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   border: 1px solid #e2e8f0 !important;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(94, 25, 234, 0.04) !important;
   color: #1f2937 !important;
+}
+
+.flyout-panel {
+  border-radius: 0 !important;
+}
+
+.btn-manage-rename {
+  padding: 4px 10px !important;
+  background: rgba(94, 25, 234, 0.08) !important;
+  border: 1px solid rgba(94, 25, 234, 0.25) !important;
+  border-radius: 6px !important;
+  color: #5e19ea !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  transition: all 0.2s ease !important;
+}
+
+.btn-manage-rename:hover {
+  background: #5e19ea !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(94, 25, 234, 0.25) !important;
 }
 
 .flyout-panel h2, 
@@ -1550,21 +1570,24 @@ body {
 }
 
 .icon-sidebar {
-  background: rgba(255, 255, 255, 0.94) !important;
-  backdrop-filter: blur(16px) !important;
-  -webkit-backdrop-filter: blur(16px) !important;
+  background: #ffffff !important;
+  opacity: 1 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   border: 1px solid #e2e8f0 !important;
   border-left: none !important;
   border-top: none !important;
   border-bottom: none !important;
   border-radius: 0 !important;
-  box-shadow: 2px 0 16px rgba(0, 0, 0, 0.06) !important;
+  box-shadow: 2px 0 16px rgba(0, 0, 0, 0.03) !important;
 }
 
 .sidebar-layout.right .icon-sidebar {
   border: 1px solid #e2e8f0 !important;
-  border-radius: 12px !important;
+  border-radius: 0 !important;
   height: auto !important;
+  background: #ffffff !important;
+  opacity: 1 !important;
 }
 
 .sidebar-layout:not(.right) .icon-btn {
@@ -1592,9 +1615,10 @@ body {
 
 .bottom-coord-panel .coordinate-display,
 .view-mode-toggle {
-  background: rgba(255, 255, 255, 0.94) !important;
-  backdrop-filter: blur(16px) !important;
-  -webkit-backdrop-filter: blur(16px) !important;
+  background: #ffffff !important;
+  opacity: 1 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   border: 1px solid #e2e8f0 !important;
   color: #1f2937 !important;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;

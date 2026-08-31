@@ -166,19 +166,22 @@ async function loadProject(project, extentOverride = null) {
       }
     }
 
-    // Frame the camera on the loaded extent.
+    // Frame the camera on the loaded extent (Top-Down Nadir View, Tilt = 0).
     const center = extent.centerAsVector3();
     const dims = extent.dimensions();
     const size = Math.max(dims.x, dims.y);
     const zOffset = project.zOffset || 0;
+    const zoomMultiplier = extentOverride ? 2.4 : 1.4;
     const camPos = new Vector3(
       center.x,
-      center.y - size * 0.8,
-      zOffset + size * 0.6
+      center.y,
+      zOffset + size * zoomMultiplier
     );
     instance.view.camera.position.copy(camPos);
     controls.target.copy(new Vector3(center.x, center.y, zOffset));
     controls.update();
+    if (instance?.view?.camera) instance.view.camera.updateMatrixWorld(true);
+    instance.notifyChange(instance.view.camera);
 
     updateStatus("Ready");
     instance.notifyChange();
@@ -432,6 +435,22 @@ window.addEventListener("DOMContentLoaded", () => {
           document.getElementById("volMiniCut").textContent = vol.metadata.cutVolume || "0";
           document.getElementById("volMiniFill").textContent = vol.metadata.fillVolume || "0";
           showUnifiedInfoPanel("VOLUME", "SAVED VOLUME", vol.metadata, true);
+
+          if (vol.metadata.points && vol.metadata.points.length >= 3) {
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            let cx = 0, cy = 0;
+            for (const p of vol.metadata.points) {
+              if (p.x < minX) minX = p.x;
+              if (p.x > maxX) maxX = p.x;
+              if (p.y < minY) minY = p.y;
+              if (p.y > maxY) maxY = p.y;
+              cx += p.x; cy += p.y;
+            }
+            cx /= vol.metadata.points.length;
+            cy /= vol.metadata.points.length;
+            const span = Math.max(maxX - minX, maxY - minY, 80);
+            setCameraTopDown(cx, cy, span);
+          }
         }
       } else if (type === "PROFILE") {
         const prof = multiSelectedReportsMap.get(id);
@@ -449,6 +468,13 @@ window.addEventListener("DOMContentLoaded", () => {
           if (elevationMiniContainer) elevationMiniContainer.classList.remove('hidden');
           
           showUnifiedInfoPanel("PROFILE", "ELEVATION PROFILE", m, true);
+
+          if (m.startPoint && m.endPoint) {
+            const midX = (m.startPoint.x + m.endPoint.x) / 2;
+            const midY = (m.startPoint.y + m.endPoint.y) / 2;
+            const span = Math.hypot(m.endPoint.x - m.startPoint.x, m.endPoint.y - m.startPoint.y);
+            setCameraTopDown(midX, midY, span);
+          }
           
           if (m.chartData && m.chartData.distances && m.chartData.elevations) {
             // Note: miniChart and initCharts are in the closure scope.
@@ -474,65 +500,68 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     // 1. Render Multi-Selected Volumes
-    multiSelectedVolumesMap.forEach((item, id) => {
-      if (!item.data || !item.data.points || item.data.points.length < 3) return;
-      const isFocused = id === activeFocusedFeatureId;
+    if (isMultiSelectVolumes) {
+      multiSelectedVolumesMap.forEach((item, id) => {
+        if (!item.data || !item.data.points || item.data.points.length < 3) return;
+        const isFocused = id === activeFocusedFeatureId;
 
-      let sumX = 0, sumY = 0, sumZ = 0;
-      const screenPoints = [];
-      for (const pt of item.data.points) {
-        const v = new Vector3(pt.x, pt.y, pt.z);
-        sumX += pt.x; sumY += pt.y; sumZ += pt.z;
-        const screenP = projectToScreen(v);
-        if (screenP.z <= 1) {
-          screenPoints.push(`${screenP.x},${screenP.y}`);
+        let sumX = 0, sumY = 0, sumZ = 0;
+        const screenPoints = [];
+        for (const pt of item.data.points) {
+          const v = new Vector3(pt.x, pt.y, pt.z);
+          sumX += pt.x; sumY += pt.y; sumZ += pt.z;
+          const screenP = projectToScreen(v);
+          if (screenP.z <= 1) {
+            screenPoints.push(`${screenP.x},${screenP.y}`);
+          }
         }
-      }
-      
-      if (screenPoints.length < 3) return;
+        
+        if (screenPoints.length < 3) return;
 
-      const ptsAttr = screenPoints.join(" ");
-      const strokeColor = isFocused ? "#5e19ea" : "#0ea5e9";
-      const fillColor = isFocused ? "rgba(94, 25, 234, 0.28)" : "rgba(14, 165, 233, 0.18)";
-      const strokeWidth = isFocused ? "3.5" : "2";
+        const ptsAttr = screenPoints.join(" ");
+        const strokeColor = isFocused ? "#5e19ea" : "#0ea5e9";
+        const fillColor = isFocused ? "rgba(94, 25, 234, 0.28)" : "rgba(14, 165, 233, 0.18)";
+        const strokeWidth = isFocused ? "3.5" : "2";
 
-      const polyEl = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-      polyEl.setAttribute("points", ptsAttr);
-      polyEl.setAttribute("fill", fillColor);
-      polyEl.setAttribute("stroke", strokeColor);
-      polyEl.setAttribute("stroke-width", strokeWidth);
-      polyEl.setAttribute("stroke-linejoin", "round");
-      if (isFocused) polyEl.setAttribute("filter", "url(#multiGlow)");
-      polyEl.style.cursor = "pointer";
-      polyEl.style.pointerEvents = "auto";
+        const polyEl = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+        polyEl.setAttribute("points", ptsAttr);
+        polyEl.setAttribute("fill", fillColor);
+        polyEl.setAttribute("stroke", strokeColor);
+        polyEl.setAttribute("stroke-width", strokeWidth);
+        polyEl.setAttribute("stroke-linejoin", "round");
+        if (isFocused) polyEl.setAttribute("filter", "url(#multiGlow)");
+        polyEl.style.cursor = "pointer";
+        polyEl.style.pointerEvents = "auto";
 
-      polyEl.addEventListener("click", (e) => {
-        e.stopPropagation();
-        focusMultiFeature(id, "VOLUME");
+        polyEl.addEventListener("click", (e) => {
+          e.stopPropagation();
+          focusMultiFeature(id, "VOLUME");
+        });
+
+        if (multiPolygonsGroup) multiPolygonsGroup.appendChild(polyEl);
+
+        const count = item.data.points.length;
+        const centroidWorld = new Vector3(sumX / count, sumY / count, sumZ / count);
+        const projCentroid = projectToScreen(centroidWorld);
+        if (projCentroid.z <= 1) {
+          renderMapBadge(item.name || "Volume", projCentroid.x, projCentroid.y, isFocused, () => focusMultiFeature(id, "VOLUME"));
+        }
       });
-
-      if (multiPolygonsGroup) multiPolygonsGroup.appendChild(polyEl);
-
-      const count = item.data.points.length;
-      const centroidWorld = new Vector3(sumX / count, sumY / count, sumZ / count);
-      const projCentroid = projectToScreen(centroidWorld);
-      if (projCentroid.z <= 1) {
-        renderMapBadge(item.name || "Volume", projCentroid.x, projCentroid.y, isFocused, () => focusMultiFeature(id, "VOLUME"));
-      }
-    });
+    }
 
     // 2. Render Multi-Selected Path Profiles (High-Density Terrain Draped)
-    multiSelectedReportsMap.forEach((item, id) => {
-      if (!item._drapedPoints3D) {
-        if (item.data.startPoint && item.data.endPoint) {
-          const sPt = new Vector3(item.data.startPoint.x, item.data.startPoint.y, item.data.startPoint.z);
-          const ePt = new Vector3(item.data.endPoint.x, item.data.endPoint.y, item.data.endPoint.z);
-          
-          if (item.data.chartData && item.data.chartData.elevations && item.data.chartData.elevations.length >= 2) {
-            item._drapedPoints3D = buildProfile3DPointsFromElevations(sPt, ePt, item.data.chartData.elevations);
-          } else {
-            item._drapedPoints3D = [];
-            const sX = item.data.startCoord ? item.data.startCoord.x : (item.data.startPoint.x + (instance?.reference?.x || 0));
+    if (isMultiSelectReports) {
+      multiSelectedReportsMap.forEach((item, id) => {
+        if (!item._drapedPoints3D) {
+          if (item.data.startPoint && item.data.endPoint) {
+            const sPt = new Vector3(item.data.startPoint.x, item.data.startPoint.y, item.data.startPoint.z);
+            const ePt = new Vector3(item.data.endPoint.x, item.data.endPoint.y, item.data.endPoint.z);
+            
+            if (item.data.chartData && item.data.chartData.elevations && item.data.chartData.elevations.length >= 2) {
+              item._drapedPoints3D = buildProfile3DPointsFromElevations(sPt, ePt, item.data.chartData.elevations);
+            } else {
+              item._drapedPoints3D = [];
+              const sX = item.data.startCoord ? item.data.startCoord.x : (item.data.startPoint.x + (instance?.reference?.x || 0));
             const sY = item.data.startCoord ? item.data.startCoord.y : (item.data.startPoint.y + (instance?.reference?.y || 0));
             const eX = item.data.endCoord ? item.data.endCoord.x : (item.data.endPoint.x + (instance?.reference?.x || 0));
             const eY = item.data.endCoord ? item.data.endCoord.y : (item.data.endPoint.y + (instance?.reference?.y || 0));
@@ -617,10 +646,11 @@ window.addEventListener("DOMContentLoaded", () => {
       const midWorld = new Vector3(sumX / count, sumY / count, sumZ / count);
       const projMid = projectToScreen(midWorld);
       
-      if (projMid.z <= 1) {
-        renderMapBadge(item.name || "Profile", projMid.x, projMid.y, isFocused, () => focusMultiFeature(id, "PROFILE"));
-      }
-    });
+        if (projMid.z <= 1) {
+          renderMapBadge(item.name || "Profile", projMid.x, projMid.y, isFocused, () => focusMultiFeature(id, "PROFILE"));
+        }
+      });
+    }
   }
 
   const toggleMultiSelectReports = document.getElementById("toggleMultiSelectReports");
@@ -717,8 +747,8 @@ window.addEventListener("DOMContentLoaded", () => {
     const zOffset = project.zOffset || 0;
     const camPos = new Vector3(
       center.x,
-      center.y - size * 0.8,
-      zOffset + size * 0.6
+      center.y,
+      zOffset + size * 1.4
     );
     instance.view.camera.position.copy(camPos);
     controls.target.copy(new Vector3(center.x, center.y, zOffset));
@@ -1976,10 +2006,10 @@ window.addEventListener("DOMContentLoaded", () => {
         resetRoiState();
         if (roiSvg) roiSvg.style.display = "none";
         // Do NOT clip the terrain anymore. Just focus camera.
-        const center = new Vector3((minX + maxX) / 2, ((minY + maxY) / 2) - 1000, (activeProject.zOffset || 0) + 1500);
-        instance.view.camera.position.copy(center);
-        controls.target.copy(new Vector3((minX + maxX) / 2, (minY + maxY) / 2, activeProject.zOffset || 0));
-        controls.update();
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
+        const span = Math.max(maxX - minX, maxY - minY, 80);
+        setCameraTopDown(cx, cy, span);
         
         updateKmlSvg();
         if (roiHint) roiHint.textContent = "KML loaded! Red boundary is now visible. Click 'Reset' to clear.";
@@ -2230,11 +2260,25 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Project a world-space point to screen pixel coordinates.
   function projectToScreen(worldPoint) {
+    if (instance?.view?.camera) {
+      instance.view.camera.updateMatrixWorld(true);
+    }
     const ndc = worldPoint.clone().project(instance.view.camera);
     const rect = canvas.getBoundingClientRect();
     const x = ((ndc.x + 1) / 2) * rect.width;
     const y = ((-ndc.y + 1) / 2) * rect.height;
     return { x, y, z: ndc.z };
+  }
+
+  // Helper to position camera looking straight down (tilt = 0) scaled to feature span
+  function setCameraTopDown(targetX, targetY, span = 300) {
+    if (!instance || !instance.view || !instance.view.camera || !controls) return;
+    const altitude = (activeProject?.zOffset || 0) + Math.max(span * 1.5, 150);
+    instance.view.camera.position.set(targetX, targetY, altitude);
+    controls.target.set(targetX, targetY, activeProject?.zOffset || 0);
+    controls.update();
+    if (instance.view.camera) instance.view.camera.updateMatrixWorld(true);
+    instance.notifyChange(instance.view.camera);
   }
 
   // Redraw the measurement line so it "sticks" to the terrain as the camera moves.
@@ -2336,8 +2380,9 @@ window.addEventListener("DOMContentLoaded", () => {
       
       if (volumePolygonSvg) {
         volumePolygonSvg.setAttribute("points", pointsAttr.trim());
-        volumePolygonSvg.setAttribute("fill", "rgba(139, 92, 246, 0.2)");
+        volumePolygonSvg.setAttribute("fill", "none");
         volumePolygonSvg.setAttribute("stroke", "#8b5cf6");
+        volumePolygonSvg.setAttribute("stroke-width", "2.5");
         volumePolygonSvg.style.display = "block";
       }
       if (volumeVerticesSvg) volumeVerticesSvg.style.display = "block";
@@ -2441,7 +2486,19 @@ window.addEventListener("DOMContentLoaded", () => {
         }
         
         map.clippingPlanes = planes;
+        const dims = clipExtent.dimensions();
+        const size = Math.max(dims.x, dims.y);
+        const zOffset = clipProject?.zOffset || 0;
+        instance.view.camera.position.set(cx, cy, zOffset + size * 2.4);
+        controls.target.set(cx, cy, zOffset);
+        controls.update();
+        if (instance.view.camera) instance.view.camera.updateMatrixWorld(true);
+        instance.notifyChange(instance.view.camera);
         updateRoiPolySvg();
+        requestAnimationFrame(() => {
+          if (instance?.view?.camera) instance.view.camera.updateMatrixWorld(true);
+          updateRoiPolySvg();
+        });
 
         let polyArea = Math.abs(signedArea) / 2;
         let polyPerim = 0;
@@ -3796,12 +3853,52 @@ window.addEventListener("DOMContentLoaded", () => {
         fHeader.innerHTML = `
           <span style="display: flex; align-items: center; font-weight: 600; font-size: 13.5px; color: #1e293b;">${svgFolder} ${folderName}</span>
           <div style="display: flex; align-items: center; gap: 6px;">
+            <button class="btn-rename-folder-trigger" title="Rename folder" data-folder="${folderName}" data-type="profile" style="display: ${window.isReportManageMode || window.isFeatureManageMode ? 'inline-flex' : 'none'}; background: rgba(94, 25, 234, 0.08); border: 1px solid rgba(94, 25, 234, 0.25); color: #5e19ea; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; align-items: center;">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 2px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>Rename
+            </button>
             <button class="btn-delete-folder-trigger" title="Delete folder & items" data-folder="${folderName}" data-type="profile" style="display: ${window.isReportManageMode || window.isFeatureManageMode ? 'inline-flex' : 'none'}; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); color: #ef4444; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; align-items: center;">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 2px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>Delete
             </button>
             ${svgChevron}
           </div>
         `;
+
+        const renameBtn = fHeader.querySelector(".btn-rename-folder-trigger");
+        renameBtn?.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          const newName = prompt(`Enter new name for folder "${folderName}":`, folderName);
+          if (!newName || newName.trim() === "" || newName.trim() === folderName) return;
+          const cleanName = newName.trim();
+          knownProfileFolders.delete(folderName);
+          knownProfileFolders.add(cleanName);
+          saveStoredFolders();
+
+          for (const { jsonFile, metadata } of folderItems) {
+            if (jsonFile && metadata) {
+              try {
+                metadata.folder = cleanName;
+                const jsonFileName = jsonFile.fileName.split('/').pop();
+                const jsonBlob = new Blob([JSON.stringify(metadata, null, 2)], { type: "application/json" });
+                const jsonRes = await fetch("https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "reports", fileName: jsonFileName })
+                });
+                if (jsonRes.ok) {
+                  const { uploadUrl } = await jsonRes.json();
+                  if (uploadUrl) {
+                    await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: jsonBlob });
+                  }
+                }
+              } catch (err) {
+                console.error("Failed to update folder in metadata:", err);
+              }
+            }
+          }
+          fetchSavedReports();
+          syncFolderDropdowns("PROFILE");
+        });
 
         const delBtn = fHeader.querySelector(".btn-delete-folder-trigger");
         delBtn?.addEventListener("click", async (e) => {
@@ -3844,7 +3941,7 @@ window.addEventListener("DOMContentLoaded", () => {
         fContent.className = "folder-content";
         fContent.style.display = "none";
         fHeader.addEventListener("click", (e) => {
-          if (e.target.closest(".btn-delete-folder-trigger")) return;
+          if (e.target.closest(".btn-delete-folder-trigger") || e.target.closest(".btn-rename-folder-trigger")) return;
           const isHidden = fContent.style.display === "none";
           fContent.style.display = isHidden ? "flex" : "none";
           const chevron = fHeader.querySelector(".chevron-icon");
@@ -3863,13 +3960,13 @@ window.addEventListener("DOMContentLoaded", () => {
             
             const cbHtml = `<input type="checkbox" class="report-checkbox feature-checkbox premium-checkbox" data-filename="${pdfFile.fileName}" value="${pdfFile.fileName}" style="display: none; margin-right: 8px;">`;
             const pdfLinkHtml = `<a href="${pdfFile.url}" target="_blank" class="pdf-pill-badge" title="Download PDF" onclick="event.stopPropagation();"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> PDF</a>`;
-            const rawName = pdfFile.fileName.split('/').pop().replace('.pdf', '').replace(/_/g, ' ');
+            const rawName = metadata?.name || metadata?.title || pdfFile.fileName.split('/').pop().replace('.pdf', '').replace(/_/g, ' ');
             
             item.innerHTML = `
               ${cbHtml}
               <div style="display: flex; align-items: center; flex: 1; min-width: 0; overflow: hidden; cursor: pointer; gap: 8px;">
                 ${svg}
-                <span class="item-title" style="flex: 1; font-weight: 500; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: capitalize;" title="${rawName}">${rawName}</span>
+                <span class="item-title" style="flex: 1; font-weight: 500; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${rawName}">${rawName}</span>
               </div>
               <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: 8px;">
                 ${pdfLinkHtml}
@@ -3912,14 +4009,16 @@ window.addEventListener("DOMContentLoaded", () => {
                    } else {
                      updateElevationProfile();
                    }
+
+                   const midX = (measureStartPoint.x + measureEndPoint.x) / 2;
+                   const midY = (measureStartPoint.y + measureEndPoint.y) / 2;
+                   const span = Math.hypot(measureEndPoint.x - measureStartPoint.x, measureEndPoint.y - measureStartPoint.y);
+                   setCameraTopDown(midX, midY, span);
                    updateMeasureSvg();
-                   
-                   let midX = (measureStartPoint.x + measureEndPoint.x) / 2;
-                   let midY = (measureStartPoint.y + measureEndPoint.y) / 2;
-                   let midZ = activeProject.zOffset || 0;
-                   const centerWorld = new Vector3(midX, midY, midZ);
-                   controls.target.copy(centerWorld);
-                   controls.update();
+                   requestAnimationFrame(() => {
+                     if (instance?.view?.camera) instance.view.camera.updateMatrixWorld(true);
+                     updateMeasureSvg();
+                   });
                    
                    if (m.chartData && m.chartData.distances && m.chartData.elevations) {
                      currentProfileData = m.chartData.currentProfileData || [];
@@ -4059,7 +4158,7 @@ window.addEventListener("DOMContentLoaded", () => {
       cb.style.display = enable ? "block" : "none";
       if (!enable) cb.checked = false;
     });
-    document.querySelectorAll("#panel-profile .btn-delete-folder-trigger, #featuresListLines .btn-delete-folder-trigger").forEach(b => {
+    document.querySelectorAll("#panel-profile .btn-delete-folder-trigger, #featuresListLines .btn-delete-folder-trigger, #panel-profile .btn-rename-folder-trigger, #featuresListLines .btn-rename-folder-trigger").forEach(b => {
       b.style.display = enable ? "inline-flex" : "none";
     });
     if (!enable && selectAllReports) selectAllReports.checked = false;
@@ -4071,6 +4170,67 @@ window.addEventListener("DOMContentLoaded", () => {
   selectAllReports?.addEventListener("change", (e) => {
     const isChecked = e.target.checked;
     document.querySelectorAll(".report-checkbox").forEach(cb => cb.checked = isChecked);
+  });
+
+  const renameSelectedReportsBtn = document.getElementById("renameSelectedReportsBtn");
+  renameSelectedReportsBtn?.addEventListener("click", async () => {
+    const selectedCbs = document.querySelectorAll(".report-checkbox:checked");
+    if (selectedCbs.length === 0) {
+      alert("Please select a path profile to rename.");
+      return;
+    }
+    if (selectedCbs.length > 1) {
+      alert("Please select only 1 path profile to rename at a time.");
+      return;
+    }
+    const cb = selectedCbs[0];
+    const pdfFileName = cb.value;
+    const jsonFileName = pdfFileName.replace(/\.pdf$/, '.json');
+    const baseCurrentName = pdfFileName.split('/').pop().replace('.pdf', '').replace(/_/g, ' ');
+    const newName = prompt("Enter new name for path profile:", baseCurrentName);
+    if (!newName || newName.trim() === "" || newName.trim() === baseCurrentName) return;
+
+    renameSelectedReportsBtn.disabled = true;
+    renameSelectedReportsBtn.textContent = "Renaming...";
+    try {
+      let metadata = {};
+      try {
+        const API_BASE = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`;
+        const jsonUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=reports&fileName=${encodeURIComponent(jsonFileName)}`;
+        const gRes = await fetch(jsonUrl, { cache: 'no-store' });
+        if (gRes.ok) {
+          const files = await gRes.json();
+          if (Array.isArray(files) && files.length > 0) {
+            const mRes = await fetch(files[0].url, { cache: 'no-store' });
+            if (mRes.ok) metadata = await mRes.json();
+          }
+        }
+      } catch(e) {}
+
+      metadata.name = newName.trim();
+      metadata.title = newName.trim();
+
+      const jsonBlob = new Blob([JSON.stringify(metadata, null, 2)], { type: "application/json" });
+      const apiRes = await fetch("https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "reports", fileName: jsonFileName })
+      });
+      if (apiRes.ok) {
+        const { uploadUrl } = await apiRes.json();
+        if (uploadUrl) {
+          await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: jsonBlob });
+        }
+      }
+      toggleManageMode(false);
+      fetchSavedReports();
+    } catch(err) {
+      console.error("Rename error:", err);
+      alert("Failed to rename profile: " + err.message);
+    } finally {
+      renameSelectedReportsBtn.textContent = "Rename";
+      renameSelectedReportsBtn.disabled = false;
+    }
   });
 
   deleteSelectedReportsBtn?.addEventListener("click", async () => {
@@ -4405,22 +4565,12 @@ window.addEventListener("DOMContentLoaded", () => {
       measureState = "FINISHED_ROI_POLY";
       roiPolyMousePoint = null;
       updateRoiPolySvg();
-      applyRoiPolyClipping();
-      
       if (roiArea) roiArea.textContent = (data.area2D || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
       if (roiPerimeter) roiPerimeter.textContent = (data.perimeter || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
       if (roiMetrics) roiMetrics.classList.remove("hidden");
-      
-      // Center camera
-      if (roiPolyPoints.length > 0) {
-        let cx = 0, cy = 0;
-        roiPolyPoints.forEach(p => { cx += p.coord.x; cy += p.coord.y; });
-        cx /= roiPolyPoints.length; cy /= roiPolyPoints.length;
-        const center = new Vector3(cx, cy - 1000, (activeProject.zOffset || 0) + 1500);
-        instance.view.camera.position.copy(center);
-        controls.target.copy(new Vector3(cx, cy, activeProject.zOffset || 0));
-        controls.update();
-      }
+      showUnifiedInfoPanel("POLY_ROI", "SAVED ROI", data, true);
+
+      applyRoiPolyClipping();
     } catch (err) {
       console.error("Error loading ROI", err);
     }
@@ -4606,12 +4756,52 @@ window.addEventListener("DOMContentLoaded", () => {
         fHeader.innerHTML = `
           <span style="display: flex; align-items: center; font-weight: 600; font-size: 13.5px; color: #1e293b;">${svgFolder} ${folderName}</span>
           <div style="display: flex; align-items: center; gap: 6px;">
+            <button class="btn-rename-folder-trigger" title="Rename folder" data-folder="${folderName}" data-type="volume" style="display: ${window.isVolumeManageMode || window.isFeatureManageMode ? 'inline-flex' : 'none'}; background: rgba(94, 25, 234, 0.08); border: 1px solid rgba(94, 25, 234, 0.25); color: #5e19ea; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; align-items: center;">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 2px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>Rename
+            </button>
             <button class="btn-delete-folder-trigger" title="Delete folder & items" data-folder="${folderName}" data-type="volume" style="display: ${window.isVolumeManageMode || window.isFeatureManageMode ? 'inline-flex' : 'none'}; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); color: #ef4444; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; align-items: center;">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 2px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>Delete
             </button>
             ${svgChevron}
           </div>
         `;
+
+        const renameBtn = fHeader.querySelector(".btn-rename-folder-trigger");
+        renameBtn?.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          const newName = prompt(`Enter new name for folder "${folderName}":`, folderName);
+          if (!newName || newName.trim() === "" || newName.trim() === folderName) return;
+          const cleanName = newName.trim();
+          knownVolumeFolders.delete(folderName);
+          knownVolumeFolders.add(cleanName);
+          saveStoredFolders();
+
+          for (const { file, metadata } of folderItems) {
+            if (file && metadata) {
+              try {
+                metadata.folder = cleanName;
+                const jsonFileName = file.fileName.split('/').pop();
+                const jsonBlob = new Blob([JSON.stringify(metadata, null, 2)], { type: "application/json" });
+                const jsonRes = await fetch("https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "volumes", fileName: jsonFileName })
+                });
+                if (jsonRes.ok) {
+                  const { uploadUrl } = await jsonRes.json();
+                  if (uploadUrl) {
+                    await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: jsonBlob });
+                  }
+                }
+              } catch (err) {
+                console.error("Failed to update folder in volume metadata:", err);
+              }
+            }
+          }
+          fetchSavedVolumes();
+          syncFolderDropdowns("VOLUME");
+        });
 
         const delBtn = fHeader.querySelector(".btn-delete-folder-trigger");
         delBtn?.addEventListener("click", async (e) => {
@@ -4652,7 +4842,7 @@ window.addEventListener("DOMContentLoaded", () => {
         fContent.className = "folder-content";
         fContent.style.display = "none";
         fHeader.addEventListener("click", (e) => {
-          if (e.target.closest(".btn-delete-folder-trigger")) return;
+          if (e.target.closest(".btn-delete-folder-trigger") || e.target.closest(".btn-rename-folder-trigger")) return;
           const isHidden = fContent.style.display === "none";
           fContent.style.display = isHidden ? "flex" : "none";
           const chevron = fHeader.querySelector(".chevron-icon");
@@ -4666,7 +4856,7 @@ window.addEventListener("DOMContentLoaded", () => {
             const item = document.createElement("div");
             item.className = "saved-report-item";
             
-            const niceName = file.fileName.split('/').pop().replace(/_[0-9]+\.json$/, '').replace(/_/g, ' ');
+            const niceName = metadata?.name || metadata?.title || file.fileName.split('/').pop().replace(/_[0-9]+\.json$/, '').replace(/_/g, ' ');
             const cbHtml = `<input type="checkbox" class="volume-checkbox feature-checkbox premium-checkbox" data-filename="${file.fileName}" value="${file.fileName}" style="display: none; margin-right: 8px;">`;
             const svg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>`;
             item.innerHTML = `
@@ -4674,7 +4864,7 @@ window.addEventListener("DOMContentLoaded", () => {
                 <div style="display: flex; align-items: center; flex: 1; min-width: 0; gap: 8px;">
                   ${cbHtml}
                   ${svg}
-                  <span class="item-title" style="flex: 1; font-weight: 500; font-size: 14px; text-transform: capitalize; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${niceName}">${niceName}</span>
+                  <span class="item-title" style="flex: 1; font-weight: 500; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${niceName}">${niceName}</span>
                 </div>
                 <span style="font-size: 11px; color: #94a3b8; font-weight: 500; flex-shrink: 0; margin-left: 8px;">${new Date(file.lastModified).toLocaleDateString()}</span>
               </div>
@@ -4694,15 +4884,26 @@ window.addEventListener("DOMContentLoaded", () => {
                   point: new Vector3(p.x, p.y, p.z)
               }));
               
-              let cx=0, cy=0;
-              for(let p of volumePoints) { cx+=p.coord.x; cy+=p.coord.y; }
-              cx/=volumePoints.length; cy/=volumePoints.length;
-              
-              const centerWorld = new Vector3(cx, cy, activeProject.zOffset || 0);
-              controls.target.copy(centerWorld);
-              controls.update();
+              let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+              let cx = 0, cy = 0;
+              for (let p of volumePoints) {
+                if (p.coord.x < minX) minX = p.coord.x;
+                if (p.coord.x > maxX) maxX = p.coord.x;
+                if (p.coord.y < minY) minY = p.coord.y;
+                if (p.coord.y > maxY) maxY = p.coord.y;
+                cx += p.coord.x;
+                cy += p.coord.y;
+              }
+              cx /= volumePoints.length;
+              cy /= volumePoints.length;
+              const span = Math.max(maxX - minX, maxY - minY, 80);
 
+              setCameraTopDown(cx, cy, span);
               updateVolumeSvg();
+              requestAnimationFrame(() => {
+                if (instance?.view?.camera) instance.view.camera.updateMatrixWorld(true);
+                updateVolumeSvg();
+              });
               
               document.getElementById("volMiniArea").textContent = metadata.area2D;
               document.getElementById("volMiniPerim").textContent = metadata.perimeter;
@@ -4831,8 +5032,8 @@ window.addEventListener("DOMContentLoaded", () => {
       cb.style.display = enable ? "block" : "none";
       if (!enable) cb.checked = false;
     });
-    // Toggle folder delete buttons
-    document.querySelectorAll("#panel-volume .btn-delete-folder-trigger, #featuresListPolygons .btn-delete-folder-trigger").forEach(b => {
+    // Toggle folder delete/rename buttons
+    document.querySelectorAll("#panel-volume .btn-delete-folder-trigger, #featuresListPolygons .btn-delete-folder-trigger, #panel-volume .btn-rename-folder-trigger, #featuresListPolygons .btn-rename-folder-trigger").forEach(b => {
       b.style.display = enable ? "inline-flex" : "none";
     });
     // Disable view clicks
@@ -4848,6 +5049,66 @@ window.addEventListener("DOMContentLoaded", () => {
   cancelManageVolumesBtn?.addEventListener("click", () => window.toggleVolumeManageMode(false));
   selectAllVolumes?.addEventListener("change", (e) => {
     document.querySelectorAll(".volume-checkbox").forEach(cb => cb.checked = e.target.checked);
+  });
+
+  const renameSelectedVolumesBtn = document.getElementById("renameSelectedVolumesBtn");
+  renameSelectedVolumesBtn?.addEventListener("click", async () => {
+    const selectedCbs = document.querySelectorAll(".volume-checkbox:checked");
+    if (selectedCbs.length === 0) {
+      alert("Please select a volume to rename.");
+      return;
+    }
+    if (selectedCbs.length > 1) {
+      alert("Please select only 1 volume to rename at a time.");
+      return;
+    }
+    const cb = selectedCbs[0];
+    const fileName = cb.value;
+    const baseCurrentName = fileName.split('/').pop().replace(/_[0-9]+\.json$/, '').replace(/_/g, ' ');
+    const newName = prompt("Enter new name for volume:", baseCurrentName);
+    if (!newName || newName.trim() === "" || newName.trim() === baseCurrentName) return;
+
+    renameSelectedVolumesBtn.disabled = true;
+    renameSelectedVolumesBtn.textContent = "Renaming...";
+    try {
+      let metadata = {};
+      try {
+        const API_BASE = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`;
+        const jsonUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=volumes&fileName=${encodeURIComponent(fileName)}`;
+        const gRes = await fetch(jsonUrl, { cache: 'no-store' });
+        if (gRes.ok) {
+          const files = await gRes.json();
+          if (Array.isArray(files) && files.length > 0) {
+            const mRes = await fetch(files[0].url, { cache: 'no-store' });
+            if (mRes.ok) metadata = await mRes.json();
+          }
+        }
+      } catch(e) {}
+
+      metadata.name = newName.trim();
+      metadata.title = newName.trim();
+
+      const jsonBlob = new Blob([JSON.stringify(metadata, null, 2)], { type: "application/json" });
+      const apiRes = await fetch("https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "volumes", fileName })
+      });
+      if (apiRes.ok) {
+        const { uploadUrl } = await apiRes.json();
+        if (uploadUrl) {
+          await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: jsonBlob });
+        }
+      }
+      window.toggleVolumeManageMode(false);
+      fetchSavedVolumes();
+    } catch(err) {
+      console.error("Rename volume error:", err);
+      alert("Failed to rename volume: " + err.message);
+    } finally {
+      renameSelectedVolumesBtn.textContent = "Rename";
+      renameSelectedVolumesBtn.disabled = false;
+    }
   });
 
   deleteSelectedVolumesBtn?.addEventListener("click", async () => {
@@ -4907,7 +5168,7 @@ window.addEventListener("DOMContentLoaded", () => {
       cb.style.display = enable ? "block" : "none";
       if (!enable) cb.checked = false;
     });
-    document.querySelectorAll("#panel-features .btn-delete-folder-trigger").forEach(b => {
+    document.querySelectorAll("#panel-features .btn-delete-folder-trigger, #panel-features .btn-rename-folder-trigger").forEach(b => {
       b.style.display = enable ? "inline-flex" : "none";
     });
     document.querySelectorAll("#panel-features .saved-report-item").forEach(item => {
@@ -4936,6 +5197,95 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  const renameSelectedFeaturesBtn = document.getElementById("renameSelectedFeaturesBtn");
+  renameSelectedFeaturesBtn?.addEventListener("click", async () => {
+    const selectedCbs = document.querySelectorAll("#panel-features .feature-checkbox:checked");
+    if (selectedCbs.length === 0) {
+      alert("Please select an item to rename.");
+      return;
+    }
+    if (selectedCbs.length > 1) {
+      alert("Please select only 1 item to rename at a time.");
+      return;
+    }
+    const cb = selectedCbs[0];
+    const fileName = cb.dataset.filename || cb.value || cb.getAttribute('data-filename');
+    const isProfile = fileName.endsWith('.pdf');
+    const baseCurrentName = fileName.split('/').pop().replace(/\.pdf$/, '').replace(/_[0-9]+\.json$/, '').replace(/_/g, ' ');
+    const newName = prompt("Enter new name:", baseCurrentName);
+    if (!newName || newName.trim() === "" || newName.trim() === baseCurrentName) return;
+
+    renameSelectedFeaturesBtn.disabled = true;
+    renameSelectedFeaturesBtn.textContent = "Renaming...";
+    try {
+      if (isProfile) {
+        const jsonFileName = fileName.replace(/\.pdf$/, '.json');
+        let metadata = {};
+        try {
+          const API_BASE = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`;
+          const jsonUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=reports&fileName=${encodeURIComponent(jsonFileName)}`;
+          const gRes = await fetch(jsonUrl, { cache: 'no-store' });
+          if (gRes.ok) {
+            const files = await gRes.json();
+            if (Array.isArray(files) && files.length > 0) {
+              const mRes = await fetch(files[0].url, { cache: 'no-store' });
+              if (mRes.ok) metadata = await mRes.json();
+            }
+          }
+        } catch(e) {}
+        metadata.name = newName.trim();
+        metadata.title = newName.trim();
+        const jsonBlob = new Blob([JSON.stringify(metadata, null, 2)], { type: "application/json" });
+        const apiRes = await fetch("https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "reports", fileName: jsonFileName })
+        });
+        if (apiRes.ok) {
+          const { uploadUrl } = await apiRes.json();
+          if (uploadUrl) await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: jsonBlob });
+        }
+      } else {
+        let metadata = {};
+        const fileType = fileName.includes("roi") ? "rois" : "volumes";
+        try {
+          const API_BASE = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`;
+          const jsonUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=${fileType}&fileName=${encodeURIComponent(fileName)}`;
+          const gRes = await fetch(jsonUrl, { cache: 'no-store' });
+          if (gRes.ok) {
+            const files = await gRes.json();
+            if (Array.isArray(files) && files.length > 0) {
+              const mRes = await fetch(files[0].url, { cache: 'no-store' });
+              if (mRes.ok) metadata = await mRes.json();
+            }
+          }
+        } catch(e) {}
+        metadata.name = newName.trim();
+        metadata.title = newName.trim();
+        const jsonBlob = new Blob([JSON.stringify(metadata, null, 2)], { type: "application/json" });
+        const apiRes = await fetch("https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: fileType, fileName })
+        });
+        if (apiRes.ok) {
+          const { uploadUrl } = await apiRes.json();
+          if (uploadUrl) await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: jsonBlob });
+        }
+      }
+      toggleFeatureManageMode(false);
+      fetchSavedReports();
+      fetchSavedVolumes();
+      fetchSavedRois();
+    } catch(err) {
+      console.error("Rename error:", err);
+      alert("Failed to rename item: " + err.message);
+    } finally {
+      renameSelectedFeaturesBtn.textContent = "Rename";
+      renameSelectedFeaturesBtn.disabled = false;
+    }
+  });
+
   deleteSelectedFeaturesBtn?.addEventListener("click", async () => {
     const selectedCbs = document.querySelectorAll("#panel-features .feature-checkbox:checked");
     if (selectedCbs.length === 0) {
@@ -4958,13 +5308,10 @@ window.addEventListener("DOMContentLoaded", () => {
               method: 'DELETE',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: 'reports', fileName: jsonFileName })
-            }).catch(() => {});
+             }).then(res => { if (!res.ok) throw new Error("Fail"); });
           }
 
-          let fileType = 'rois';
-          if (cb.classList.contains('volume-checkbox')) fileType = 'volumes';
-          if (cb.classList.contains('report-checkbox')) fileType = 'reports'; // Assuming reports is the type for profiles
-
+          const fileType = fileName.endsWith('.pdf') ? 'reports' : (fileName.includes('roi') ? 'rois' : 'volumes');
           const mainUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=${encodeURIComponent(fileType)}&fileName=${encodeURIComponent(fileName)}`;
           const mainPromise = fetch(mainUrl, {
             method: 'DELETE',

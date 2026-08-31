@@ -265,6 +265,7 @@ function getActiveProjectConfig() {
 }
 
 let activeProject = null;
+let isTerrainClippedToRoi = false;
 
 // ---------------------------------------------------------------------------
 // Camera controls
@@ -295,9 +296,12 @@ const flyoutPanel = document.getElementById('flyoutPanel');
   iconBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       const targetId = btn.getAttribute('data-target');
+      if (!targetId) return;
       
-      // If clicking the currently active button, just close it
-      if (btn.classList.contains('active')) {
+      const isAlreadyActiveAndOpen = btn.classList.contains('active') && !flyoutPanel.classList.contains('closed');
+      
+      // If clicking the currently active button while open, toggle it closed
+      if (isAlreadyActiveAndOpen) {
         closeFlyout();
         return;
       }
@@ -309,25 +313,35 @@ const flyoutPanel = document.getElementById('flyoutPanel');
       iconBtns.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       
-      // Reset left panel drawing/measure state when switching left tabs
-      if (typeof clearAllLeftPanelState === 'function') {
-        clearAllLeftPanelState();
-      }
-      
-      // Update groups
-      flyoutGroups.forEach(g => g.classList.remove('active', 'hidden'));
+      // Update groups visibility
       flyoutGroups.forEach(g => {
         if (g.id === targetId) {
+          g.classList.remove('hidden');
           g.classList.add('active');
           g.style.display = 'block';
         } else {
           g.classList.add('hidden');
+          g.classList.remove('active');
           g.style.display = 'none';
         }
       });
       
       // Update Title
-      flyoutTitle.textContent = btn.getAttribute('title');
+      if (flyoutTitle) {
+        flyoutTitle.textContent = btn.getAttribute('title') || 'Panel';
+      }
+
+      // Reset left panel drawing/measure state & un-clip ROI when switching left tabs
+      if (typeof window.clearAllLeftPanelState === 'function') {
+        window.clearAllLeftPanelState();
+      }
+
+      // Automatically restore full unclipped map if switching to Features, Profiles, Volumes, or Measure
+      if (['panel-features', 'panel-profile', 'panel-volume', 'panel-measure'].includes(targetId)) {
+        if (typeof window.restoreFullMapIfClipped === 'function') {
+          window.restoreFullMapIfClipped();
+        }
+      }
     });
   });
 
@@ -342,6 +356,7 @@ const flyoutPanel = document.getElementById('flyoutPanel');
 
   btnDrawFeaturePoint?.addEventListener('click', (e) => {
     e.stopPropagation();
+    restoreFullMapIfClipped();
     measureState = "SELECTING_POINT";
     measureMode = "POINT";
     controls.enabled = false;
@@ -448,8 +463,6 @@ window.addEventListener("DOMContentLoaded", () => {
             }
             cx /= vol.metadata.points.length;
             cy /= vol.metadata.points.length;
-            const span = Math.max(maxX - minX, maxY - minY, 80);
-            setCameraTopDown(cx, cy, span);
           }
         }
       } else if (type === "PROFILE") {
@@ -468,13 +481,6 @@ window.addEventListener("DOMContentLoaded", () => {
           if (elevationMiniContainer) elevationMiniContainer.classList.remove('hidden');
           
           showUnifiedInfoPanel("PROFILE", "ELEVATION PROFILE", m, true);
-
-          if (m.startPoint && m.endPoint) {
-            const midX = (m.startPoint.x + m.endPoint.x) / 2;
-            const midY = (m.startPoint.y + m.endPoint.y) / 2;
-            const span = Math.hypot(m.endPoint.x - m.startPoint.x, m.endPoint.y - m.startPoint.y);
-            setCameraTopDown(midX, midY, span);
-          }
           
           if (m.chartData && m.chartData.distances && m.chartData.elevations) {
             // Note: miniChart and initCharts are in the closure scope.
@@ -653,24 +659,64 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  const toggleMultiSelectReports = document.getElementById("toggleMultiSelectReports");
-  toggleMultiSelectReports?.addEventListener("change", (e) => {
-    isMultiSelectReports = e.target.checked;
-    if (!isMultiSelectReports) {
+  // --- View All Path Profiles Toggle Switch ---
+  const toggleViewAllReports = document.getElementById("toggleViewAllReports");
+  toggleViewAllReports?.addEventListener("change", (e) => {
+    const isChecked = e.target.checked;
+    isMultiSelectReports = isChecked;
+
+    if (isChecked) {
+      restoreFullMapIfClipped();
+      document.querySelectorAll("#reportsList .saved-report-item").forEach(item => {
+        item.classList.add("selected-item");
+      });
+
+      if (window._cachedAllProfileItems && window._cachedAllProfileItems.length > 0) {
+        window._cachedAllProfileItems.forEach(({ pdfFile, jsonFile, metadata }) => {
+          if (!metadata) return;
+          const uniqueId = pdfFile.fileName;
+          const rawName = metadata?.name || metadata?.title || pdfFile.fileName.split('/').pop().replace('.pdf', '').replace(/_/g, ' ');
+          multiSelectedReportsMap.set(uniqueId, { file: jsonFile, metadata, data: metadata, name: rawName });
+        });
+      }
+      updateMultiOverlaySvg();
+    } else {
       multiSelectedReportsMap.clear();
       activeFocusedFeatureId = null;
-      document.querySelectorAll("#reportsList .saved-report-item").forEach(el => el.classList.remove("selected-item"));
+      document.querySelectorAll("#reportsList .saved-report-item").forEach(item => {
+        item.classList.remove("selected-item");
+      });
       updateMultiOverlaySvg();
     }
   });
 
-  const toggleMultiSelectVolumes = document.getElementById("toggleMultiSelectVolumes");
-  toggleMultiSelectVolumes?.addEventListener("change", (e) => {
-    isMultiSelectVolumes = e.target.checked;
-    if (!isMultiSelectVolumes) {
+  // --- View All Volumes Toggle Switch ---
+  const toggleViewAllVolumes = document.getElementById("toggleViewAllVolumes");
+  toggleViewAllVolumes?.addEventListener("change", (e) => {
+    const isChecked = e.target.checked;
+    isMultiSelectVolumes = isChecked;
+
+    if (isChecked) {
+      restoreFullMapIfClipped();
+      document.querySelectorAll("#volumesList .saved-report-item").forEach(item => {
+        item.classList.add("selected-item");
+      });
+
+      if (window._cachedAllVolumeItems && window._cachedAllVolumeItems.length > 0) {
+        window._cachedAllVolumeItems.forEach(({ file, metadata }) => {
+          if (!metadata) return;
+          const uniqueId = file.fileName;
+          const volName = metadata?.name || metadata?.title || file.fileName.split('/').pop().replace(/_[0-9]+\.json$/, '').replace(/_/g, ' ');
+          multiSelectedVolumesMap.set(uniqueId, { file, metadata, data: metadata, name: volName });
+        });
+      }
+      updateMultiOverlaySvg();
+    } else {
       multiSelectedVolumesMap.clear();
       activeFocusedFeatureId = null;
-      document.querySelectorAll("#volumesList .saved-report-item").forEach(el => el.classList.remove("selected-item"));
+      document.querySelectorAll("#volumesList .saved-report-item").forEach(item => {
+        item.classList.remove("selected-item");
+      });
       updateMultiOverlaySvg();
     }
   });
@@ -2131,6 +2177,7 @@ window.addEventListener("DOMContentLoaded", () => {
     // Reload the project clipped to the selected rectangle.
     const clipExtent = new Extent(giroCrs, minX, maxX, minY, maxY);
     const clipProject = getActiveProjectConfig();
+    isTerrainClippedToRoi = true;
     loadProject(clipProject, clipExtent);
 
     roiState = "IDLE";
@@ -2486,6 +2533,7 @@ window.addEventListener("DOMContentLoaded", () => {
         }
         
         map.clippingPlanes = planes;
+        isTerrainClippedToRoi = true;
         const dims = clipExtent.dimensions();
         const size = Math.max(dims.x, dims.y);
         const zOffset = clipProject?.zOffset || 0;
@@ -2586,6 +2634,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // --- Simple Measurement ---
   btnMeasureSimple?.addEventListener("click", () => {
     resetRoiState();
+    restoreFullMapIfClipped();
     measureState = "SELECTING";
     measureMode = "SIMPLE";
     setLiveGuidance("📐", "Click start point on map, then drag or click end point to measure.");
@@ -2620,6 +2669,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // --- Path Profile ---
   btnProfile?.addEventListener("click", () => {
     resetRoiState();
+    restoreFullMapIfClipped();
     measureState = "SELECTING";
     measureMode = "PROFILE";
     setLiveGuidance("📏", "Click on the map to place start point, then drag or tap end point.");
@@ -2664,6 +2714,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   btnDrawVolume?.addEventListener("click", () => {
     resetRoiState();
+    restoreFullMapIfClipped();
     measureState = "SELECTING";
     measureMode = "VOLUME";
     setLiveGuidance("📦", "Click points on the map to build volume polygon. Click Finish when done.");
@@ -3824,6 +3875,7 @@ window.addEventListener("DOMContentLoaded", () => {
       
       let items = await Promise.all(itemsPromises);
       items = items.sort((a,b) => new Date(b.pdfFile.lastModified) - new Date(a.pdfFile.lastModified));
+      window._cachedAllProfileItems = items;
 
       if (reportsList) reportsList.innerHTML = '';
       if (featuresListLines) featuresListLines.innerHTML = '';
@@ -3853,11 +3905,11 @@ window.addEventListener("DOMContentLoaded", () => {
         fHeader.innerHTML = `
           <span style="display: flex; align-items: center; font-weight: 600; font-size: 13.5px; color: #1e293b;">${svgFolder} ${folderName}</span>
           <div style="display: flex; align-items: center; gap: 6px;">
-            <button class="btn-rename-folder-trigger" title="Rename folder" data-folder="${folderName}" data-type="profile" style="display: ${window.isReportManageMode || window.isFeatureManageMode ? 'inline-flex' : 'none'}; background: rgba(94, 25, 234, 0.08); border: 1px solid rgba(94, 25, 234, 0.25); color: #5e19ea; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; align-items: center;">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 2px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>Rename
+            <button class="btn-rename-folder-trigger" title="Rename folder" data-folder="${folderName}" data-type="profile" style="display: ${window.isReportManageMode || window.isFeatureManageMode ? 'inline-flex' : 'none'}; background: rgba(94, 25, 234, 0.08); border: 1px solid rgba(94, 25, 234, 0.25); color: #5e19ea; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; align-items: center; justify-content: center; padding: 0;">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
             </button>
-            <button class="btn-delete-folder-trigger" title="Delete folder & items" data-folder="${folderName}" data-type="profile" style="display: ${window.isReportManageMode || window.isFeatureManageMode ? 'inline-flex' : 'none'}; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); color: #ef4444; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; align-items: center;">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 2px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>Delete
+            <button class="btn-delete-folder-trigger" title="Delete folder & items" data-folder="${folderName}" data-type="profile" style="display: ${window.isReportManageMode || window.isFeatureManageMode ? 'inline-flex' : 'none'}; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); color: #ef4444; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; align-items: center; justify-content: center; padding: 0;">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
             </button>
             ${svgChevron}
           </div>
@@ -3958,24 +4010,41 @@ window.addEventListener("DOMContentLoaded", () => {
             const svg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`;
             const dateStr = new Date(pdfFile.lastModified).toLocaleDateString();
             
-            const cbHtml = `<input type="checkbox" class="report-checkbox feature-checkbox premium-checkbox" data-filename="${pdfFile.fileName}" value="${pdfFile.fileName}" style="display: none; margin-right: 8px;">`;
-            const pdfLinkHtml = `<a href="${pdfFile.url}" target="_blank" class="pdf-pill-badge" title="Download PDF" onclick="event.stopPropagation();"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> PDF</a>`;
+            const pdfLinkHtml = `<a href="${pdfFile.url}" target="_blank" class="btn-action-icon" title="Download PDF" onclick="event.stopPropagation();" style="width: 22px; height: 22px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; background: rgba(37, 99, 235, 0.08); border: 1px solid rgba(37, 99, 235, 0.25); color: #2563eb; text-decoration: none;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>`;
             const rawName = metadata?.name || metadata?.title || pdfFile.fileName.split('/').pop().replace('.pdf', '').replace(/_/g, ' ');
+            const delBtnHtml = `<button class="btn-row-delete-icon btn-row-delete-profile" data-filename="${pdfFile.fileName}" title="Delete ${rawName}" style="display: ${isProfilesEditMode ? 'inline-flex' : 'none'};"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>`;
             
             item.innerHTML = `
-              ${cbHtml}
               <div style="display: flex; align-items: center; flex: 1; min-width: 0; overflow: hidden; cursor: pointer; gap: 8px;">
                 ${svg}
                 <span class="item-title" style="flex: 1; font-weight: 500; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${rawName}">${rawName}</span>
               </div>
               <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: 8px;">
+                ${delBtnHtml}
                 ${pdfLinkHtml}
                 <span style="color: #94a3b8; font-size: 11px; font-weight: 500;">${dateStr}</span>
               </div>
             `;
+
+            const delBtn = item.querySelector(".btn-row-delete-profile");
+            delBtn?.addEventListener("click", async (e) => {
+              e.stopPropagation();
+              if (confirm(`Are you sure you want to delete profile "${rawName}"? This cannot be undone.`)) {
+                try {
+                  delBtn.disabled = true;
+                  await deleteFile("reports", pdfFile.fileName);
+                  if (jsonFile && jsonFile.fileName) {
+                    await deleteFile("reports", jsonFile.fileName).catch(() => {});
+                  }
+                  fetchSavedReports();
+                } catch(err) {
+                  alert("Failed to delete: " + err.message);
+                }
+              }
+            });
             
             const loadPathProfile = async () => {
-              if (window.isFeatureManageMode || window.isVolumeManageMode) return;
+              restoreFullMapIfClipped();
               setActiveSavedItem(item);
               if (!jsonFile) return;
               try {
@@ -3984,6 +4053,17 @@ window.addEventListener("DOMContentLoaded", () => {
                 const res = await fetch(_url + _cacheBuster, { cache: 'no-store' });
                 const text = await res.text();
                 const m = JSON.parse(text);
+
+                window.currentViewingFeature = {
+                  type: "PROFILE",
+                  name: rawName,
+                  pdfFile,
+                  jsonFile,
+                  metadata: m
+                };
+                if (typeof updateInfoPanelRenameTrigger === 'function') {
+                  updateInfoPanelRenameTrigger(rawName);
+                }
                 
                 if (m.startPoint && m.endPoint) {
                    measureStartPoint = new Vector3(m.startPoint.x, m.startPoint.y, m.startPoint.z);
@@ -4010,10 +4090,6 @@ window.addEventListener("DOMContentLoaded", () => {
                      updateElevationProfile();
                    }
 
-                   const midX = (measureStartPoint.x + measureEndPoint.x) / 2;
-                   const midY = (measureStartPoint.y + measureEndPoint.y) / 2;
-                   const span = Math.hypot(measureEndPoint.x - measureStartPoint.x, measureEndPoint.y - measureStartPoint.y);
-                   setCameraTopDown(midX, midY, span);
                    updateMeasureSvg();
                    requestAnimationFrame(() => {
                      if (instance?.view?.camera) instance.view.camera.updateMatrixWorld(true);
@@ -4058,14 +4134,7 @@ window.addEventListener("DOMContentLoaded", () => {
             };
 
             item.addEventListener("click", (e) => {
-              if (window.isReportManageMode) {
-                if (e.target.tagName.toLowerCase() !== 'input') {
-                  e.preventDefault();
-                  const cb = item.querySelector(".report-checkbox");
-                  if (cb) cb.checked = !cb.checked;
-                }
-                return;
-              }
+              if (e.target.closest("a.pdf-link") || e.target.closest(".btn-row-delete-icon") || e.target.closest(".btn-action-icon")) return;
               if (e.target.closest("a.pdf-link") || e.target.closest("input")) return;
 
               const reportName = pdfFile.fileName.split('/').pop().replace('.pdf', '');
@@ -4140,159 +4209,35 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // --- Professional Manage Mode Logic ---
-  
-  const manageReportsBtn = document.getElementById("manageReportsBtn");
-  const cancelManageReportsBtn = document.getElementById("cancelManageReportsBtn");
-  const reportsSelectionBar = document.getElementById("reportsSelectionBar");
-  const manageReportsContainer = document.getElementById("manageReportsContainer");
-  const selectAllReports = document.getElementById("selectAllReports");
-  const deleteSelectedReportsBtn = document.getElementById("deleteSelectedReportsBtn");
+  // --- Streamlined Path Profiles Edit Mode Logic ---
+  let isProfilesEditMode = false;
 
-  function toggleManageMode(enable) {
-    window.isReportManageMode = enable;
-    if (manageReportsContainer) manageReportsContainer.style.display = enable ? "none" : "flex";
-    if (reportsSelectionBar) reportsSelectionBar.style.display = enable ? "flex" : "none";
-    
-    document.querySelectorAll(".report-checkbox").forEach(cb => {
-      cb.style.display = enable ? "block" : "none";
-      if (!enable) cb.checked = false;
+  function toggleProfilesEditMode(enable = !isProfilesEditMode) {
+    isProfilesEditMode = enable;
+    const btnManageProfilesFolder = document.getElementById("btnManageProfilesFolder");
+    const manageReportsBtn = document.getElementById("manageReportsBtn");
+    [btnManageProfilesFolder, manageReportsBtn].forEach(b => b?.classList.toggle("active", isProfilesEditMode));
+
+    document.querySelectorAll(".btn-row-delete-profile").forEach(el => {
+      el.style.display = isProfilesEditMode ? "inline-flex" : "none";
     });
-    document.querySelectorAll("#panel-profile .btn-delete-folder-trigger, #featuresListLines .btn-delete-folder-trigger, #panel-profile .btn-rename-folder-trigger, #featuresListLines .btn-rename-folder-trigger").forEach(b => {
-      b.style.display = enable ? "inline-flex" : "none";
+    document.querySelectorAll("#panel-profile .btn-delete-folder-trigger, #featuresListLines .btn-delete-folder-trigger").forEach(b => {
+      b.style.display = isProfilesEditMode ? "inline-flex" : "none";
     });
-    if (!enable && selectAllReports) selectAllReports.checked = false;
   }
 
-  manageReportsBtn?.addEventListener("click", () => toggleManageMode(true));
-  cancelManageReportsBtn?.addEventListener("click", () => toggleManageMode(false));
-
-  selectAllReports?.addEventListener("change", (e) => {
-    const isChecked = e.target.checked;
-    document.querySelectorAll(".report-checkbox").forEach(cb => cb.checked = isChecked);
+  document.getElementById("manageReportsBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleProfilesEditMode();
+  });
+  document.getElementById("btnManageProfilesFolder")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleProfilesEditMode();
   });
 
-  const renameSelectedReportsBtn = document.getElementById("renameSelectedReportsBtn");
-  renameSelectedReportsBtn?.addEventListener("click", async () => {
-    const selectedCbs = document.querySelectorAll(".report-checkbox:checked");
-    if (selectedCbs.length === 0) {
-      alert("Please select a path profile to rename.");
-      return;
-    }
-    if (selectedCbs.length > 1) {
-      alert("Please select only 1 path profile to rename at a time.");
-      return;
-    }
-    const cb = selectedCbs[0];
-    const pdfFileName = cb.value;
-    const jsonFileName = pdfFileName.replace(/\.pdf$/, '.json');
-    const baseCurrentName = pdfFileName.split('/').pop().replace('.pdf', '').replace(/_/g, ' ');
-    const newName = prompt("Enter new name for path profile:", baseCurrentName);
-    if (!newName || newName.trim() === "" || newName.trim() === baseCurrentName) return;
-
-    renameSelectedReportsBtn.disabled = true;
-    renameSelectedReportsBtn.textContent = "Renaming...";
-    try {
-      let metadata = {};
-      try {
-        const API_BASE = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`;
-        const jsonUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=reports&fileName=${encodeURIComponent(jsonFileName)}`;
-        const gRes = await fetch(jsonUrl, { cache: 'no-store' });
-        if (gRes.ok) {
-          const files = await gRes.json();
-          if (Array.isArray(files) && files.length > 0) {
-            const mRes = await fetch(files[0].url, { cache: 'no-store' });
-            if (mRes.ok) metadata = await mRes.json();
-          }
-        }
-      } catch(e) {}
-
-      metadata.name = newName.trim();
-      metadata.title = newName.trim();
-
-      const jsonBlob = new Blob([JSON.stringify(metadata, null, 2)], { type: "application/json" });
-      const apiRes = await fetch("https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "reports", fileName: jsonFileName })
-      });
-      if (apiRes.ok) {
-        const { uploadUrl } = await apiRes.json();
-        if (uploadUrl) {
-          await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: jsonBlob });
-        }
-      }
-      toggleManageMode(false);
-      fetchSavedReports();
-    } catch(err) {
-      console.error("Rename error:", err);
-      alert("Failed to rename profile: " + err.message);
-    } finally {
-      renameSelectedReportsBtn.textContent = "Rename";
-      renameSelectedReportsBtn.disabled = false;
-    }
-  });
-
-  deleteSelectedReportsBtn?.addEventListener("click", async () => {
-    const selectedCbs = document.querySelectorAll(".report-checkbox:checked");
-    if (selectedCbs.length === 0) {
-      alert("No reports selected.");
-      return;
-    }
-    
-    if (confirm(`Are you sure you want to delete ${selectedCbs.length} report(s)?`)) {
-      const originalText = deleteSelectedReportsBtn.textContent;
-      deleteSelectedReportsBtn.textContent = "Deleting...";
-      deleteSelectedReportsBtn.disabled = true;
-      
-      try {
-        const deletePromises = Array.from(selectedCbs).map(cb => {
-          const fileName = cb.getAttribute("data-filename");
-          const jsonFileName = fileName.replace('.pdf', '.json');
-          const baseApi = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`;
-          const apiUrlPdf = `${baseApi}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=reports&fileName=${encodeURIComponent(fileName)}`;
-          const apiUrlJson = `${baseApi}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=reports&fileName=${encodeURIComponent(jsonFileName)}`;
-          
-          const deletePdf = fetch(apiUrlPdf, {
-            method: "DELETE",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              projectId: activeProject.folderName,
-              surveyId: activeProject.surveyId,
-              type: 'reports',
-              fileName: fileName
-            })
-          }).then(res => {
-            if (!res.ok) throw new Error(`Delete failed for ${fileName}`);
-          });
-          
-          const deleteJson = fetch(apiUrlJson, {
-            method: "DELETE",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              projectId: activeProject.folderName,
-              surveyId: activeProject.surveyId,
-              type: 'reports',
-              fileName: jsonFileName
-            })
-          }).catch(() => {}); // Ignore JSON delete failure if it didn't exist
-
-          return Promise.all([deletePdf, deleteJson]);
-        });
-        
-        await Promise.all(deletePromises);
-        
-        toggleManageMode(false);
-        fetchSavedReports();
-      } catch (err) {
-        console.error("Delete error:", err);
-        alert("Some reports failed to delete.");
-        fetchSavedReports();
-      } finally {
-        deleteSelectedReportsBtn.textContent = originalText;
-        deleteSelectedReportsBtn.disabled = false;
-      }
-    }
+  document.getElementById("btnNewProfilesFolder")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    promptNewFolder("PROFILE");
   });
 
   // Fetch immediately on load
@@ -4609,6 +4554,32 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   };
 
+  function restoreFullMapIfClipped() {
+    const hasClipping = isTerrainClippedToRoi || (map && map.clippingPlanes && map.clippingPlanes.length > 0) || (typeof roiPolyPoints !== "undefined" && roiPolyPoints.length > 0) || measureMode === "ROI_POLY" || measureState === "FINISHED_ROI_POLY";
+    if (hasClipping) {
+      isTerrainClippedToRoi = false;
+      if (map) map.clippingPlanes = [];
+      if (typeof resetRoiState === "function") resetRoiState();
+      if (typeof roiSvg !== "undefined" && roiSvg) roiSvg.style.display = "none";
+      if (typeof roiPolyPoints !== "undefined") roiPolyPoints = [];
+      if (typeof volumePolygonSvg !== "undefined" && volumePolygonSvg) volumePolygonSvg.style.display = "none";
+      if (typeof volumeVerticesSvg !== "undefined" && volumeVerticesSvg) volumeVerticesSvg.style.display = "none";
+      if (typeof volumeSvg !== "undefined" && volumeSvg) volumeSvg.style.display = "none";
+      if (measureMode === "ROI_POLY" || measureState === "FINISHED_ROI_POLY") {
+        measureState = "IDLE";
+        measureMode = "NONE";
+      }
+      if (typeof updateRoiPolySvg === "function") updateRoiPolySvg();
+      const resetRoiBtn = document.getElementById("resetROI");
+      if (resetRoiBtn) resetRoiBtn.disabled = true;
+      const clipProject = activeProject || (typeof getActiveProjectConfig === "function" ? getActiveProjectConfig() : null);
+      if (typeof loadProject === "function" && clipProject) {
+        loadProject(clipProject, null);
+      }
+    }
+  }
+  window.restoreFullMapIfClipped = restoreFullMapIfClipped;
+
   // -------------------------------------------------------------------------
   // Left Panel Exclusive State: only one feature can be active at a time
   // -------------------------------------------------------------------------
@@ -4638,10 +4609,12 @@ window.addEventListener("DOMContentLoaded", () => {
     if (pointMiniContainer) pointMiniContainer.classList.add('hidden');
     pointDrawPoint = null;
     pointDrawCoord = null;
-    if(pointSvg) pointSvg.style.display = 'none';
+    if (pointSvg) pointSvg.style.display = 'none';
 
-    // We no longer clear right-panel items (ROI clipping) here to keep them independent.
+    // 5. Restore full unclipped map if ROI was active
+    restoreFullMapIfClipped();
   }
+  window.clearAllLeftPanelState = clearAllLeftPanelState;
 
   async function fetchSavedRois() {
     const leftRoisList = document.getElementById("leftRoisList");
@@ -4727,6 +4700,7 @@ window.addEventListener("DOMContentLoaded", () => {
         volumeFolders[f] = [];
       });
 
+      const allVolumeItems = [];
       for (let file of jsonFiles) {
         try {
           const _url = file.url;
@@ -4738,11 +4712,14 @@ window.addEventListener("DOMContentLoaded", () => {
           addKnownVolumeFolder(folderName, false);
           
           if (!volumeFolders[folderName]) volumeFolders[folderName] = [];
-          volumeFolders[folderName].push({ file, metadata });
+          const itemObj = { file, metadata };
+          volumeFolders[folderName].push(itemObj);
+          allVolumeItems.push(itemObj);
         } catch (e) {
           console.error("Error parsing volume json", e);
         }
       }
+      window._cachedAllVolumeItems = allVolumeItems;
 
       const renderFolder = (folderName, folderItems, targetContainer) => {
         const folderGroup = document.createElement("div");
@@ -4756,11 +4733,11 @@ window.addEventListener("DOMContentLoaded", () => {
         fHeader.innerHTML = `
           <span style="display: flex; align-items: center; font-weight: 600; font-size: 13.5px; color: #1e293b;">${svgFolder} ${folderName}</span>
           <div style="display: flex; align-items: center; gap: 6px;">
-            <button class="btn-rename-folder-trigger" title="Rename folder" data-folder="${folderName}" data-type="volume" style="display: ${window.isVolumeManageMode || window.isFeatureManageMode ? 'inline-flex' : 'none'}; background: rgba(94, 25, 234, 0.08); border: 1px solid rgba(94, 25, 234, 0.25); color: #5e19ea; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; align-items: center;">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 2px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>Rename
+            <button class="btn-rename-folder-trigger" title="Rename folder" data-folder="${folderName}" data-type="volume" style="display: ${window.isVolumeManageMode || window.isFeatureManageMode ? 'inline-flex' : 'none'}; background: rgba(94, 25, 234, 0.08); border: 1px solid rgba(94, 25, 234, 0.25); color: #5e19ea; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; align-items: center; justify-content: center; padding: 0;">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
             </button>
-            <button class="btn-delete-folder-trigger" title="Delete folder & items" data-folder="${folderName}" data-type="volume" style="display: ${window.isVolumeManageMode || window.isFeatureManageMode ? 'inline-flex' : 'none'}; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); color: #ef4444; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; align-items: center;">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 2px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>Delete
+            <button class="btn-delete-folder-trigger" title="Delete folder & items" data-folder="${folderName}" data-type="volume" style="display: ${window.isVolumeManageMode || window.isFeatureManageMode ? 'inline-flex' : 'none'}; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); color: #ef4444; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; align-items: center; justify-content: center; padding: 0;">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
             </button>
             ${svgChevron}
           </div>
@@ -4857,27 +4834,53 @@ window.addEventListener("DOMContentLoaded", () => {
             item.className = "saved-report-item";
             
             const niceName = metadata?.name || metadata?.title || file.fileName.split('/').pop().replace(/_[0-9]+\.json$/, '').replace(/_/g, ' ');
-            const cbHtml = `<input type="checkbox" class="volume-checkbox feature-checkbox premium-checkbox" data-filename="${file.fileName}" value="${file.fileName}" style="display: none; margin-right: 8px;">`;
+            const delVolBtnHtml = `<button class="btn-row-delete-icon btn-row-delete-vol" data-filename="${file.fileName}" title="Delete ${niceName}" style="display: ${isVolumesEditMode ? 'inline-flex' : 'none'};"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>`;
             const svg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>`;
             item.innerHTML = `
               <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
                 <div style="display: flex; align-items: center; flex: 1; min-width: 0; gap: 8px;">
-                  ${cbHtml}
                   ${svg}
                   <span class="item-title" style="flex: 1; font-weight: 500; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${niceName}">${niceName}</span>
                 </div>
-                <span style="font-size: 11px; color: #94a3b8; font-weight: 500; flex-shrink: 0; margin-left: 8px;">${new Date(file.lastModified).toLocaleDateString()}</span>
+                <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: 8px;">
+                  ${delVolBtnHtml}
+                  <span style="font-size: 11px; color: #94a3b8; font-weight: 500;">${new Date(file.lastModified).toLocaleDateString()}</span>
+                </div>
               </div>
             `;
 
+            const delVolBtn = item.querySelector(".btn-row-delete-vol");
+            delVolBtn?.addEventListener("click", async (e) => {
+              e.stopPropagation();
+              if (confirm(`Are you sure you want to delete volume "${niceName}"? This cannot be undone.`)) {
+                try {
+                  delVolBtn.disabled = true;
+                  await deleteFile("volumes", file.fileName);
+                  fetchSavedVolumes();
+                } catch(err) {
+                  alert("Failed to delete volume: " + err.message);
+                }
+              }
+            });
+
           const loadVolumeAction = async () => {
-            if (window.isVolumeManageMode || window.isFeatureManageMode) return;
+            restoreFullMapIfClipped();
             setActiveSavedItem(item);
             
             try {
               clearAllLeftPanelState();
               measureMode = "VOLUME";
               measureState = "FINISHED_VOLUME";
+
+              window.currentViewingFeature = {
+                type: "VOLUME",
+                name: niceName,
+                file,
+                metadata
+              };
+              if (typeof updateInfoPanelRenameTrigger === 'function') {
+                updateInfoPanelRenameTrigger(niceName);
+              }
               
               volumePoints = metadata.points.map(p => ({
                   coord: new Coordinates(giroCrs, p.x, p.y, p.z),
@@ -4894,11 +4897,6 @@ window.addEventListener("DOMContentLoaded", () => {
                 cx += p.coord.x;
                 cy += p.coord.y;
               }
-              cx /= volumePoints.length;
-              cy /= volumePoints.length;
-              const span = Math.max(maxX - minX, maxY - minY, 80);
-
-              setCameraTopDown(cx, cy, span);
               updateVolumeSvg();
               requestAnimationFrame(() => {
                 if (instance?.view?.camera) instance.view.camera.updateMatrixWorld(true);
@@ -4925,14 +4923,7 @@ window.addEventListener("DOMContentLoaded", () => {
           };
 
           item.addEventListener("click", (e) => {
-            if (window.isVolumeManageMode || window.isFeatureManageMode) {
-              if (e.target.tagName.toLowerCase() !== 'input') {
-                e.preventDefault();
-                const cb = item.querySelector(".volume-checkbox");
-                if (cb) cb.checked = !cb.checked;
-              }
-              return;
-            }
+            if (e.target.closest(".btn-row-delete-icon") || e.target.closest("button")) return;
             if (e.target.closest("input")) return;
 
             const uniqueId = file.fileName || metadata.name || "Volume";
@@ -5014,213 +5005,98 @@ window.addEventListener("DOMContentLoaded", () => {
   toggleAccordion("featuresPolygonsHeader", "featuresListPolygons", "featuresPolygonsCarrot");
 
   // -------------------------------------------------------------------------
-  // Volumes Manage Mode Logic
+  // Streamlined Volumes Edit Mode Logic
   // -------------------------------------------------------------------------
-  const manageVolumesBtn = document.getElementById("manageVolumesBtn");
-  const cancelManageVolumesBtn = document.getElementById("cancelManageVolumesBtn");
-  const volumesSelectionBar = document.getElementById("volumesSelectionBar");
-  const manageVolumesContainer = document.getElementById("manageVolumesContainer");
-  const selectAllVolumes = document.getElementById("selectAllVolumes");
-  const deleteSelectedVolumesBtn = document.getElementById("deleteSelectedVolumesBtn");
+  let isVolumesEditMode = false;
 
-  window.toggleVolumeManageMode = function(enable) {
-    window.isVolumeManageMode = enable;
-    if (manageVolumesContainer) manageVolumesContainer.style.display = enable ? "none" : "flex";
-    if (volumesSelectionBar) volumesSelectionBar.style.display = enable ? "flex" : "none";
-    
-    document.querySelectorAll(".volume-checkbox").forEach(cb => {
-      cb.style.display = enable ? "block" : "none";
-      if (!enable) cb.checked = false;
+  function toggleVolumesEditMode(enable = !isVolumesEditMode) {
+    isVolumesEditMode = enable;
+    const btnManageVolumesFolder = document.getElementById("btnManageVolumesFolder");
+    const manageVolumesBtn = document.getElementById("manageVolumesBtn");
+    [btnManageVolumesFolder, manageVolumesBtn].forEach(b => b?.classList.toggle("active", isVolumesEditMode));
+
+    document.querySelectorAll(".btn-row-delete-vol").forEach(el => {
+      el.style.display = isVolumesEditMode ? "inline-flex" : "none";
     });
-    // Toggle folder delete/rename buttons
-    document.querySelectorAll("#panel-volume .btn-delete-folder-trigger, #featuresListPolygons .btn-delete-folder-trigger, #panel-volume .btn-rename-folder-trigger, #featuresListPolygons .btn-rename-folder-trigger").forEach(b => {
-      b.style.display = enable ? "inline-flex" : "none";
+    document.querySelectorAll("#panel-volume .btn-delete-folder-trigger, #featuresListPolygons .btn-delete-folder-trigger").forEach(b => {
+      b.style.display = isVolumesEditMode ? "inline-flex" : "none";
     });
-    // Disable view clicks
-    document.querySelectorAll("#volumesList .saved-report-item").forEach(item => {
-      const viewBtn = item.querySelector(".view-vol-btn");
-      if (viewBtn) viewBtn.style.pointerEvents = enable ? "none" : "auto";
-      item.style.cursor = enable ? "pointer" : "default";
-    });
-    if (!enable && selectAllVolumes) selectAllVolumes.checked = false;
-  };
-
-  manageVolumesBtn?.addEventListener("click", () => window.toggleVolumeManageMode(true));
-  cancelManageVolumesBtn?.addEventListener("click", () => window.toggleVolumeManageMode(false));
-  selectAllVolumes?.addEventListener("change", (e) => {
-    document.querySelectorAll(".volume-checkbox").forEach(cb => cb.checked = e.target.checked);
-  });
-
-  const renameSelectedVolumesBtn = document.getElementById("renameSelectedVolumesBtn");
-  renameSelectedVolumesBtn?.addEventListener("click", async () => {
-    const selectedCbs = document.querySelectorAll(".volume-checkbox:checked");
-    if (selectedCbs.length === 0) {
-      alert("Please select a volume to rename.");
-      return;
-    }
-    if (selectedCbs.length > 1) {
-      alert("Please select only 1 volume to rename at a time.");
-      return;
-    }
-    const cb = selectedCbs[0];
-    const fileName = cb.value;
-    const baseCurrentName = fileName.split('/').pop().replace(/_[0-9]+\.json$/, '').replace(/_/g, ' ');
-    const newName = prompt("Enter new name for volume:", baseCurrentName);
-    if (!newName || newName.trim() === "" || newName.trim() === baseCurrentName) return;
-
-    renameSelectedVolumesBtn.disabled = true;
-    renameSelectedVolumesBtn.textContent = "Renaming...";
-    try {
-      let metadata = {};
-      try {
-        const API_BASE = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`;
-        const jsonUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=volumes&fileName=${encodeURIComponent(fileName)}`;
-        const gRes = await fetch(jsonUrl, { cache: 'no-store' });
-        if (gRes.ok) {
-          const files = await gRes.json();
-          if (Array.isArray(files) && files.length > 0) {
-            const mRes = await fetch(files[0].url, { cache: 'no-store' });
-            if (mRes.ok) metadata = await mRes.json();
-          }
-        }
-      } catch(e) {}
-
-      metadata.name = newName.trim();
-      metadata.title = newName.trim();
-
-      const jsonBlob = new Blob([JSON.stringify(metadata, null, 2)], { type: "application/json" });
-      const apiRes = await fetch("https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "volumes", fileName })
-      });
-      if (apiRes.ok) {
-        const { uploadUrl } = await apiRes.json();
-        if (uploadUrl) {
-          await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: jsonBlob });
-        }
-      }
-      window.toggleVolumeManageMode(false);
-      fetchSavedVolumes();
-    } catch(err) {
-      console.error("Rename volume error:", err);
-      alert("Failed to rename volume: " + err.message);
-    } finally {
-      renameSelectedVolumesBtn.textContent = "Rename";
-      renameSelectedVolumesBtn.disabled = false;
-    }
-  });
-
-  deleteSelectedVolumesBtn?.addEventListener("click", async () => {
-    const selectedCbs = document.querySelectorAll(".volume-checkbox:checked");
-    if (selectedCbs.length === 0) {
-      alert("No volumes selected.");
-      return;
-    }
-    if (confirm(`Are you sure you want to delete ${selectedCbs.length} volume(s)?`)) {
-      const originalText = deleteSelectedVolumesBtn.textContent;
-      deleteSelectedVolumesBtn.textContent = "Deleting...";
-      deleteSelectedVolumesBtn.disabled = true;
-      try {
-        const deletePromises = Array.from(selectedCbs).map(cb => {
-          const delUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=volumes&fileName=${encodeURIComponent(cb.value)}`;
-          return fetch(delUrl, {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              projectId: activeProject.folderName,
-              surveyId: activeProject.surveyId,
-              type: 'volumes',
-              fileName: cb.value
-            })
-          }).then(res => { if (!res.ok) throw new Error("Fail"); });
-        });
-        await Promise.all(deletePromises);
-        window.toggleVolumeManageMode(false);
-        fetchSavedVolumes();
-      } catch (err) {
-        alert("Some volumes failed to delete.");
-        fetchSavedVolumes();
-      } finally {
-        deleteSelectedVolumesBtn.textContent = originalText;
-        deleteSelectedVolumesBtn.disabled = false;
-      }
-    }
-  });
-
-  // -------------------------------------------------------------------------
-  // Features Manage Mode Logic
-  // -------------------------------------------------------------------------
-  
-  const manageFeaturesBtn = document.getElementById("manageFeaturesBtn");
-  const cancelManageFeaturesBtn = document.getElementById("cancelManageFeaturesBtn");
-  const featuresSelectionBar = document.getElementById("featuresSelectionBar");
-  const manageFeaturesContainer = document.getElementById("manageFeaturesContainer");
-  const deleteSelectedFeaturesBtn = document.getElementById("deleteSelectedFeaturesBtn");
-  const selectAllFeatures = document.getElementById("selectAllFeatures");
-
-  function toggleFeatureManageMode(enable) {
-    window.isFeatureManageMode = enable;
-    if (manageFeaturesContainer) manageFeaturesContainer.style.display = enable ? "none" : "flex";
-    if (featuresSelectionBar) featuresSelectionBar.style.display = enable ? "flex" : "none";
-    
-    document.querySelectorAll("#panel-features .feature-checkbox").forEach(cb => {
-      cb.style.display = enable ? "block" : "none";
-      if (!enable) cb.checked = false;
-    });
-    document.querySelectorAll("#panel-features .btn-delete-folder-trigger, #panel-features .btn-rename-folder-trigger").forEach(b => {
-      b.style.display = enable ? "inline-flex" : "none";
-    });
-    document.querySelectorAll("#panel-features .saved-report-item").forEach(item => {
-      const buttons = item.querySelectorAll("button");
-      buttons.forEach(b => b.style.pointerEvents = enable ? "none" : "auto");
-      item.style.cursor = enable ? "pointer" : "default";
-    });
-    if (!enable && selectAllFeatures) selectAllFeatures.checked = false;
   }
 
-  manageFeaturesBtn?.addEventListener("click", () => toggleFeatureManageMode(true));
-  cancelManageFeaturesBtn?.addEventListener("click", () => toggleFeatureManageMode(false));
-  selectAllFeatures?.addEventListener("change", (e) => {
-    document.querySelectorAll("#panel-features .feature-checkbox").forEach(cb => cb.checked = e.target.checked);
+  document.getElementById("manageVolumesBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleVolumesEditMode();
+  });
+  document.getElementById("btnManageVolumesFolder")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleVolumesEditMode();
   });
 
-  // Add click to toggle checkbox anywhere on the row in features list
-  document.addEventListener("click", (e) => {
-    if (window.isFeatureManageMode) {
-      const item = e.target.closest("#panel-features .saved-report-item");
-      if (item && e.target.tagName.toLowerCase() !== 'input') {
-        e.preventDefault();
-        const cb = item.querySelector(".feature-checkbox");
-        if (cb) cb.checked = !cb.checked;
+  document.getElementById("btnNewVolumesFolder")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    promptNewFolder("VOLUME");
+  });
+
+  // -------------------------------------------------------------------------
+  // Unified Info Panel Inline Rename Logic
+  // -------------------------------------------------------------------------
+  const btnInfoRenameTitle = document.getElementById("btnInfoRenameTitle");
+  const infoInlineRenameContainer = document.getElementById("infoInlineRenameContainer");
+  const infoInlineRenameInput = document.getElementById("infoInlineRenameInput");
+  const btnInfoRenameSave = document.getElementById("btnInfoRenameSave");
+  const btnInfoRenameCancel = document.getElementById("btnInfoRenameCancel");
+
+  function updateInfoPanelRenameTrigger(featureName) {
+    if (btnInfoRenameTitle) {
+      btnInfoRenameTitle.classList.remove("hidden");
+    }
+    if (infoInlineRenameContainer) {
+      infoInlineRenameContainer.classList.add("hidden");
+    }
+    if (infoInlineRenameInput) {
+      infoInlineRenameInput.value = featureName || "";
+    }
+  }
+
+  btnInfoRenameTitle?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (!window.currentViewingFeature) return;
+    if (infoInlineRenameContainer) {
+      infoInlineRenameContainer.classList.remove("hidden");
+      if (infoInlineRenameInput) {
+        infoInlineRenameInput.value = window.currentViewingFeature.name || "";
+        infoInlineRenameInput.focus();
+        infoInlineRenameInput.select();
       }
     }
   });
 
-  const renameSelectedFeaturesBtn = document.getElementById("renameSelectedFeaturesBtn");
-  renameSelectedFeaturesBtn?.addEventListener("click", async () => {
-    const selectedCbs = document.querySelectorAll("#panel-features .feature-checkbox:checked");
-    if (selectedCbs.length === 0) {
-      alert("Please select an item to rename.");
-      return;
-    }
-    if (selectedCbs.length > 1) {
-      alert("Please select only 1 item to rename at a time.");
-      return;
-    }
-    const cb = selectedCbs[0];
-    const fileName = cb.dataset.filename || cb.value || cb.getAttribute('data-filename');
-    const isProfile = fileName.endsWith('.pdf');
-    const baseCurrentName = fileName.split('/').pop().replace(/\.pdf$/, '').replace(/_[0-9]+\.json$/, '').replace(/_/g, ' ');
-    const newName = prompt("Enter new name:", baseCurrentName);
-    if (!newName || newName.trim() === "" || newName.trim() === baseCurrentName) return;
+  btnInfoRenameCancel?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (infoInlineRenameContainer) infoInlineRenameContainer.classList.add("hidden");
+  });
 
-    renameSelectedFeaturesBtn.disabled = true;
-    renameSelectedFeaturesBtn.textContent = "Renaming...";
+  async function handleInfoPanelRename() {
+    if (!window.currentViewingFeature || !infoInlineRenameInput) return;
+    const newName = infoInlineRenameInput.value.trim();
+    if (!newName) {
+      alert("Please enter a valid name.");
+      return;
+    }
+    const { type, name: oldName, pdfFile, jsonFile, file, metadata } = window.currentViewingFeature;
+    if (newName === oldName) {
+      if (infoInlineRenameContainer) infoInlineRenameContainer.classList.add("hidden");
+      return;
+    }
+
+    if (btnInfoRenameSave) {
+      btnInfoRenameSave.disabled = true;
+    }
+
     try {
-      if (isProfile) {
-        const jsonFileName = fileName.replace(/\.pdf$/, '.json');
-        let metadata = {};
+      if (type === "PROFILE") {
+        const jsonFileName = jsonFile?.fileName || (pdfFile ? pdfFile.fileName.replace(/\.pdf$/, '.json') : null);
+        let meta = metadata || {};
         try {
           const API_BASE = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`;
           const jsonUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=reports&fileName=${encodeURIComponent(jsonFileName)}`;
@@ -5229,124 +5105,99 @@ window.addEventListener("DOMContentLoaded", () => {
             const files = await gRes.json();
             if (Array.isArray(files) && files.length > 0) {
               const mRes = await fetch(files[0].url, { cache: 'no-store' });
-              if (mRes.ok) metadata = await mRes.json();
+              if (mRes.ok) meta = await mRes.json();
             }
           }
-        } catch(e) {}
-        metadata.name = newName.trim();
-        metadata.title = newName.trim();
-        const jsonBlob = new Blob([JSON.stringify(metadata, null, 2)], { type: "application/json" });
-        const apiRes = await fetch("https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url", {
+        } catch(e){}
+
+        meta.name = newName;
+        meta.title = newName;
+
+        const uploadApiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`;
+        const res = await fetch(uploadApiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "reports", fileName: jsonFileName })
         });
-        if (apiRes.ok) {
-          const { uploadUrl } = await apiRes.json();
-          if (uploadUrl) await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: jsonBlob });
-        }
-      } else {
-        let metadata = {};
-        const fileType = fileName.includes("roi") ? "rois" : "volumes";
+        if (!res.ok) throw new Error("Failed to get upload URL");
+        const { uploadUrl } = await res.json();
+        const putRes = await fetch(uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(meta, null, 2)
+        });
+        if (!putRes.ok) throw new Error("Failed to upload updated JSON");
+
+        window.currentViewingFeature.name = newName;
+        window.currentViewingFeature.metadata = meta;
+        if (unifiedInfoTitle) unifiedInfoTitle.textContent = `SAVED PATH PROFILE - ${newName.toUpperCase()}`;
+        fetchSavedReports();
+      } else if (type === "VOLUME") {
+        const fileName = file.fileName;
+        let meta = metadata || {};
         try {
           const API_BASE = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`;
-          const jsonUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=${fileType}&fileName=${encodeURIComponent(fileName)}`;
+          const jsonUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=volumes&fileName=${encodeURIComponent(fileName)}`;
           const gRes = await fetch(jsonUrl, { cache: 'no-store' });
           if (gRes.ok) {
             const files = await gRes.json();
             if (Array.isArray(files) && files.length > 0) {
               const mRes = await fetch(files[0].url, { cache: 'no-store' });
-              if (mRes.ok) metadata = await mRes.json();
+              if (mRes.ok) meta = await mRes.json();
             }
           }
-        } catch(e) {}
-        metadata.name = newName.trim();
-        metadata.title = newName.trim();
-        const jsonBlob = new Blob([JSON.stringify(metadata, null, 2)], { type: "application/json" });
-        const apiRes = await fetch("https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url", {
+        } catch(e){}
+
+        meta.name = newName;
+        meta.title = newName;
+
+        const uploadApiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`;
+        const res = await fetch(uploadApiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: fileType, fileName })
+          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "volumes", fileName })
         });
-        if (apiRes.ok) {
-          const { uploadUrl } = await apiRes.json();
-          if (uploadUrl) await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: jsonBlob });
-        }
+        if (!res.ok) throw new Error("Failed to get upload URL");
+        const { uploadUrl } = await res.json();
+        const putRes = await fetch(uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(meta, null, 2)
+        });
+        if (!putRes.ok) throw new Error("Failed to upload updated JSON");
+
+        window.currentViewingFeature.name = newName;
+        window.currentViewingFeature.metadata = meta;
+        if (unifiedInfoTitle) unifiedInfoTitle.textContent = `SAVED VOLUME - ${newName.toUpperCase()}`;
+        fetchSavedVolumes();
       }
-      toggleFeatureManageMode(false);
-      fetchSavedReports();
-      fetchSavedVolumes();
-      fetchSavedRois();
+
+      if (infoInlineRenameContainer) infoInlineRenameContainer.classList.add("hidden");
     } catch(err) {
       console.error("Rename error:", err);
-      alert("Failed to rename item: " + err.message);
+      alert("Failed to rename: " + err.message);
     } finally {
-      renameSelectedFeaturesBtn.textContent = "Rename";
-      renameSelectedFeaturesBtn.disabled = false;
+      if (btnInfoRenameSave) btnInfoRenameSave.disabled = false;
     }
+  }
+
+  btnInfoRenameSave?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    handleInfoPanelRename();
   });
 
-  deleteSelectedFeaturesBtn?.addEventListener("click", async () => {
-    const selectedCbs = document.querySelectorAll("#panel-features .feature-checkbox:checked");
-    if (selectedCbs.length === 0) {
-      alert("No features selected.");
-      return;
-    }
-    if (confirm(`Are you sure you want to delete ${selectedCbs.length} feature(s)?`)) {
-      const originalText = deleteSelectedFeaturesBtn.textContent;
-      deleteSelectedFeaturesBtn.textContent = "Deleting...";
-      deleteSelectedFeaturesBtn.disabled = true;
-      try {
-        const deletePromises = Array.from(selectedCbs).map(cb => {
-          let fileName = cb.dataset.filename || cb.value || cb.getAttribute('data-filename');
-          // For reports/profiles, we also need to delete the JSON
-          let extraPromise = null;
-          if (fileName.endsWith('.pdf')) {
-             const jsonFileName = fileName.replace('.pdf', '.json');
-             const extraUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=reports&fileName=${encodeURIComponent(jsonFileName)}`;
-             extraPromise = fetch(extraUrl, {
-              method: 'DELETE',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: 'reports', fileName: jsonFileName })
-             }).then(res => { if (!res.ok) throw new Error("Fail"); });
-          }
-
-          const fileType = fileName.endsWith('.pdf') ? 'reports' : (fileName.includes('roi') ? 'rois' : 'volumes');
-          const mainUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=${encodeURIComponent(fileType)}&fileName=${encodeURIComponent(fileName)}`;
-          const mainPromise = fetch(mainUrl, {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              projectId: activeProject.folderName,
-              surveyId: activeProject.surveyId,
-              type: fileType,
-              fileName: fileName
-            })
-          }).then(res => { if (!res.ok) throw new Error("Fail"); });
-          
-          return extraPromise ? Promise.all([mainPromise, extraPromise]) : mainPromise;
-        });
-        
-        await Promise.all(deletePromises);
-        toggleFeatureManageMode(false);
-        // Refresh all lists
-        fetchSavedRois();
-        fetchSavedVolumes();
-        fetchSavedReports();
-      } catch (err) {
-        alert("Some features failed to delete.");
-        fetchSavedRois();
-        fetchSavedVolumes();
-        fetchSavedReports();
-      } finally {
-        deleteSelectedFeaturesBtn.textContent = originalText;
-        deleteSelectedFeaturesBtn.disabled = false;
-      }
+  infoInlineRenameInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleInfoPanelRename();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      if (infoInlineRenameContainer) infoInlineRenameContainer.classList.add("hidden");
     }
   });
 
   // Stop 3D Map from swallowing key events on inputs
-  ['volSaveName', 'roiSaveName', 'volSaveFolder', 'reportNameInput'].forEach(id => {
+  ['volSaveName', 'roiSaveName', 'volSaveFolder', 'reportNameInput', 'infoInlineRenameInput'].forEach(id => {
     const el = document.getElementById(id);
     if (el) {
       el.addEventListener('keydown', e => e.stopPropagation());
@@ -5740,10 +5591,10 @@ window.addEventListener("DOMContentLoaded", () => {
       multiSelectedVolumesMap.clear();
       isMultiSelectReports = false;
       isMultiSelectVolumes = false;
-      const toggleMultiReportsEl = document.getElementById("toggleMultiSelectReports");
-      const toggleMultiVolumesEl = document.getElementById("toggleMultiSelectVolumes");
-      if (toggleMultiReportsEl) toggleMultiReportsEl.checked = false;
-      if (toggleMultiVolumesEl) toggleMultiVolumesEl.checked = false;
+      const toggleReportsEl = document.getElementById("toggleViewAllReports");
+      const toggleVolumesEl = document.getElementById("toggleViewAllVolumes");
+      if (toggleReportsEl) toggleReportsEl.checked = false;
+      if (toggleVolumesEl) toggleVolumesEl.checked = false;
       activeFocusedFeatureId = null;
       if (typeof updateMultiOverlaySvg === 'function') updateMultiOverlaySvg();
 

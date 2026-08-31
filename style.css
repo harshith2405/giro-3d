@@ -403,7 +403,7 @@ body {
   position: fixed !important;
   left: auto !important;
   right: 16px !important;
-  top: 80px !important;
+  top: 65px !important;
   height: auto !important;
   flex-direction: row-reverse !important;
   z-index: 1001 !important;
@@ -1257,27 +1257,29 @@ body {
   display: none !important;
 }
 
-/* ── Unified Fixed Info Panel (Full Vertical Height Stretch Above Camera Controls) ── */
+/* ── Unified Fixed Info Panel (Aligned with Right Toolbar, Stops Above Cam Controls) ── */
 .unified-info-panel {
-  position: fixed;
-  top: 55px;
-  right: 78px;
-  width: 340px;
-  bottom: 230px;
-  background: rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid #e2e8f0;
-  border-radius: 16px;
-  padding: 18px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1), 0 4px 16px rgba(94, 25, 234, 0.08);
-  z-index: 9998;
-  pointer-events: auto;
-  font-family: 'Inter', sans-serif;
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  position: fixed !important;
+  top: 65px !important;
+  right: 76px !important;
+  width: 330px !important;
+  bottom: 230px !important;
+  max-height: calc(100vh - 305px) !important;
+  background: #ffffff !important;
+  opacity: 1 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 10px !important;
+  padding: 16px !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(94, 25, 234, 0.04) !important;
+  z-index: 9998 !important;
+  pointer-events: auto !important;
+  font-family: 'Inter', sans-serif !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow-y: auto !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 .unified-info-panel.hidden {
@@ -1445,25 +1447,83 @@ body {
   border-radius: 0 !important;
 }
 
-.btn-manage-rename {
-  padding: 4px 10px !important;
-  background: rgba(94, 25, 234, 0.08) !important;
-  border: 1px solid rgba(94, 25, 234, 0.25) !important;
+.btn-manage-action-icon {
+  width: 26px !important;
+  height: 26px !important;
+  padding: 0 !important;
   border-radius: 6px !important;
-  color: #5e19ea !important;
-  font-size: 11px !important;
-  font-weight: 600 !important;
-  cursor: pointer !important;
   display: inline-flex !important;
   align-items: center !important;
-  gap: 4px !important;
+  justify-content: center !important;
+  cursor: pointer !important;
   transition: all 0.2s ease !important;
 }
 
-.btn-manage-rename:hover {
+.btn-manage-action-icon svg {
+  width: 13px !important;
+  height: 13px !important;
+}
+
+.btn-manage-action-icon.btn-manage-rename {
+  background: rgba(94, 25, 234, 0.08) !important;
+  border: 1px solid rgba(94, 25, 234, 0.25) !important;
+  color: #5e19ea !important;
+}
+
+.btn-manage-action-icon.btn-manage-rename:hover {
   background: #5e19ea !important;
   color: #ffffff !important;
   box-shadow: 0 2px 8px rgba(94, 25, 234, 0.25) !important;
+}
+
+.btn-manage-action-icon.btn-manage-delete {
+  background: rgba(239, 68, 68, 0.08) !important;
+  border: 1px solid rgba(239, 68, 68, 0.25) !important;
+  color: #ef4444 !important;
+}
+
+.btn-manage-action-icon.btn-manage-delete:hover {
+  background: #ef4444 !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25) !important;
+}
+
+.btn-manage-action-icon.btn-manage-cancel {
+  background: #f1f5f9 !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #64748b !important;
+}
+
+.btn-manage-action-icon.btn-manage-cancel:hover {
+  background: #e2e8f0 !important;
+  color: #1e293b !important;
+}
+
+.btn-view-all {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 6px !important;
+  padding: 2px 8px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: #475569 !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  line-height: 1.4 !important;
+  user-select: none !important;
+}
+
+.btn-view-all:hover {
+  background: rgba(94, 25, 234, 0.06) !important;
+  border-color: rgba(94, 25, 234, 0.3) !important;
+  color: #5e19ea !important;
+}
+
+.btn-view-all.active {
+  background: linear-gradient(135deg, #5e19ea, #8b5cf6) !important;
+  color: #ffffff !important;
+  border-color: #5e19ea !important;
+  box-shadow: 0 2px 8px rgba(94, 25, 234, 0.3) !important;
 }
 
 .flyout-panel h2, 
@@ -1834,4 +1894,151 @@ body {
   color: white !important;
   border-color: #7c3aed !important;
   box-shadow: 0 2px 8px rgba(94, 25, 234, 0.3) !important;
+}
+
+/* ── Category Header Action Buttons ── */
+.cat-action-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #64748b;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+
+.cat-action-btn:hover {
+  background: rgba(94, 25, 234, 0.08);
+  border-color: rgba(94, 25, 234, 0.25);
+  color: #5e19ea;
+}
+
+.cat-action-btn.active {
+  background: linear-gradient(135deg, #5e19ea, #8b5cf6) !important;
+  border-color: #7c3aed !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(94, 25, 234, 0.3) !important;
+}
+
+/* ── Inline Row Delete Icon Button ── */
+.btn-row-delete-icon {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 6px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #ef4444;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+
+.btn-row-delete-icon:hover {
+  background: #ef4444 !important;
+  border-color: #dc2626 !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3) !important;
+  transform: scale(1.05);
+}
+
+/* ── Info Panel Inline Rename ── */
+.btn-info-rename-trigger {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #64748b;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+
+.btn-info-rename-trigger:hover {
+  background: rgba(94, 25, 234, 0.1);
+  border-color: rgba(94, 25, 234, 0.25);
+  color: #5e19ea;
+}
+
+.info-inline-rename-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 10px 0;
+  padding: 6px;
+  background: rgba(94, 25, 234, 0.04);
+  border: 1px solid rgba(94, 25, 234, 0.15);
+  border-radius: 8px;
+}
+
+.info-rename-input {
+  flex: 1;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  background: #ffffff;
+  color: #1e293b;
+  transition: border-color 0.2s;
+}
+
+.info-rename-input:focus {
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.15);
+}
+
+.btn-info-rename-save {
+  background: #10b981;
+  border: none;
+  border-radius: 6px;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  cursor: pointer;
+  transition: all 0.2s;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.btn-info-rename-save:hover {
+  background: #059669;
+  transform: scale(1.05);
+}
+
+.btn-info-rename-cancel {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.btn-info-rename-cancel:hover {
+  background: #e2e8f0;
+  color: #1e293b;
 }

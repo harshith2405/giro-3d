@@ -191,8 +191,24 @@
   <div id="unifiedInfoPanel" class="unified-info-panel hidden">
     <!-- Panel Header -->
     <div class="unified-info-header">
-      <span id="unifiedInfoTitle" class="unified-info-title">INFORMATION PANEL</span>
+      <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
+        <span id="unifiedInfoTitle" class="unified-info-title">INFORMATION PANEL</span>
+        <button id="btnInfoRenameTitle" class="btn-info-rename-trigger hidden" title="Rename Feature">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+        </button>
+      </div>
       <button id="closeInfoPanelBtn" class="unified-info-close" title="Close Panel">&times;</button>
+    </div>
+
+    <!-- Inline Rename Container (Shown when clicking ✏️) -->
+    <div id="infoInlineRenameContainer" class="info-inline-rename-wrapper hidden">
+      <input type="text" id="infoInlineRenameInput" class="info-rename-input" placeholder="New feature name..." />
+      <button id="btnInfoRenameSave" class="btn-info-rename-save" title="Save New Name">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+      </button>
+      <button id="btnInfoRenameCancel" class="btn-info-rename-cancel" title="Cancel">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
     </div>
 
     <!-- Viewport 1: Path Profile Chart & Metrics -->
@@ -608,35 +624,21 @@
         <!-- 1. FEATURES / SHAPES PANEL -->
         <!-- ============================== -->
         <div class="flyout-group left-group active" id="panel-features">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding: 4px 8px; background: rgba(94, 25, 234, 0.03); border: 1px solid rgba(94, 25, 234, 0.12); border-radius: 8px;">
-            <span style="font-size: 11px; font-weight: 600; color: #1e293b;">Project Items</span>
-            <div id="manageFeaturesContainer" style="display: flex; gap: 6px; align-items: center;">
-              <button id="btnNewFeatureFolder" class="btn-manage-icon-trigger" title="Create New Subfolder">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
-              </button>
-              <button id="manageFeaturesBtn" class="btn-manage-icon-trigger" title="Manage / Delete Items">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-              </button>
-            </div>
-          </div>
-          <div id="featuresSelectionBar" class="manage-selection-bar">
-            <div style="display: flex; align-items: center;">
-               <input type="checkbox" id="selectAllFeatures" class="premium-checkbox">
-               <label for="selectAllFeatures" style="cursor: pointer; user-select: none; font-weight: 500; color: var(--text); margin-left: 6px;">Select All</label>
-            </div>
-            <div style="display: flex; gap: 6px;">
-               <button id="renameSelectedFeaturesBtn" class="btn-manage-rename">Rename</button>
-               <button id="deleteSelectedFeaturesBtn" class="btn-manage-delete">Delete</button>
-               <button id="cancelManageFeaturesBtn" class="btn-manage-cancel">Cancel</button>
-            </div>
-          </div>
-          
-          <div class="feature-group-card">
-            <div id="featuresLinesHeader" class="feature-accordion-header">
-              <div style="display: flex; align-items: center; gap: 8px;">
+          <div class="feature-group-card" style="margin-bottom: 10px;">
+            <div id="featuresLinesHeader" class="feature-accordion-header" style="padding: 8px 10px;">
+              <div style="display: flex; align-items: center; gap: 8px; font-weight: 700; color: #1e293b;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
                 PATH PROFILES
               </div>
-              <span id="featuresLinesCarrot" style="font-size: 10px; opacity: 0.5;">▼</span>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <button id="btnNewProfilesFolder" class="cat-action-btn" title="Create New Folder in Path Profiles">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
+                </button>
+                <button id="btnManageProfilesFolder" class="cat-action-btn" title="Edit / Delete Path Profiles">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                </button>
+                <span id="featuresLinesCarrot" class="accordion-carrot" style="font-size: 10px; opacity: 0.5; margin-left: 2px;">▼</span>
+              </div>
             </div>
             <div id="featuresListLines" class="feature-group-body" style="display: flex; flex-direction: column; gap: 4px; font-size: 12px;">
               <i style="color: var(--muted); padding: 4px;">No path profiles saved yet.</i>
@@ -644,11 +646,20 @@
           </div>
 
           <div class="feature-group-card">
-            <div id="featuresPolygonsHeader" class="feature-accordion-header">
-              <div style="display: flex; align-items: center; gap: 8px;">
+            <div id="featuresPolygonsHeader" class="feature-accordion-header" style="padding: 8px 10px;">
+              <div style="display: flex; align-items: center; gap: 8px; font-weight: 700; color: #1e293b;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
                 VOLUMES
               </div>
-              <span id="featuresPolygonsCarrot" style="font-size: 10px; opacity: 0.5;">▼</span>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <button id="btnNewVolumesFolder" class="cat-action-btn" title="Create New Folder in Volumes">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
+                </button>
+                <button id="btnManageVolumesFolder" class="cat-action-btn" title="Edit / Delete Volumes">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                </button>
+                <span id="featuresPolygonsCarrot" class="accordion-carrot" style="font-size: 10px; opacity: 0.5; margin-left: 2px;">▼</span>
+              </div>
             </div>          
             <div id="featuresListPolygons" class="feature-group-body" style="display: flex; flex-direction: column; gap: 4px; font-size: 12px;">
               <i style="color: var(--muted); padding: 4px;">No volumes saved yet.</i>
@@ -761,10 +772,10 @@
             
             <div class="feature-group-body">
               <div id="manageReportsContainer" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 4px 8px; background: rgba(94, 25, 234, 0.03); border: 1px solid rgba(94, 25, 234, 0.12); border-radius: 8px;">
-                <label for="toggleMultiSelectReports" style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 11px; font-weight: 600; color: #1e293b; user-select: none; margin: 0;">
-                  <span>Multi-Select</span>
+                <label for="toggleViewAllReports" style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px; font-weight: 600; color: #1e293b; user-select: none; margin: 0;">
+                  <span>View All</span>
                   <label class="ui-toggle" style="margin-left: 2px;">
-                    <input type="checkbox" id="toggleMultiSelectReports">
+                    <input type="checkbox" id="toggleViewAllReports">
                     <span class="ui-toggle-slider"></span>
                   </label>
                 </label>
@@ -775,17 +786,6 @@
                   <button id="manageReportsBtn" class="btn-manage-icon-trigger" title="Manage / Delete Items">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                   </button>
-                </div>
-              </div>
-              <div id="reportsSelectionBar" class="manage-selection-bar">
-                <div style="display: flex; align-items: center;">
-                   <input type="checkbox" id="selectAllReports" class="premium-checkbox">
-                   <label for="selectAllReports" style="cursor: pointer; user-select: none; font-weight: 500; color: var(--text); margin-left: 6px;">Select All</label>
-                </div>
-                <div style="display: flex; gap: 6px;">
-                   <button id="renameSelectedReportsBtn" class="btn-manage-rename">Rename</button>
-                   <button id="deleteSelectedReportsBtn" class="btn-manage-delete">Delete</button>
-                   <button id="cancelManageReportsBtn" class="btn-manage-cancel">Cancel</button>
                 </div>
               </div>
               <div id="reportsListLoading" style="color: #94a3b8; font-size: 12px; text-align: center; padding: 10px 0;">Loading reports...</div>
@@ -994,10 +994,10 @@
             </div>
             <div id="volumesPanelContent" class="feature-group-body" style="margin-top: 4px; display: block;">
               <div id="manageVolumesContainer" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 4px 8px; background: rgba(94, 25, 234, 0.03); border: 1px solid rgba(94, 25, 234, 0.12); border-radius: 8px;">
-                <label for="toggleMultiSelectVolumes" style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 11px; font-weight: 600; color: #1e293b; user-select: none; margin: 0;">
-                  <span>Multi-Select</span>
+                <label for="toggleViewAllVolumes" style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px; font-weight: 600; color: #1e293b; user-select: none; margin: 0;">
+                  <span>View All</span>
                   <label class="ui-toggle" style="margin-left: 2px;">
-                    <input type="checkbox" id="toggleMultiSelectVolumes">
+                    <input type="checkbox" id="toggleViewAllVolumes">
                     <span class="ui-toggle-slider"></span>
                   </label>
                 </label>
@@ -1008,17 +1008,6 @@
                   <button id="manageVolumesBtn" class="btn-manage-icon-trigger" title="Manage / Delete Items">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                   </button>
-                </div>
-              </div>
-              <div id="volumesSelectionBar" class="manage-selection-bar">
-                <div style="display: flex; align-items: center;">
-                   <input type="checkbox" id="selectAllVolumes" class="premium-checkbox">
-                   <label for="selectAllVolumes" style="cursor: pointer; user-select: none; font-weight: 500; color: var(--text); margin-left: 6px;">Select All</label>
-                </div>
-                <div style="display: flex; gap: 6px;">
-                   <button id="renameSelectedVolumesBtn" class="btn-manage-rename">Rename</button>
-                   <button id="deleteSelectedVolumesBtn" class="btn-manage-delete">Delete</button>
-                   <button id="cancelManageVolumesBtn" class="btn-manage-cancel">Cancel</button>
                 </div>
               </div>
               <div id="volumesListLoading" style="color: #94a3b8; font-size: 12px; text-align: center; padding: 10px 0;">Loading volumes...</div>

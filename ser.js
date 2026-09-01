@@ -1,7 +1,7 @@
-// ser.js — Giro3D Mining Viewer
-// Professional browser-based 3D GIS / mining terrain viewer.
-// Loads DSM/DTM + Orthophoto GeoTIFFs via Giro3D, with ROI clipping,
-// contour generation, interactive measurement and live coordinate readout.
+// ser.js — Polygon 3D Geospatial Viewer
+// Professional browser-based 3D GIS & terrain analytics engine.
+// Streams Cloud-Optimized GeoTIFFs (DSM/DTM + Orthophoto) with high-precision
+// volume analysis, elevation profiling, contour generation, and real-time 3D measurements.
 
 import proj4 from "proj4";
 import { register } from "ol/proj/proj4";
@@ -378,12 +378,177 @@ const flyoutPanel = document.getElementById('flyoutPanel');
 
   instance.view.setControls(controls);
 
-console.log("Giro3D initialized");
+console.log("Polygon 3D Engine ready");
 
 // ---------------------------------------------------------------------------
 // UI wiring
 // ---------------------------------------------------------------------------
 window.addEventListener("DOMContentLoaded", () => {
+  // ---------------------------------------------------------------------------
+  // Custom In-App Glassmorphic Dialog System (Prompt / Confirm / Alert)
+  // Completely eliminates native browser popups with bucket origins
+  // ---------------------------------------------------------------------------
+  const customDialogModal = document.getElementById("customDialogModal");
+  const customDialogTitle = document.getElementById("customDialogTitle");
+  const customDialogMessage = document.getElementById("customDialogMessage");
+  const customDialogInputGroup = document.getElementById("customDialogInputGroup");
+  const customDialogInput = document.getElementById("customDialogInput");
+  const customDialogConfirm = document.getElementById("customDialogConfirm");
+  const customDialogCancel = document.getElementById("customDialogCancel");
+  const customDialogClose = document.getElementById("customDialogClose");
+  const customDialogIconWrapper = document.getElementById("customDialogIconWrapper");
+  const customDialogIconPrompt = document.getElementById("customDialogIconPrompt");
+  const customDialogIconConfirm = document.getElementById("customDialogIconConfirm");
+  const customDialogIconAlert = document.getElementById("customDialogIconAlert");
+  const customDialogIconSuccess = document.getElementById("customDialogIconSuccess");
+
+  let currentDialogResolve = null;
+
+  function closeCustomDialog(result = null) {
+    if (!customDialogModal) return;
+    customDialogModal.classList.add("hidden");
+    if (currentDialogResolve) {
+      currentDialogResolve(result);
+      currentDialogResolve = null;
+    }
+  }
+
+  customDialogClose?.addEventListener("click", () => closeCustomDialog(null));
+  customDialogCancel?.addEventListener("click", () => closeCustomDialog(null));
+
+  customDialogModal?.addEventListener("click", (e) => {
+    if (e.target === customDialogModal) {
+      closeCustomDialog(null);
+    }
+  });
+
+  window.showCustomPrompt = function(message, defaultValue = "", title = "Enter Name") {
+    return new Promise((resolve) => {
+      currentDialogResolve = resolve;
+      if (!customDialogModal) return resolve(null);
+
+      if (customDialogTitle) customDialogTitle.textContent = title;
+      if (customDialogMessage) customDialogMessage.textContent = message;
+      if (customDialogInputGroup) customDialogInputGroup.classList.remove("hidden");
+      if (customDialogInput) customDialogInput.value = defaultValue;
+      
+      customDialogIconPrompt?.classList.remove("hidden");
+      customDialogIconConfirm?.classList.add("hidden");
+      customDialogIconAlert?.classList.add("hidden");
+      customDialogIconSuccess?.classList.add("hidden");
+      customDialogIconWrapper?.classList.remove("warning", "success");
+
+      if (customDialogCancel) customDialogCancel.classList.remove("hidden");
+      if (customDialogConfirm) {
+        customDialogConfirm.textContent = "Save";
+        customDialogConfirm.classList.remove("danger");
+      }
+
+      customDialogModal.classList.remove("hidden");
+      setTimeout(() => {
+        if (customDialogInput) {
+          customDialogInput.focus();
+          customDialogInput.select();
+        }
+      }, 50);
+
+      const handleConfirm = () => {
+        const val = customDialogInput ? customDialogInput.value.trim() : "";
+        closeCustomDialog(val || null);
+      };
+
+      const handleKeydown = (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          handleConfirm();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          closeCustomDialog(null);
+        }
+      };
+
+      if (customDialogConfirm) customDialogConfirm.onclick = handleConfirm;
+      if (customDialogInput) customDialogInput.onkeydown = handleKeydown;
+    });
+  };
+
+  window.showCustomConfirm = function(message, title = "Confirm Action", isDanger = false) {
+    return new Promise((resolve) => {
+      currentDialogResolve = resolve;
+      if (!customDialogModal) return resolve(false);
+
+      if (customDialogTitle) customDialogTitle.textContent = title;
+      if (customDialogMessage) customDialogMessage.textContent = message;
+      if (customDialogInputGroup) customDialogInputGroup.classList.add("hidden");
+
+      customDialogIconPrompt?.classList.add("hidden");
+      customDialogIconConfirm?.classList.remove("hidden");
+      customDialogIconAlert?.classList.add("hidden");
+      customDialogIconSuccess?.classList.add("hidden");
+      
+      if (isDanger) {
+        customDialogIconWrapper?.classList.add("warning");
+        if (customDialogConfirm) customDialogConfirm.classList.add("danger");
+      } else {
+        customDialogIconWrapper?.classList.remove("warning", "success");
+        if (customDialogConfirm) customDialogConfirm.classList.remove("danger");
+      }
+
+      if (customDialogCancel) customDialogCancel.classList.remove("hidden");
+      if (customDialogConfirm) customDialogConfirm.textContent = isDanger ? "Delete" : "Confirm";
+
+      customDialogModal.classList.remove("hidden");
+
+      if (customDialogConfirm) customDialogConfirm.onclick = () => closeCustomDialog(true);
+      if (customDialogCancel) customDialogCancel.onclick = () => closeCustomDialog(false);
+    });
+  };
+
+  window.showCustomAlert = function(message, title = "Notification", type = "info") {
+    return new Promise((resolve) => {
+      currentDialogResolve = resolve;
+      if (!customDialogModal) return resolve();
+
+      if (customDialogTitle) customDialogTitle.textContent = title;
+      if (customDialogMessage) customDialogMessage.textContent = message;
+      if (customDialogInputGroup) customDialogInputGroup.classList.add("hidden");
+
+      customDialogIconPrompt?.classList.add("hidden");
+      customDialogIconConfirm?.classList.add("hidden");
+
+      if (type === "error" || type === "warning") {
+        customDialogIconAlert?.classList.remove("hidden");
+        customDialogIconSuccess?.classList.add("hidden");
+        customDialogIconWrapper?.classList.add("warning");
+        customDialogIconWrapper?.classList.remove("success");
+      } else if (type === "success") {
+        customDialogIconAlert?.classList.add("hidden");
+        customDialogIconSuccess?.classList.remove("hidden");
+        customDialogIconWrapper?.classList.add("success");
+        customDialogIconWrapper?.classList.remove("warning");
+      } else {
+        customDialogIconConfirm?.classList.remove("hidden");
+        customDialogIconAlert?.classList.add("hidden");
+        customDialogIconSuccess?.classList.add("hidden");
+        customDialogIconWrapper?.classList.remove("warning", "success");
+      }
+
+      if (customDialogCancel) customDialogCancel.classList.add("hidden");
+      if (customDialogConfirm) {
+        customDialogConfirm.textContent = "OK";
+        customDialogConfirm.classList.remove("danger");
+        customDialogConfirm.onclick = () => closeCustomDialog(true);
+      }
+
+      customDialogModal.classList.remove("hidden");
+    });
+  };
+
+  // Aliases for local scope
+  const showCustomPrompt = window.showCustomPrompt;
+  const showCustomConfirm = window.showCustomConfirm;
+  const showCustomAlert = window.showCustomAlert;
+
   // --- MULTI-SELECT STATE ---
   let isMultiSelectReports = false;
   let isMultiSelectVolumes = false;
@@ -458,6 +623,16 @@ window.addEventListener("DOMContentLoaded", () => {
           document.getElementById("volMiniPerim").textContent = vol.metadata.perimeter || "0";
           document.getElementById("volMiniCut").textContent = vol.metadata.cutVolume || "0";
           document.getElementById("volMiniFill").textContent = vol.metadata.fillVolume || "0";
+          const netEl = document.getElementById("volMiniNet");
+          if (netEl) {
+            const cutNum = parseFloat(String(vol.metadata.cutVolume || "").replace(/[^0-9.-]/g, '')) || 0;
+            const fillNum = parseFloat(String(vol.metadata.fillVolume || "").replace(/[^0-9.-]/g, '')) || 0;
+            const netVal = vol.metadata.netVolume || (cutNum - fillNum);
+            const netNum = (typeof netVal === 'number') ? netVal : (parseFloat(String(netVal).replace(/[^0-9.-]/g, '')) || 0);
+            const netSign = netNum >= 0 ? "+" : "";
+            netEl.textContent = `${netSign}${netNum.toLocaleString(undefined, {maximumFractionDigits: 2})} m³`;
+            netEl.style.color = netNum >= 0 ? "#10b981" : "#ef4444";
+          }
           showUnifiedInfoPanel("VOLUME", "SAVED VOLUME", vol.metadata, true);
 
           if (vol.metadata.points && vol.metadata.points.length >= 3) {
@@ -522,11 +697,14 @@ window.addEventListener("DOMContentLoaded", () => {
         const isFocused = id === activeFocusedFeatureId;
 
         let sumX = 0, sumY = 0, sumZ = 0;
-        const screenPoints = [];
         for (const pt of volData.points) {
-          const v = new Vector3(pt.x, pt.y, pt.z);
-          sumX += pt.x; sumY += pt.y; sumZ += pt.z;
-          const screenP = projectToScreen(v);
+          sumX += pt.x; sumY += pt.y; sumZ += (pt.z || 0);
+        }
+
+        const drapedPts = getDrapedPolygon3DPoints(volData.points, true);
+        const screenPoints = [];
+        for (const pt of drapedPts) {
+          const screenP = projectToScreen(pt);
           if (screenP.z <= 1) {
             screenPoints.push(`${screenP.x},${screenP.y}`);
           }
@@ -683,6 +861,33 @@ window.addEventListener("DOMContentLoaded", () => {
         if (multiLinesGroup) {
           multiLinesGroup.appendChild(haloLine);
           multiLinesGroup.appendChild(lineEl);
+        }
+
+        // 3. Option 1: Green Start Dot and Red End Dot (rendered on top of line)
+        const startScreen = projectToScreen(pts3D[0]);
+        if (startScreen.z <= 1) {
+          const startCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+          startCircle.setAttribute("cx", startScreen.x.toFixed(1));
+          startCircle.setAttribute("cy", startScreen.y.toFixed(1));
+          startCircle.setAttribute("r", isFocused ? "5.5" : "4.5");
+          startCircle.setAttribute("fill", "#10b981");
+          startCircle.setAttribute("stroke", "#ffffff");
+          startCircle.setAttribute("stroke-width", "1.8");
+          if (isFocused) startCircle.setAttribute("filter", "url(#multiGlow)");
+          multiLinesGroup.appendChild(startCircle);
+        }
+
+        const endScreen = projectToScreen(pts3D[pts3D.length - 1]);
+        if (endScreen.z <= 1) {
+          const endCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+          endCircle.setAttribute("cx", endScreen.x.toFixed(1));
+          endCircle.setAttribute("cy", endScreen.y.toFixed(1));
+          endCircle.setAttribute("r", isFocused ? "5.5" : "4.5");
+          endCircle.setAttribute("fill", "#ef4444");
+          endCircle.setAttribute("stroke", "#ffffff");
+          endCircle.setAttribute("stroke-width", "1.8");
+          if (isFocused) endCircle.setAttribute("filter", "url(#multiGlow)");
+          multiLinesGroup.appendChild(endCircle);
         }
 
         const count = pts3D.length;
@@ -1542,9 +1747,10 @@ window.addEventListener("DOMContentLoaded", () => {
       if (saveModalMetricsPreview) saveModalMetricsPreview.textContent = `3D: ${dist3D}`;
     } else if (activeInfoTool === "VOLUME") {
       if (saveModalTypeBadge) saveModalTypeBadge.textContent = "🧊 Volume Area";
-      const cut = document.getElementById("volMiniCut")?.textContent || "0 m3";
-      const fill = document.getElementById("volMiniFill")?.textContent || "0 m3";
-      if (saveModalMetricsPreview) saveModalMetricsPreview.textContent = `Cut: ${cut} | Fill: ${fill}`;
+      const cut = document.getElementById("volMiniCut")?.textContent || "0 m³";
+      const fill = document.getElementById("volMiniFill")?.textContent || "0 m³";
+      const net = document.getElementById("volMiniNet")?.textContent || "0 m³";
+      if (saveModalMetricsPreview) saveModalMetricsPreview.textContent = `Cut: ${cut} | Fill: ${fill} | Net: ${net}`;
     } else if (activeInfoTool === "BOX_ROI" || activeInfoTool === "POLY_ROI") {
       if (saveModalTypeBadge) saveModalTypeBadge.textContent = "✂️ ROI Boundary";
       const area = (document.getElementById("boxRoiArea") || document.getElementById("polyRoiArea"))?.textContent || "0 m²";
@@ -1632,12 +1838,25 @@ window.addEventListener("DOMContentLoaded", () => {
     activeInfoTool = toolType;
     activeToolSaveData = data;
 
-    if (unifiedInfoTitle) unifiedInfoTitle.textContent = headerText || "INFORMATION PANEL";
+    if (unifiedInfoTitle) {
+      unifiedInfoTitle.textContent = headerText || "INFORMATION PANEL";
+      if (!isSavedView) {
+        unifiedInfoTitle.classList.remove("editable");
+        unifiedInfoTitle.removeAttribute("title");
+      }
+    }
     
     // Clear validation error state & reset name input
     if (universalSaveName) {
       universalSaveName.classList.remove("input-invalid");
       universalSaveName.value = "";
+    }
+
+    if (!isSavedView) {
+      const btnInfoRename = document.getElementById("btnInfoRenameTitle");
+      if (btnInfoRename) btnInfoRename.classList.add("hidden");
+      const renameCont = document.getElementById("infoInlineRenameContainer");
+      if (renameCont) renameCont.classList.add("hidden");
     }
 
     // Hide all viewports first
@@ -1711,7 +1930,7 @@ window.addEventListener("DOMContentLoaded", () => {
         universalSaveName.classList.add("input-invalid");
         universalSaveName.focus();
       }
-      alert("⚠️ COMPULSORY: Please enter a Name before saving!");
+      await showCustomAlert("Please enter a name before saving.", "Name Required", "warning");
       return;
     }
 
@@ -1760,22 +1979,22 @@ window.addEventListener("DOMContentLoaded", () => {
         if (!pdfRes.ok) throw new Error("Failed to get PDF upload URL");
         const { uploadUrl: pdfUploadUrl } = await pdfRes.json();
         const pdfPut = await fetch(pdfUploadUrl, { method: "PUT", headers: { "Content-Type": "application/pdf" }, body: pdfBlob });
-        if (!pdfPut.ok) throw new Error("Failed to upload PDF to S3");
+        if (!pdfPut.ok) throw new Error("Failed to upload PDF to cloud storage");
 
         // Upload JSON
         const jsonRes = await fetch(apiUrl, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "reports", fileName: `${safeReportName}.json` })
         });
-        if (!jsonRes.ok) throw new Error("Failed to get JSON upload URL");
+        if (!jsonRes.ok) throw new Error("Failed to get data upload URL");
         const { uploadUrl: jsonUploadUrl } = await jsonRes.json();
         const jsonPut = await fetch(jsonUploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: jsonBlob });
-        if (!jsonPut.ok) throw new Error("Failed to upload JSON to S3");
+        if (!jsonPut.ok) throw new Error("Failed to upload data to cloud storage");
 
         fetchSavedReports();
 
       } else if (activeInfoTool === "VOLUME") {
-        // ── Upload Volume JSON to S3 (same as btnConfirmVolSave) ──
+        // ── Upload Volume JSON (same as btnConfirmVolSave) ──
         const data = {
           name: nameVal,
           folder: folderVal,
@@ -1785,6 +2004,7 @@ window.addEventListener("DOMContentLoaded", () => {
           perimeter: document.getElementById("volMiniPerim")?.textContent || "0",
           cutVolume: document.getElementById("volMiniCut")?.textContent || "0",
           fillVolume: document.getElementById("volMiniFill")?.textContent || "0",
+          netVolume: document.getElementById("volMiniNet")?.textContent || "0",
           points: volumePoints.map(p => ({ x: p.coord.x, y: p.coord.y, z: p.coord.z }))
         };
 
@@ -1799,32 +2019,86 @@ window.addEventListener("DOMContentLoaded", () => {
         const { uploadUrl } = await volRes.json();
 
         const putRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data, null, 2) });
-        if (!putRes.ok) throw new Error("Failed to upload volume JSON to S3");
+        if (!putRes.ok) throw new Error("Failed to upload volume data");
 
         fetchSavedVolumes();
 
+      } else if (activeInfoTool === "BOX_ROI" || activeInfoTool === "POLY_ROI") {
+        let points = [];
+        let metrics = { area: 0, perimeter: 0 };
+        if (activeInfoTool === "POLY_ROI") {
+          points = roiPolyPoints.map(p => ({ x: p.coord.x, y: p.coord.y, z: p.coord.z || 0 }));
+          metrics = calculateRoiPolyMetrics();
+        } else if (activeInfoTool === "BOX_ROI" && window._lastBoxRoiBounds) {
+          const b = window._lastBoxRoiBounds;
+          points = [
+            { x: b.minX, y: b.minY, z: activeProject?.zOffset || 0 },
+            { x: b.maxX, y: b.minY, z: activeProject?.zOffset || 0 },
+            { x: b.maxX, y: b.maxY, z: activeProject?.zOffset || 0 },
+            { x: b.minX, y: b.maxY, z: activeProject?.zOffset || 0 }
+          ];
+          const w = Math.abs(b.maxX - b.minX);
+          const h = Math.abs(b.maxY - b.minY);
+          metrics = { area: w * h, perimeter: 2 * (w + h) };
+        }
+
+        const data = {
+          name: nameVal,
+          folder: folderVal,
+          isOfficial: !window.isDumpDraw,
+          timestamp: new Date().toISOString(),
+          area2D: metrics.area || 0,
+          perimeter: metrics.perimeter || 0,
+          points
+        };
+
+        const safeName = nameVal.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        const fileName = `${folderVal}/${safeName}_${Date.now()}.json`;
+
+        const res = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "rois", fileName })
+        });
+        if (!res.ok) throw new Error("Failed to get ROI upload URL");
+        const { uploadUrl } = await res.json();
+        const putRes = await fetch(uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data, null, 2)
+        });
+        if (!putRes.ok) throw new Error("Failed to upload ROI data");
+
+        window.currentViewingFeature = {
+          type: activeInfoTool,
+          name: nameVal,
+          file: { fileName },
+          metadata: data
+        };
+
+        fetchSavedRois();
       } else {
-        // Fallback: localStorage for other types (BOX_ROI, POLY_ROI, POINT)
+        // Fallback: localStorage for other types (POINT)
         if (activeToolSaveData) saveFeatureItem(activeInfoTool?.toLowerCase(), nameVal, folderVal, activeToolSaveData);
       }
 
-      alert(`✅ Saved "${nameVal}" to folder '${folderVal}'!`);
+      await showCustomAlert(`Saved "${nameVal}" to folder '${folderVal}'!`, "Saved Successfully", "success");
       closeUniversalSaveModal();
       showUnifiedInfoPanel(activeInfoTool, "SAVED ITEM", null, true);
 
     } catch(err) {
       console.error("Save error:", err);
-      alert("Error saving item: " + err.message);
+      await showCustomAlert("Error saving item: " + err.message, "Save Error", "error");
     } finally {
       btnUniversalSave.textContent = originalText;
       btnUniversalSave.disabled = false;
     }
   });
 
-  btnUniversalNewFolder?.addEventListener("click", () => {
+  btnUniversalNewFolder?.addEventListener("click", async () => {
     const isProfile = activeInfoTool === "PROFILE";
     const typeLabel = isProfile ? "Path Profile" : "Volume";
-    const newFolder = prompt(`Enter new folder name for ${typeLabel}:`);
+    const newFolder = await showCustomPrompt(`Enter new folder name for ${typeLabel}:`, "", "New Folder");
     if (newFolder && newFolder.trim() !== "") {
       const trimmed = newFolder.trim();
       if (isProfile) {
@@ -1923,7 +2197,6 @@ window.addEventListener("DOMContentLoaded", () => {
       const isOpen = roiHorizontalBar.classList.toggle("open");
       if (isOpen) {
         if (unifiedInfoPanel) unifiedInfoPanel.classList.add("hidden");
-        if (topSaveBar) topSaveBar.classList.add("hidden");
       }
     }
   });
@@ -2101,14 +2374,14 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       const text = ev.target.result;
       const parser = new DOMParser();
       const xmlDoc = parser.parseFromString(text, "text/xml");
       
       const coordsTags = xmlDoc.getElementsByTagName("coordinates");
       if (!coordsTags || coordsTags.length === 0) {
-        alert("No coordinates found in KML file.");
+        await showCustomAlert("No coordinates found in KML file.", "KML Parse Error", "error");
         return;
       }
       
@@ -2154,7 +2427,7 @@ window.addEventListener("DOMContentLoaded", () => {
         if (roiHint) roiHint.textContent = "KML loaded! Red boundary is now visible. Click 'Reset' to clear.";
         if (resetROI) resetROI.disabled = false;
       } else {
-        alert("Could not parse coordinates from KML.");
+        await showCustomAlert("Could not parse coordinates from KML.", "KML Parse Error", "error");
       }
     };
     reader.readAsText(file);
@@ -2192,8 +2465,11 @@ window.addEventListener("DOMContentLoaded", () => {
     const brBack = [right + DEPTH_X, bottom + DEPTH_Y];
 
     roiFaceTop.setAttribute("points", pointsToString([tl, tr, br, bl]));
+    roiFaceTop.setAttribute("fill", "none");
     roiFaceRight.setAttribute("points", pointsToString([tr, trBack, brBack, br]));
+    roiFaceRight.setAttribute("fill", "none");
     roiFaceBottom.setAttribute("points", pointsToString([tl, tlBack, trBack, tr]));
+    roiFaceBottom.setAttribute("fill", "none");
 
     roiDepthEdges.innerHTML = [
       `<line x1="${tl[0]}" y1="${tl[1]}" x2="${tlBack[0]}" y2="${tlBack[1]}"/>`,
@@ -2271,6 +2547,20 @@ window.addEventListener("DOMContentLoaded", () => {
     const clipExtent = new Extent(giroCrs, minX, maxX, minY, maxY);
     const clipProject = getActiveProjectConfig();
     isTerrainClippedToRoi = true;
+
+    // Immediately frame camera over the Box ROI
+    const center = clipExtent.centerAsVector3();
+    const dims = clipExtent.dimensions();
+    const size = Math.max(dims.x, dims.y);
+    const zOffset = clipProject?.zOffset || 0;
+    if (instance?.view?.camera && controls) {
+      instance.view.camera.position.set(center.x, center.y, zOffset + size * 2.4);
+      controls.target.set(center.x, center.y, zOffset);
+      controls.update();
+      if (instance.view.camera) instance.view.camera.updateMatrixWorld(true);
+      instance.notifyChange(instance.view.camera);
+    }
+
     loadProject(clipProject, clipExtent);
 
     roiState = "IDLE";
@@ -2427,6 +2717,72 @@ window.addEventListener("DOMContentLoaded", () => {
     instance.notifyChange(instance.view.camera);
   }
 
+  /**
+   * Generates terrain-clamped (draped) 3D points along the perimeter of a polygon.
+   * Interpolates sub-points along each segment and samples real-world elevations from the terrain mesh.
+   */
+  function getDrapedPolygon3DPoints(rawPoints, isClosed = true) {
+    if (!rawPoints || rawPoints.length === 0) return [];
+    if (rawPoints.length === 1) {
+      const p0 = rawPoints[0];
+      const px = p0.coord ? p0.coord.x : p0.point ? p0.point.x : p0.x;
+      const py = p0.coord ? p0.coord.y : p0.point ? p0.point.y : p0.y;
+      const pz = p0.coord ? (p0.coord.z || 0) : p0.point ? (p0.point.z || 0) : (p0.z || 0);
+      return [new Vector3(px, py, pz)];
+    }
+
+    const count = rawPoints.length;
+    const numEdges = isClosed ? count : count - 1;
+    const draped = [];
+
+    for (let i = 0; i < numEdges; i++) {
+      const p1 = rawPoints[i];
+      const p2 = rawPoints[(i + 1) % count];
+      
+      const x1 = p1.coord ? p1.coord.x : p1.point ? p1.point.x : p1.x;
+      const y1 = p1.coord ? p1.coord.y : p1.point ? p1.point.y : p1.y;
+      const z1 = p1.coord ? (p1.coord.z || 0) : p1.point ? (p1.point.z || 0) : (p1.z || 0);
+
+      const x2 = p2.coord ? p2.coord.x : p2.point ? p2.point.x : p2.x;
+      const y2 = p2.coord ? p2.coord.y : p2.point ? p2.point.y : p2.y;
+      const z2 = p2.coord ? (p2.coord.z || 0) : p2.point ? (p2.point.z || 0) : (p2.z || 0);
+
+      const segDist = Math.hypot(x2 - x1, y2 - y1);
+      // Sample every ~2 meters, capped between 1 and 25 steps per edge for optimal 60fps performance
+      const steps = Math.max(1, Math.min(25, Math.ceil(segDist / 2.0)));
+
+      for (let s = 0; s < steps; s++) {
+        const t = s / steps;
+        const x = x1 + t * (x2 - x1);
+        const y = y1 + t * (y2 - y1);
+        
+        let z = z1 + t * (z2 - z1);
+        if (map && typeof map.getElevationFast === 'function') {
+          const sample = map.getElevationFast(x, y);
+          if (sample && sample.elevation !== undefined && !isNaN(sample.elevation)) {
+            z = sample.elevation;
+          }
+        }
+        draped.push(new Vector3(x, y, z));
+      }
+    }
+
+    // Add the final point for unclosed lines or to perfectly close the ring
+    const lastP = isClosed ? rawPoints[0] : rawPoints[count - 1];
+    const lx = lastP.coord ? lastP.coord.x : lastP.point ? lastP.point.x : lastP.x;
+    const ly = lastP.coord ? lastP.coord.y : lastP.point ? lastP.point.y : lastP.y;
+    let lz = lastP.coord ? (lastP.coord.z || 0) : lastP.point ? (lastP.point.z || 0) : (lastP.z || 0);
+    if (map && typeof map.getElevationFast === 'function') {
+      const sample = map.getElevationFast(lx, ly);
+      if (sample && sample.elevation !== undefined && !isNaN(sample.elevation)) {
+        lz = sample.elevation;
+      }
+    }
+    draped.push(new Vector3(lx, ly, lz));
+
+    return draped;
+  }
+
   // Redraw the measurement line so it "sticks" to the terrain as the camera moves.
   function updateMeasureSvg() {
     if (isMultiSelectReports && measureMode === "PROFILE") {
@@ -2488,6 +2844,64 @@ window.addEventListener("DOMContentLoaded", () => {
     } else if (measureSvg) {
       measureSvg.style.display = "none";
     }
+    updateProfileHoverSvg();
+  }
+
+  // --- Interactive 3D Terrain Cursor for 2D Graph Hover ---
+  let currentProfileHover3DPoint = null;
+
+  function showProfile3DHoverPoint(index) {
+    if (index == null || isNaN(index)) return;
+    if (!currentProfilePoints3D || currentProfilePoints3D.length === 0) {
+      if (measureStartPoint && measureEndPoint) {
+        const total = (miniChart && miniChart.data && miniChart.data.labels && miniChart.data.labels.length > 1)
+          ? miniChart.data.labels.length
+          : (currentProfileData?.length || 2);
+        const t = total > 1 ? index / (total - 1) : 0;
+        const x = measureStartPoint.x + t * (measureEndPoint.x - measureStartPoint.x);
+        const y = measureStartPoint.y + t * (measureEndPoint.y - measureStartPoint.y);
+        const z = (measureStartPoint.z || 0) + t * ((measureEndPoint.z || 0) - (measureStartPoint.z || 0));
+        currentProfileHover3DPoint = new Vector3(x, y, z + 0.35);
+      } else {
+        return;
+      }
+    } else {
+      const safeIndex = Math.max(0, Math.min(currentProfilePoints3D.length - 1, index));
+      currentProfileHover3DPoint = currentProfilePoints3D[safeIndex];
+    }
+    updateProfileHoverSvg();
+  }
+
+  function hideProfile3DHoverPoint() {
+    currentProfileHover3DPoint = null;
+    updateProfileHoverSvg();
+  }
+
+  function updateProfileHoverSvg() {
+    const hoverGroup = document.getElementById("measureHoverGroup");
+    const hoverCircle = document.getElementById("measureSvgHover");
+    const hoverHalo = document.getElementById("measureSvgHoverHalo");
+    if (!hoverGroup || !hoverCircle) return;
+
+    if (!currentProfileHover3DPoint) {
+      hoverGroup.style.display = "none";
+      return;
+    }
+
+    const screenP = projectToScreen(currentProfileHover3DPoint);
+    if (screenP.z > 1) {
+      hoverGroup.style.display = "none";
+      return;
+    }
+
+    hoverCircle.setAttribute("cx", screenP.x.toFixed(1));
+    hoverCircle.setAttribute("cy", screenP.y.toFixed(1));
+    if (hoverHalo) {
+      hoverHalo.setAttribute("cx", screenP.x.toFixed(1));
+      hoverHalo.setAttribute("cy", screenP.y.toFixed(1));
+    }
+    hoverGroup.style.display = "block";
+    if (measureSvg) measureSvg.style.display = "block";
   }
 
   function updatePointSvg() {
@@ -2505,6 +2919,7 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   }
   controls.addEventListener("change", updateMeasureSvg);
+  controls.addEventListener("change", updateProfileHoverSvg);
 
   // Redraw volume polygon
   
@@ -2513,28 +2928,33 @@ window.addEventListener("DOMContentLoaded", () => {
       let pointsAttr = "";
       if (volumeVerticesSvg) volumeVerticesSvg.innerHTML = "";
       
+      // Render primary anchor dots on user-clicked vertices
       for (const p of roiPolyPoints) {
         const screenP = projectToScreen(p.point);
-        if (screenP.z <= 1) {
-          pointsAttr += `${screenP.x},${screenP.y} `;
-          if (volumeVerticesSvg) {
-            const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-            circle.setAttribute("cx", screenP.x);
-            circle.setAttribute("cy", screenP.y);
-            circle.setAttribute("r", "4");
-            circle.setAttribute("fill", "#ffff00");
-            circle.setAttribute("stroke", "#000");
-            circle.setAttribute("stroke-width", "1.5");
-            volumeVerticesSvg.appendChild(circle);
-          }
+        if (screenP.z <= 1 && volumeVerticesSvg) {
+          const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+          circle.setAttribute("cx", screenP.x);
+          circle.setAttribute("cy", screenP.y);
+          circle.setAttribute("r", "4");
+          circle.setAttribute("fill", "#ffff00");
+          circle.setAttribute("stroke", "#000");
+          circle.setAttribute("stroke-width", "1.5");
+          volumeVerticesSvg.appendChild(circle);
         }
       }
-      if (roiPolyMousePoint && measureState === "SELECTING") {
-        const screenM = projectToScreen(roiPolyMousePoint);
-        if (screenM.z <= 1) pointsAttr += `${screenM.x},${screenM.y} `;
-      } else if (measureState === "FINISHED_ROI_POLY" && roiPolyPoints.length > 2) {
-        const screen0 = projectToScreen(roiPolyPoints[0].point);
-        if (screen0.z <= 1) pointsAttr += `${screen0.x},${screen0.y}`;
+
+      const isClosed = measureState === "FINISHED_ROI_POLY" && roiPolyPoints.length >= 3;
+      const activePoints = (roiPolyMousePoint && measureState === "SELECTING")
+        ? [...roiPolyPoints, { point: roiPolyMousePoint, coord: roiPolyMousePoint }]
+        : roiPolyPoints;
+
+      // Project terrain-draped points along the polygon perimeter
+      const drapedPts = getDrapedPolygon3DPoints(activePoints, isClosed);
+      for (const pt of drapedPts) {
+        const sp = projectToScreen(pt);
+        if (sp.z <= 1) {
+          pointsAttr += `${sp.x},${sp.y} `;
+        }
       }
       
       if (volumePolygonSvg) {
@@ -2586,6 +3006,25 @@ window.addEventListener("DOMContentLoaded", () => {
     const clipExtent = new Extent(giroCrs, minX, maxX, minY, maxY);
     const clipProject = activeProject || getActiveProjectConfig();
     
+    const numPoints = roiPolyPoints.length;
+    let cx = 0, cy = 0;
+    for (const p of roiPolyPoints) { cx += p.coord.x; cy += p.coord.y; }
+    cx /= numPoints; cy /= numPoints;
+
+    const dims = clipExtent.dimensions();
+    const size = Math.max(dims.x, dims.y);
+    const zOffset = clipProject?.zOffset || 0;
+
+    // FIRST: Immediately position camera over the ROI extent and render full enlarged boundary
+    if (instance?.view?.camera && controls) {
+      instance.view.camera.position.set(cx, cy, zOffset + size * 2.4);
+      controls.target.set(cx, cy, zOffset);
+      controls.update();
+      if (instance.view.camera) instance.view.camera.updateMatrixWorld(true);
+      instance.notifyChange(instance.view.camera);
+    }
+    updateRoiPolySvg();
+
     updateStatus("Clipping Terrain to Polygon ROI...");
     
     loadProject(clipProject, clipExtent).then(() => {
@@ -2593,11 +3032,6 @@ window.addEventListener("DOMContentLoaded", () => {
         
         // CRITICAL: Use geographic coords (coord.x/y) for plane math, but center them
         // first to bring values near zero (avoids float32 precision loss at ~8.5M meters).
-        const numPoints = roiPolyPoints.length;
-        let cx = 0, cy = 0;
-        for (const p of roiPolyPoints) { cx += p.coord.x; cy += p.coord.y; }
-        cx /= numPoints; cy /= numPoints;
-        
         // Compute centered 2D points
         const pts2d = roiPolyPoints.map(p => ({ x: p.coord.x - cx, y: p.coord.y - cy }));
         
@@ -2637,8 +3071,6 @@ window.addEventListener("DOMContentLoaded", () => {
         
         // Translate planes back: since Three.js positions are NOT centered at (cx,cy),
         // we need to account for the fact that our planes were built in centered coords.
-        // The plane equation is: n.dot(P - center) + c = 0 => n.dot(P) + (c - n.dot(center)) = 0
-        // But Three.js scene uses local coords from map.worldToLocal, so we convert center:
         const mapCenter = map.worldToLocal(new Vector3(cx, cy, 0));
         for (const plane of planes) {
           plane.constant -= plane.normal.dot(mapCenter);
@@ -2646,14 +3078,7 @@ window.addEventListener("DOMContentLoaded", () => {
         
         map.clippingPlanes = planes;
         isTerrainClippedToRoi = true;
-        const dims = clipExtent.dimensions();
-        const size = Math.max(dims.x, dims.y);
-        const zOffset = clipProject?.zOffset || 0;
-        instance.view.camera.position.set(cx, cy, zOffset + size * 2.4);
-        controls.target.set(cx, cy, zOffset);
-        controls.update();
-        if (instance.view.camera) instance.view.camera.updateMatrixWorld(true);
-        instance.notifyChange(instance.view.camera);
+        
         updateRoiPolySvg();
         requestAnimationFrame(() => {
           if (instance?.view?.camera) instance.view.camera.updateMatrixWorld(true);
@@ -2687,30 +3112,32 @@ window.addEventListener("DOMContentLoaded", () => {
       let pointsAttr = "";
       if (volumeVerticesSvg) volumeVerticesSvg.innerHTML = "";
       
-      // Add confirmed points
+      // Render primary anchor dots on user-clicked vertices
       for (const p of volumePoints) {
         const screenP = projectToScreen(p.point);
-        if (screenP.z <= 1) {
-          pointsAttr += `${screenP.x},${screenP.y} `;
-          
-          if (volumeVerticesSvg) {
-            const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-            circle.setAttribute("cx", screenP.x);
-            circle.setAttribute("cy", screenP.y);
-            circle.setAttribute("r", "4");
-            circle.setAttribute("fill", "#5e19ea");
-            circle.setAttribute("stroke", "#ffffff");
-            circle.setAttribute("stroke-width", "1.5");
-            volumeVerticesSvg.appendChild(circle);
-          }
+        if (screenP.z <= 1 && volumeVerticesSvg) {
+          const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+          circle.setAttribute("cx", screenP.x);
+          circle.setAttribute("cy", screenP.y);
+          circle.setAttribute("r", "4");
+          circle.setAttribute("fill", "#5e19ea");
+          circle.setAttribute("stroke", "#ffffff");
+          circle.setAttribute("stroke-width", "1.5");
+          volumeVerticesSvg.appendChild(circle);
         }
       }
       
-      // Add mouse point if actively drawing
-      if (measureState === "SELECTING" && volumeMousePoint) {
-        const screenP = projectToScreen(volumeMousePoint);
-        if (screenP.z <= 1) {
-          pointsAttr += `${screenP.x},${screenP.y}`;
+      const isClosed = measureState === "FINISHED_VOLUME" && volumePoints.length >= 3;
+      const activePoints = (measureState === "SELECTING" && volumeMousePoint)
+        ? [...volumePoints, { point: volumeMousePoint, coord: volumeMousePoint }]
+        : volumePoints;
+
+      // Project terrain-draped points along the polygon perimeter
+      const drapedPts = getDrapedPolygon3DPoints(activePoints, isClosed);
+      for (const pt of drapedPts) {
+        const sp = projectToScreen(pt);
+        if (sp.z <= 1) {
+          pointsAttr += `${sp.x},${sp.y} `;
         }
       }
       
@@ -2884,7 +3311,7 @@ window.addEventListener("DOMContentLoaded", () => {
     setLiveGuidance(null, null);
     if (measureMode !== "VOLUME") return;
     if (volumePoints.length < 3) {
-      alert("Please draw at least 3 points for a volume polygon.");
+      showCustomAlert("Please draw at least 3 points for a volume polygon.", "Incomplete Polygon", "warning");
       return;
     }
     measureState = "FINISHED_VOLUME";
@@ -2907,7 +3334,7 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     if (measureState === "SELECTING" && measureMode === "ROI_POLY") {
       if (roiPolyPoints.length < 3) {
-        alert("Please draw at least 3 points for a polygon ROI.");
+        showCustomAlert("Please draw at least 3 points for a polygon ROI.", "Incomplete ROI", "warning");
         return;
       }
       measureState = "FINISHED_ROI_POLY";
@@ -3120,101 +3547,175 @@ window.addEventListener("DOMContentLoaded", () => {
   };
 
   function initCharts() {
-    if (miniChart) return;
     const miniCanvas = document.getElementById("elevationMiniChart");
     const fullCanvas = document.getElementById("elevationFullChart");
-    if (!miniCanvas || !fullCanvas) return;
     
-    const miniCtx = miniCanvas.getContext("2d");
-    const fullCtx = fullCanvas.getContext("2d");
-    if (!miniCtx || !fullCtx) return;
-
-    miniChart = new Chart(miniCtx, {
-      type: 'line',
-      data: {
-        labels: [],
-        datasets: [{
-          data: [],
-          borderColor: '#5e19ea', // Polygon Purple
-          backgroundColor: 'rgba(94, 25, 234, 0.12)',
-          fill: true,
-          tension: 0.2,
-          pointRadius: 0,
-          borderWidth: 2
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { display: false },
-          y: { 
-            display: true,
-            ticks: { color: '#64748b', font: { size: 9 } }, 
-            grid: { color: 'rgba(226, 232, 240, 0.8)' },
-            grace: '5%'
-          }
-        }
-      }
-    });
-
-    fullChart = new Chart(fullCtx, {
-      type: 'line',
-      data: {
-        labels: [],
-        datasets: [{
-          label: 'Elevation',
-          data: [],
-          borderColor: '#5e19ea', // Polygon Purple
-          backgroundColor: 'rgba(94, 25, 234, 0.12)',
-          fill: true,
-          tension: 0.15,
-          pointRadius: 3,
-          pointBackgroundColor: '#5e19ea',
-          pointBorderColor: '#ffffff',
-          pointBorderWidth: 1.5,
-          pointHoverRadius: 6,
-          pointHoverBackgroundColor: '#4c1d95',
-          borderWidth: 2.5
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: '#0f172a',
-            titleColor: '#f8fafc',
-            bodyColor: '#c4b5fd',
-            borderColor: '#7c3aed',
-            borderWidth: 1,
-            padding: 10,
-            displayColors: false,
-            callbacks: {
-              label: (ctx) => `Elevation: ${ctx.parsed.y.toFixed(2)} m`
+    if (miniCanvas && !miniChart) {
+      const miniCtx = miniCanvas.getContext("2d");
+      if (miniCtx) {
+        miniChart = new Chart(miniCtx, {
+          type: 'line',
+          data: {
+            labels: [],
+            datasets: [{
+              data: [],
+              borderColor: '#5e19ea', // Polygon Purple
+              backgroundColor: 'rgba(94, 25, 234, 0.12)',
+              fill: true,
+              tension: 0.2,
+              borderWidth: 2,
+              pointRadius: (ctx) => {
+                const index = ctx.dataIndex;
+                const count = ctx.dataset.data.length;
+                if (count <= 1) return 4;
+                if (index === 0 || index === count - 1) return 5.5; // Emerald Green & Coral Red markers
+                return 0;
+              },
+              pointBackgroundColor: (ctx) => {
+                const index = ctx.dataIndex;
+                const count = ctx.dataset.data.length;
+                if (index === 0) return '#10b981'; // Emerald Green Start
+                if (index === count - 1) return '#ef4444'; // Coral Red End
+                return '#5e19ea';
+              },
+              pointBorderColor: '#ffffff',
+              pointBorderWidth: 1.8,
+              pointHoverRadius: 7
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { display: false },
+              y: { 
+                display: true,
+                ticks: { color: '#64748b', font: { size: 9 } }, 
+                grid: { color: 'rgba(226, 232, 240, 0.8)' },
+                grace: '5%'
+              }
+            },
+            onHover: (event, activeElements) => {
+              if (activeElements && activeElements.length > 0) {
+                showProfile3DHoverPoint(activeElements[0].index);
+              } else {
+                hideProfile3DHoverPoint();
+              }
             }
           }
-        },
-        scales: {
-          x: { 
-            title: { display: true, text: 'Distance (m)', color: '#334155', font: { weight: '600' } },
-            ticks: { color: '#64748b' },
-            grid: { color: '#e2e8f0' }
+        });
+
+        miniCanvas.addEventListener("mouseleave", hideProfile3DHoverPoint);
+      }
+    }
+
+    if (fullCanvas && !fullChart) {
+      const fullCtx = fullCanvas.getContext("2d");
+      if (fullCtx) {
+        fullChart = new Chart(fullCtx, {
+          type: 'line',
+          data: {
+            labels: [],
+            datasets: [{
+              label: 'Elevation',
+              data: [],
+              borderColor: '#5e19ea', // Polygon Purple
+              backgroundColor: 'rgba(94, 25, 234, 0.12)',
+              fill: true,
+              tension: 0.15,
+              borderWidth: 2.5,
+              pointRadius: (ctx) => {
+                const index = ctx.dataIndex;
+                const count = ctx.dataset.data.length;
+                if (count <= 1) return 6;
+                if (index === 0 || index === count - 1) return 7; // Prominent Start & End dots
+                return 2.5;
+              },
+              pointBackgroundColor: (ctx) => {
+                const index = ctx.dataIndex;
+                const count = ctx.dataset.data.length;
+                if (index === 0) return '#10b981'; // Emerald Green Start
+                if (index === count - 1) return '#ef4444'; // Coral Red End
+                return '#5e19ea';
+              },
+              pointBorderColor: '#ffffff',
+              pointBorderWidth: (ctx) => {
+                const index = ctx.dataIndex;
+                const count = ctx.dataset.data.length;
+                if (index === 0 || index === count - 1) return 2.2;
+                return 1.2;
+              },
+              pointHoverRadius: (ctx) => {
+                const index = ctx.dataIndex;
+                const count = ctx.dataset.data.length;
+                if (index === 0 || index === count - 1) return 9;
+                return 6;
+              },
+              pointHoverBackgroundColor: (ctx) => {
+                const index = ctx.dataIndex;
+                const count = ctx.dataset.data.length;
+                if (index === 0) return '#059669';
+                if (index === count - 1) return '#dc2626';
+                return '#4c1d95';
+              }
+            }]
           },
-          y: { 
-            title: { display: true, text: 'Elevation (m)', color: '#334155', font: { weight: '600' } },
-            ticks: { color: '#64748b' },
-            grid: { color: '#e2e8f0' },
-            grace: '5%'
-          }
-        }
-      },
-      plugins: [customBgPlugin]
-    });
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                backgroundColor: '#0f172a',
+                titleColor: '#f8fafc',
+                bodyColor: '#c4b5fd',
+                borderColor: '#7c3aed',
+                borderWidth: 1,
+                padding: 10,
+                displayColors: false,
+                callbacks: {
+                  title: (items) => {
+                    if (!items || items.length === 0) return '';
+                    const idx = items[0].dataIndex;
+                    const total = items[0].dataset.data.length;
+                    if (idx === 0) return `🟢 START POINT (0.0 m)`;
+                    if (idx === total - 1) return `🔴 END POINT (${items[0].label} m)`;
+                    return `Distance: ${items[0].label} m`;
+                  },
+                  label: (ctx) => `Elevation: ${ctx.parsed.y.toFixed(2)} m`
+                }
+              }
+            },
+            scales: {
+              x: { 
+                title: { display: true, text: 'Distance (m)', color: '#334155', font: { weight: '600' } },
+                ticks: { color: '#64748b' },
+                grid: { color: '#e2e8f0' }
+              },
+              y: { 
+                title: { display: true, text: 'Elevation (m)', color: '#334155', font: { weight: '600' } },
+                ticks: { color: '#64748b' },
+                grid: { color: '#e2e8f0' },
+                grace: '5%'
+              }
+            },
+            onHover: (event, activeElements) => {
+              if (activeElements && activeElements.length > 0) {
+                showProfile3DHoverPoint(activeElements[0].index);
+              } else {
+                hideProfile3DHoverPoint();
+              }
+            }
+          },
+          plugins: [customBgPlugin]
+        });
+
+        fullCanvas.addEventListener("mouseleave", hideProfile3DHoverPoint);
+      }
+    }
   }
 
   function calculateVolumeMetrics() {
@@ -3285,24 +3786,37 @@ window.addEventListener("DOMContentLoaded", () => {
         if (pointInPolygon(x, y, coords)) {
           const sample = map.getElevationFast(x, y);
           const z = sample ? sample.elevation : 0;
-          const diff = referenceElevation - z;
+          const diff = z - referenceElevation;
           
           if (diff > 0) {
-            cutVolume += diff * (gridStep * gridStep); // Pit
+            cutVolume += diff * (gridStep * gridStep); // Stockpile / Dump (Above Ground)
           } else {
-            fillVolume += Math.abs(diff) * (gridStep * gridStep); // Stockpile
+            fillVolume += Math.abs(diff) * (gridStep * gridStep); // Pit / Void (Below Ground)
           }
         }
       }
     }
 
+    const netVolume = cutVolume - fillVolume;
+
     // 4. Update UI
-    document.getElementById("volMiniArea").textContent = area2D.toLocaleString(undefined, {maximumFractionDigits: 2}) + " m²";
-    document.getElementById("volMiniPerim").textContent = perimeter.toLocaleString(undefined, {maximumFractionDigits: 2}) + " m";
-    document.getElementById("volMiniCut").textContent = cutVolume.toLocaleString(undefined, {maximumFractionDigits: 2}) + " m³";
-    document.getElementById("volMiniFill").textContent = fillVolume.toLocaleString(undefined, {maximumFractionDigits: 2}) + " m³";
+    const areaEl = document.getElementById("volMiniArea");
+    const perimEl = document.getElementById("volMiniPerim");
+    const cutEl = document.getElementById("volMiniCut");
+    const fillEl = document.getElementById("volMiniFill");
+    const netEl = document.getElementById("volMiniNet");
+
+    if (areaEl) areaEl.textContent = area2D.toLocaleString(undefined, {maximumFractionDigits: 2}) + " m²";
+    if (perimEl) perimEl.textContent = perimeter.toLocaleString(undefined, {maximumFractionDigits: 2}) + " m";
+    if (cutEl) cutEl.textContent = cutVolume.toLocaleString(undefined, {maximumFractionDigits: 2}) + " m³";
+    if (fillEl) fillEl.textContent = fillVolume.toLocaleString(undefined, {maximumFractionDigits: 2}) + " m³";
+    if (netEl) {
+      const netSign = netVolume >= 0 ? "+" : "";
+      netEl.textContent = `${netSign}${netVolume.toLocaleString(undefined, {maximumFractionDigits: 2})} m³`;
+      netEl.style.color = netVolume >= 0 ? "#10b981" : "#ef4444";
+    }
     
-    showUnifiedInfoPanel("VOLUME", "VOLUME ANALYSIS", { area2D, perimeter, cutVolume, fillVolume, coords });
+    showUnifiedInfoPanel("VOLUME", "VOLUME ANALYSIS", { area2D, perimeter, cutVolume, fillVolume, netVolume, coords });
   }
 
   function buildProfile3DPointsFromElevations(startPt, endPt, elevationsArray) {
@@ -3411,30 +3925,33 @@ window.addEventListener("DOMContentLoaded", () => {
     }, 150);
   }
 
-  let wasInfoPanelVisibleOnModalOpen = false;
-  let wasTopSaveBarVisibleOnModalOpen = false;
+  elevationMiniContainer?.addEventListener("click", (e) => {
+    e.stopPropagation();
 
-  elevationMiniContainer?.addEventListener("click", () => {
-    // Auto-hide right info panel and top save bar to avoid visual overlap
-    if (unifiedInfoPanel && !unifiedInfoPanel.classList.contains("hidden")) {
-      wasInfoPanelVisibleOnModalOpen = true;
-      unifiedInfoPanel.classList.add("hidden");
-    } else {
-      wasInfoPanelVisibleOnModalOpen = false;
+    if (elevationModal) {
+      elevationModal.classList.remove("hidden");
     }
-
-    if (topSaveBar && !topSaveBar.classList.contains("hidden")) {
-      wasTopSaveBarVisibleOnModalOpen = true;
-      topSaveBar.classList.add("hidden");
-    } else {
-      wasTopSaveBarVisibleOnModalOpen = false;
-    }
-
-    elevationModal.classList.remove("hidden");
     initCharts();
-    fullChart.data.labels = miniChart.data.labels;
-    fullChart.data.datasets[0].data = miniChart.data.datasets[0].data;
-    fullChart.update();
+
+    setTimeout(() => {
+      if (fullChart) {
+        const distances = (miniChart && miniChart.data && miniChart.data.labels && miniChart.data.labels.length > 0)
+          ? miniChart.data.labels
+          : (currentProfileData ? currentProfileData.map(d => d.dist.toFixed(1)) : []);
+        const elevations = (miniChart && miniChart.data && miniChart.data.datasets && miniChart.data.datasets[0] && miniChart.data.datasets[0].data)
+          ? miniChart.data.datasets[0].data
+          : (currentProfileData ? currentProfileData.map(d => d.elev) : []);
+
+        fullChart.data.labels = distances;
+        fullChart.data.datasets[0].data = elevations;
+        try {
+          fullChart.resize();
+          fullChart.update();
+        } catch (e) {
+          console.warn("Error updating fullChart", e);
+        }
+      }
+    }, 60);
   });
   
   const closeMiniChartBtn = document.getElementById("closeMiniChartBtn");
@@ -3443,35 +3960,31 @@ window.addEventListener("DOMContentLoaded", () => {
     if (elevationMiniContainer) elevationMiniContainer.classList.add("hidden");
   });
 
-  btnCloseModal?.addEventListener("click", () => {
-    elevationModal.classList.add("hidden");
-    // Restore right info panel and top save bar if they were open before expanding
-    if (wasInfoPanelVisibleOnModalOpen && unifiedInfoPanel) {
-      unifiedInfoPanel.classList.remove("hidden");
-    }
-    if (wasTopSaveBarVisibleOnModalOpen && topSaveBar) {
-      topSaveBar.classList.remove("hidden");
+  btnCloseModal?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (elevationModal) elevationModal.classList.add("hidden");
+  });
+
+  elevationModal?.addEventListener("click", (e) => {
+    if (e.target === elevationModal) {
+      elevationModal.classList.add("hidden");
     }
   });
 
   function generateReportPDF(reportName) {
-    // Force fullChart to sync with miniChart and render if modal is hidden
-    let wasHidden = false;
-    const elevationModal = document.getElementById("elevationModal");
-    if (elevationModal && elevationModal.classList.contains("hidden")) {
-      wasHidden = true;
-      // Make it part of the layout but invisible to the user
-      elevationModal.style.visibility = 'hidden';
-      elevationModal.style.display = 'flex';
-      elevationModal.classList.remove("hidden");
-    }
+    initCharts();
 
-    if (fullChart && miniChart) {
-      fullChart.data.labels = miniChart.data.labels;
-      fullChart.data.datasets[0].data = miniChart.data.datasets[0].data;
-      // Force synchronous update (Chart.js 3+ uses 'none', fallback to 0)
+    const distances = (miniChart && miniChart.data && miniChart.data.labels && miniChart.data.labels.length > 0)
+      ? miniChart.data.labels
+      : (currentProfileData ? currentProfileData.map(d => d.dist.toFixed(1)) : []);
+    const elevations = (miniChart && miniChart.data && miniChart.data.datasets && miniChart.data.datasets[0] && miniChart.data.datasets[0].data)
+      ? miniChart.data.datasets[0].data
+      : (currentProfileData ? currentProfileData.map(d => d.elev) : []);
+
+    if (fullChart) {
+      fullChart.data.labels = distances;
+      fullChart.data.datasets[0].data = elevations;
       try { fullChart.update('none'); } catch (e) { }
-      try { fullChart.update(0); } catch (e) { }
     }
 
     const doc = new jsPDF();
@@ -3502,15 +4015,24 @@ window.addEventListener("DOMContentLoaded", () => {
     doc.text(`Date of Analysis: ${new Date().toLocaleString()}`, 15, 60);
     doc.text(`Coordinate System: EPSG:3395 (World Mercator)`, 15, 66);
     
-    // Add Chart Image
-    const chartImg = fullChart.canvas.toDataURL('image/png');
-    doc.addImage(chartImg, 'PNG', 15, 75, 180, 80);
+    // Add Chart Image (prefer miniChart or fullChart canvas)
+    let chartImg = null;
+    try {
+      if (miniChart && miniChart.canvas && miniChart.canvas.width > 0 && miniChart.canvas.height > 0) {
+        chartImg = miniChart.canvas.toDataURL('image/png');
+      } else if (fullChart && fullChart.canvas && fullChart.canvas.width > 0 && fullChart.canvas.height > 0) {
+        chartImg = fullChart.canvas.toDataURL('image/png');
+      }
+    } catch(e) {
+      console.warn("Could not export chart canvas to dataURL:", e);
+    }
 
-    // Restore modal state
-    if (wasHidden && elevationModal) {
-      elevationModal.classList.add("hidden");
-      elevationModal.style.visibility = '';
-      elevationModal.style.display = '';
+    if (chartImg && typeof chartImg === 'string' && chartImg.startsWith('data:image/png;base64,') && chartImg.length > 100) {
+      try {
+        doc.addImage(chartImg, 'PNG', 15, 75, 180, 80);
+      } catch(e) {
+        console.warn("Failed to add chart image to PDF:", e);
+      }
     }
     
     // Calculate Analytical Stats
@@ -3636,14 +4158,14 @@ window.addEventListener("DOMContentLoaded", () => {
           type: "reports", fileName: `${safeReportName}.pdf`
         })
       });
-      if (!pdfApiResponse.ok) throw new Error("Failed to get PDF upload URL from Lambda");
+      if (!pdfApiResponse.ok) throw new Error("Failed to get PDF upload URL");
       const { uploadUrl: pdfUploadUrl } = await pdfApiResponse.json();
       const pdfUploadResponse = await fetch(pdfUploadUrl, {
         method: "PUT",
         headers: { "Content-Type": "application/pdf" },
         body: pdfBlob
       });
-      if (!pdfUploadResponse.ok) throw new Error("Failed to upload PDF to S3");
+      if (!pdfUploadResponse.ok) throw new Error("Failed to upload PDF report");
 
       // 2. Upload JSON Metadata
       const jsonApiResponse = await fetch(apiUrl, {
@@ -3655,14 +4177,14 @@ window.addEventListener("DOMContentLoaded", () => {
           type: "reports", fileName: `${safeReportName}.json`
         })
       });
-      if (!jsonApiResponse.ok) throw new Error("Failed to get JSON upload URL from Lambda");
+      if (!jsonApiResponse.ok) throw new Error("Failed to get data upload URL");
       const { uploadUrl: jsonUploadUrl } = await jsonApiResponse.json();
       const jsonUploadResponse = await fetch(jsonUploadUrl, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: jsonBlob
       });
-      if (!jsonUploadResponse.ok) throw new Error("Failed to upload JSON to S3");
+      if (!jsonUploadResponse.ok) throw new Error("Failed to upload report metadata");
 
       btnSaveToSurvey.textContent = "Saved to Survey!";
       btnSaveToSurvey.style.background = "#10b981"; // success green
@@ -3971,24 +4493,32 @@ window.addEventListener("DOMContentLoaded", () => {
           jsonFiles = files.filter(f => f && f.fileName && f.fileName.endsWith('.json'));
         }
       } catch (netErr) {
-        console.warn("Could not load reports from S3 API", netErr);
+        console.warn("Could not load reports", netErr);
       }
 
       if (reportsListLoading) reportsListLoading.style.display = 'none';
 
       // Fetch metadata for isOfficial & folder
       const itemsPromises = pdfFiles.map(async pdfFile => {
-        const baseName = pdfFile.fileName.replace('.pdf', '');
-        const jsonFile = jsonFiles.find(j => j.fileName === `${baseName}.json`);
-        let metadata = { isOfficial: false, folder: "General" };
+        const rawPdfBase = pdfFile.fileName.split('/').pop().replace('.pdf', '');
+        const jsonFile = jsonFiles.find(j => {
+          const jRaw = j.fileName.split('/').pop().replace('.json', '');
+          return j.fileName === `${pdfFile.fileName.replace('.pdf', '')}.json` || jRaw === rawPdfBase;
+        });
+        const fallbackFolder = pdfFile.fileName.includes('/') ? pdfFile.fileName.split('/')[0] : "General";
+        let metadata = { isOfficial: false, folder: fallbackFolder };
         if (jsonFile) {
           try {
             const _url = jsonFile.url;
             const _cacheBuster = _url.includes('?') ? `&t=${Date.now()}` : `?t=${Date.now()}`;
             const res = await fetch(_url + _cacheBuster, { cache: 'no-store' });
-            metadata = await res.json();
+            if (res.ok) {
+              const fetchedMeta = await res.json();
+              metadata = Object.assign(metadata, fetchedMeta);
+            }
           } catch(e) {}
         }
+        if (!metadata.folder) metadata.folder = fallbackFolder;
         return { pdfFile, jsonFile, metadata };
       });
       
@@ -4006,7 +4536,8 @@ window.addEventListener("DOMContentLoaded", () => {
       });
 
       items.forEach(itemData => {
-        const folderName = itemData.metadata.folder || "General";
+        const folderName = itemData.metadata.folder || (itemData.pdfFile.fileName.includes('/') ? itemData.pdfFile.fileName.split('/')[0] : "General");
+        itemData.metadata.folder = folderName;
         addKnownProfileFolder(folderName, false);
         if (!profileFolders[folderName]) profileFolders[folderName] = [];
         profileFolders[folderName].push(itemData);
@@ -4090,7 +4621,7 @@ window.addEventListener("DOMContentLoaded", () => {
         renameBtn?.addEventListener("click", async (e) => {
           e.stopPropagation();
           e.preventDefault();
-          const newName = prompt(`Enter new name for folder "${folderName}":`, folderName);
+          const newName = await showCustomPrompt(`Enter new name for folder "${folderName}":`, folderName, "Rename Folder");
           if (!newName || newName.trim() === "" || newName.trim() === folderName) return;
           const cleanName = newName.trim();
           knownProfileFolders.delete(folderName);
@@ -4129,7 +4660,8 @@ window.addEventListener("DOMContentLoaded", () => {
           e.preventDefault();
 
           if (folderItems.length === 0) {
-            if (confirm(`Delete empty subfolder "${folderName}"?`)) {
+            const confirmed = await showCustomConfirm(`Delete empty subfolder "${folderName}"?`, "Delete Folder", true);
+            if (confirmed) {
               knownProfileFolders.delete(folderName);
               saveStoredFolders();
               fetchSavedReports();
@@ -4138,7 +4670,8 @@ window.addEventListener("DOMContentLoaded", () => {
             return;
           }
 
-          if (confirm(`Delete folder "${folderName}" and all ${folderItems.length} path profile(s) in it?`)) {
+          const confirmed = await showCustomConfirm(`Delete folder "${folderName}" and all ${folderItems.length} path profile(s) in it?`, "Delete Folder", true);
+          if (confirmed) {
             delBtn.disabled = true;
             delBtn.textContent = "...";
             try {
@@ -4154,7 +4687,7 @@ window.addEventListener("DOMContentLoaded", () => {
               syncFolderDropdowns("PROFILE");
             } catch (err) {
               console.error("Error deleting folder items", err);
-              alert("Failed to delete all items in folder.");
+              await showCustomAlert("Failed to delete all items in folder: " + err.message, "Error", "error");
               fetchSavedReports();
             }
           }
@@ -4184,6 +4717,7 @@ window.addEventListener("DOMContentLoaded", () => {
             
             const pdfLinkHtml = `<a href="${pdfFile.url}" target="_blank" class="btn-action-icon" title="Download PDF" onclick="event.stopPropagation();" style="width: 22px; height: 22px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; background: rgba(94, 25, 234, 0.08); border: 1px solid rgba(94, 25, 234, 0.25); color: #5e19ea; text-decoration: none;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>`;
             const rawName = metadata?.name || metadata?.title || pdfFile.fileName.split('/').pop().replace('.pdf', '').replace(/_/g, ' ');
+            const renameProfileBtnHtml = `<button class="btn-row-rename-icon btn-row-rename-profile" data-filename="${pdfFile.fileName}" title="Rename ${rawName}" style="display: ${isProfilesEditMode ? 'inline-flex' : 'none'}; background: rgba(94, 25, 234, 0.08); border: 1px solid rgba(94, 25, 234, 0.25); color: #5e19ea; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; align-items: center; justify-content: center; padding: 0;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>`;
             const delBtnHtml = `<button class="btn-row-delete-icon btn-row-delete-profile" data-filename="${pdfFile.fileName}" title="Delete ${rawName}" style="display: ${isProfilesEditMode ? 'inline-flex' : 'none'};"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>`;
             const infoBtnHtml = `<button class="btn-row-info-trigger" title="Quick Info" onclick="event.stopPropagation();"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>`;
             
@@ -4193,11 +4727,52 @@ window.addEventListener("DOMContentLoaded", () => {
                 <span class="item-title" style="flex: 1; font-weight: 500; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${rawName}">${rawName}</span>
               </div>
               <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: 8px;">
+                ${renameProfileBtnHtml}
                 ${delBtnHtml}
                 ${isFeaturesSection ? '' : pdfLinkHtml}
-                ${isFeaturesSection ? '' : infoBtnHtml}
+                ${infoBtnHtml}
               </div>
             `;
+
+            const renameBtn = item.querySelector(".btn-row-rename-profile");
+            renameBtn?.addEventListener("click", async (e) => {
+              e.stopPropagation();
+              const newName = await showCustomPrompt(`Enter new name for profile "${rawName}":`, rawName, "Rename Path Profile");
+              if (!newName || newName.trim() === "" || newName.trim() === rawName) return;
+              const cleanName = newName.trim();
+              try {
+                renameBtn.disabled = true;
+                let meta = Object.assign({}, metadata || {});
+                if (jsonFile && jsonFile.url) {
+                  try {
+                    const _u = jsonFile.url + (jsonFile.url.includes('?') ? '&' : '?') + `t=${Date.now()}`;
+                    const r = await fetch(_u, { cache: 'no-store' });
+                    if (r.ok) meta = Object.assign(meta, await r.json());
+                  } catch(err){}
+                }
+                meta.name = cleanName;
+                meta.title = cleanName;
+                if (!meta.folder && metadata?.folder) meta.folder = metadata.folder;
+                if (!meta.folder) meta.folder = folderName || "General";
+
+                const jsonFileName = jsonFile?.fileName || pdfFile.fileName.replace(/\.pdf$/, '.json');
+                const res = await fetch(`https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "reports", fileName: jsonFileName })
+                });
+                if (res.ok) {
+                  const { uploadUrl } = await res.json();
+                  if (uploadUrl) {
+                    await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(meta, null, 2) });
+                  }
+                }
+                fetchSavedReports();
+              } catch(err) {
+                console.error("Rename profile error:", err);
+                await showCustomAlert("Failed to rename profile: " + err.message, "Error", "error");
+              }
+            });
 
             const infoBtn = item.querySelector(".btn-row-info-trigger");
             const triggerProfileQuickInfo = async () => {
@@ -4232,7 +4807,8 @@ window.addEventListener("DOMContentLoaded", () => {
             const delBtn = item.querySelector(".btn-row-delete-profile");
             delBtn?.addEventListener("click", async (e) => {
               e.stopPropagation();
-              if (confirm(`Are you sure you want to delete profile "${rawName}"? This cannot be undone.`)) {
+              const confirmed = await showCustomConfirm(`Are you sure you want to delete profile "${rawName}"? This cannot be undone.`, "Delete Profile", true);
+              if (confirmed) {
                 try {
                   delBtn.disabled = true;
                   await deleteFile("reports", pdfFile.fileName);
@@ -4241,7 +4817,7 @@ window.addEventListener("DOMContentLoaded", () => {
                   }
                   fetchSavedReports();
                 } catch(err) {
-                  alert("Failed to delete: " + err.message);
+                  await showCustomAlert("Failed to delete: " + err.message, "Error", "error");
                 }
               }
             });
@@ -4256,13 +4832,17 @@ window.addEventListener("DOMContentLoaded", () => {
                 const res = await fetch(_url + _cacheBuster, { cache: 'no-store' });
                 const text = await res.text();
                 const m = JSON.parse(text);
+                if (m) {
+                  m.folder = folderName || m.folder || "General";
+                }
 
                 window.currentViewingFeature = {
                   type: "PROFILE",
                   name: rawName,
                   pdfFile,
                   jsonFile,
-                  metadata: m
+                  metadata: m,
+                  folder: folderName || m?.folder || "General"
                 };
                 if (typeof updateInfoPanelRenameTrigger === 'function') {
                   updateInfoPanelRenameTrigger(rawName);
@@ -4424,7 +5004,13 @@ window.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll(".btn-row-delete-profile").forEach(el => {
       el.style.display = isProfilesEditMode ? "inline-flex" : "none";
     });
+    document.querySelectorAll(".btn-row-rename-profile").forEach(el => {
+      el.style.display = isProfilesEditMode ? "inline-flex" : "none";
+    });
     document.querySelectorAll("#panel-profile .btn-delete-folder-trigger, #featuresListLines .btn-delete-folder-trigger").forEach(b => {
+      b.style.display = isProfilesEditMode ? "inline-flex" : "none";
+    });
+    document.querySelectorAll("#panel-profile .btn-rename-folder-trigger, #featuresListLines .btn-rename-folder-trigger").forEach(b => {
       b.style.display = isProfilesEditMode ? "inline-flex" : "none";
     });
   }
@@ -4438,6 +5024,24 @@ window.addEventListener("DOMContentLoaded", () => {
     toggleProfilesEditMode();
   });
 
+  async function promptNewFolder(type) {
+    if (type === "PROFILE") {
+      const name = await showCustomPrompt("Enter new folder name for Path Profiles:", "", "New Profile Folder");
+      if (name && name.trim()) {
+        const trimmed = name.trim();
+        addKnownProfileFolder(trimmed, true, trimmed);
+        fetchSavedReports();
+      }
+    } else if (type === "VOLUME") {
+      const name = await showCustomPrompt("Enter new folder name for Volumes:", "", "New Volume Folder");
+      if (name && name.trim()) {
+        const trimmed = name.trim();
+        addKnownVolumeFolder(trimmed, true, trimmed);
+        fetchSavedVolumes();
+      }
+    }
+  }
+
   document.getElementById("btnNewProfilesFolder")?.addEventListener("click", (e) => {
     e.stopPropagation();
     promptNewFolder("PROFILE");
@@ -4448,8 +5052,8 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Direct Panel Add Folder Buttons
   const btnNewProfileFolder = document.getElementById("btnNewProfileFolder");
-  btnNewProfileFolder?.addEventListener("click", () => {
-    const newFolder = prompt("Enter new folder name for Path Profiles:");
+  btnNewProfileFolder?.addEventListener("click", async () => {
+    const newFolder = await showCustomPrompt("Enter new folder name for Path Profiles:", "", "New Profile Folder");
     if (newFolder && newFolder.trim() !== "") {
       const trimmed = newFolder.trim();
       addKnownProfileFolder(trimmed, true, trimmed);
@@ -4458,8 +5062,8 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   const btnNewVolumeFolder = document.getElementById("btnNewVolumeFolder");
-  btnNewVolumeFolder?.addEventListener("click", () => {
-    const newFolder = prompt("Enter new folder name for Volumes:");
+  btnNewVolumeFolder?.addEventListener("click", async () => {
+    const newFolder = await showCustomPrompt("Enter new folder name for Volumes:", "", "New Volume Folder");
     if (newFolder && newFolder.trim() !== "") {
       const trimmed = newFolder.trim();
       addKnownVolumeFolder(trimmed, true, trimmed);
@@ -4468,23 +5072,10 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   const btnNewFeatureFolder = document.getElementById("btnNewFeatureFolder");
-  btnNewFeatureFolder?.addEventListener("click", () => {
-    const choice = prompt("Create folder in:\n1: Path Profiles\n2: Volumes\n\nEnter 1 or 2 (or type folder name):", "1");
-    if (!choice) return;
-    if (choice === "1") {
-      const name = prompt("Enter new folder name for Path Profiles:");
-      if (name && name.trim()) {
-        addKnownProfileFolder(name.trim(), true, name.trim());
-        fetchSavedReports();
-      }
-    } else if (choice === "2") {
-      const name = prompt("Enter new folder name for Volumes:");
-      if (name && name.trim()) {
-        addKnownVolumeFolder(name.trim(), true, name.trim());
-        fetchSavedVolumes();
-      }
-    } else {
-      const trimmed = choice.trim();
+  btnNewFeatureFolder?.addEventListener("click", async () => {
+    const name = await showCustomPrompt("Enter new folder name for Features / Layers:", "", "New Folder");
+    if (name && name.trim()) {
+      const trimmed = name.trim();
       addKnownProfileFolder(trimmed, true, trimmed);
       addKnownVolumeFolder(trimmed, true, trimmed);
       fetchSavedReports();
@@ -4570,7 +5161,7 @@ window.addEventListener("DOMContentLoaded", () => {
     const name = volSaveName.value.trim();
     const folder = volSaveFolder.value;
     if (!name) {
-      alert("Please enter a volume name.");
+      await showCustomAlert("Please enter a volume name.", "Name Required", "warning");
       return;
     }
     btnConfirmVolSave.disabled = true;
@@ -4588,6 +5179,7 @@ window.addEventListener("DOMContentLoaded", () => {
         perimeter: document.getElementById("volMiniPerim").textContent,
         cutVolume: document.getElementById("volMiniCut").textContent,
         fillVolume: document.getElementById("volMiniFill").textContent,
+        netVolume: document.getElementById("volMiniNet")?.textContent || "0 m³",
         points: volumePoints.map(p => ({ x: p.coord.x, y: p.coord.y, z: p.coord.z }))
       };
 
@@ -4615,14 +5207,14 @@ window.addEventListener("DOMContentLoaded", () => {
         body: jsonStr
       });
 
-      if (!putRes.ok) throw new Error("Failed to upload JSON to S3");
+      if (!putRes.ok) throw new Error("Failed to upload volume data");
 
       if (volumeSaveModal) volumeSaveModal.classList.add("hidden");
-      alert("Volume saved successfully!");
+      await showCustomAlert("Volume saved successfully!", "Saved", "success");
       fetchSavedVolumes();
     } catch (err) {
       console.error("Error saving volume", err);
-      alert("Error saving volume: " + err.message);
+      await showCustomAlert("Error saving volume: " + err.message, "Save Error", "error");
     } finally {
       btnConfirmVolSave.disabled = false;
       btnConfirmVolSave.textContent = "Save";
@@ -4655,7 +5247,10 @@ window.addEventListener("DOMContentLoaded", () => {
 
   btnConfirmRoiSave?.addEventListener("click", async () => {
     const name = roiSaveName.value.trim();
-    if (!name) { alert("Please enter an ROI name."); return; }
+    if (!name) { 
+      await showCustomAlert("Please enter an ROI name.", "Name Required", "warning"); 
+      return; 
+    }
     
     btnConfirmRoiSave.disabled = true;
     btnConfirmRoiSave.textContent = "Saving...";
@@ -4685,38 +5280,55 @@ window.addEventListener("DOMContentLoaded", () => {
       const { uploadUrl } = await response.json();
       
       const putRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: jsonStr });
-      if (!putRes.ok) throw new Error("Failed to upload JSON to S3");
+      if (!putRes.ok) throw new Error("Failed to upload ROI data");
       
       if (roiMiniContainer) roiMiniContainer.classList.add("hidden");
-      alert("ROI saved successfully!");
+      await showCustomAlert("ROI saved successfully!", "Saved", "success");
       fetchSavedRois();
     } catch (err) {
       console.error(err);
-      alert("Error saving ROI: " + err.message);
+      await showCustomAlert("Error saving ROI: " + err.message, "Save Error", "error");
     } finally {
       btnConfirmRoiSave.disabled = false;
       btnConfirmRoiSave.textContent = "Save ROI";
     }
   });
 
-  window.loadRoiArea = async function(url) {
+  window.loadRoiArea = async function(url, fileObj = null, preloadedMeta = null) {
     try {
-      clearAllLeftPanelState();
-      const res = await fetch(url);
-      const data = await res.json();
+      clearAllLeftPanelState(true);
+      let data = preloadedMeta;
+      if (!data) {
+        const _cacheBuster = url.includes('?') ? `&t=${Date.now()}` : `?t=${Date.now()}`;
+        const res = await fetch(url + _cacheBuster, { cache: 'no-store' });
+        data = await res.json();
+      }
+      if (!data || !data.points || data.points.length === 0) {
+        console.error("Invalid ROI data:", data);
+        return;
+      }
       roiPolyPoints = data.points.map(pt => ({
-        coord: new Coordinates(giroCrs, pt.x, pt.y, pt.z),
-        point: new Vector3(pt.x, pt.y, pt.z)
+        coord: new Coordinates(giroCrs, pt.x, pt.y, pt.z || 0),
+        point: new Vector3(pt.x, pt.y, pt.z || 0)
       }));
       
       measureMode = "ROI_POLY";
       measureState = "FINISHED_ROI_POLY";
       roiPolyMousePoint = null;
-      updateRoiPolySvg();
       if (roiArea) roiArea.textContent = (data.area2D || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
       if (roiPerimeter) roiPerimeter.textContent = (data.perimeter || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
       if (roiMetrics) roiMetrics.classList.remove("hidden");
-      showUnifiedInfoPanel("POLY_ROI", "SAVED ROI", data, true);
+
+      const roiDisplayName = data.name || data.title || (fileObj ? fileObj.fileName.split('/').pop().replace('.json', '') : "SAVED ROI");
+      window.currentViewingFeature = {
+        type: "POLY_ROI",
+        name: roiDisplayName,
+        file: fileObj || { fileName: url.split('?')[0].split('/').pop() },
+        metadata: data
+      };
+
+      showUnifiedInfoPanel("POLY_ROI", roiDisplayName, data, true);
+      updateInfoPanelRenameTrigger(roiDisplayName);
 
       applyRoiPolyClipping();
     } catch (err) {
@@ -4746,14 +5358,15 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   window.deleteFileByUrl = async function(url, type, fileName) {
-    if (!confirm(`Delete this item? This cannot be undone.`)) return;
+    const confirmed = await showCustomConfirm("Delete this item? This cannot be undone.", "Delete Item", true);
+    if (!confirmed) return;
     try {
       await deleteFile(type, fileName);
       if (type === 'rois') fetchSavedRois();
       else if (type === 'volumes') fetchSavedVolumes();
     } catch(err) {
       console.error('Delete error:', err);
-      alert('Failed to delete: ' + err.message);
+      await showCustomAlert("Failed to delete: " + err.message, "Error", "error");
     }
   };
 
@@ -4786,7 +5399,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // -------------------------------------------------------------------------
   // Left Panel Exclusive State: only one feature can be active at a time
   // -------------------------------------------------------------------------
-  function clearAllLeftPanelState() {
+  function clearAllLeftPanelState(skipRestoreMap = false) {
     // 1. Clear Profile/Line & Distance Measurements
     const btnClearProfile = document.getElementById('btnClearProfile');
     if (btnClearProfile) {
@@ -4851,10 +5464,32 @@ window.addEventListener("DOMContentLoaded", () => {
     });
 
     // 9. Restore full unclipped map if ROI was active
-    restoreFullMapIfClipped();
+    if (!skipRestoreMap) {
+      restoreFullMapIfClipped();
+    }
   }
   window.clearAllLeftPanelState = clearAllLeftPanelState;
   window.clearAllViewingState = clearAllLeftPanelState;
+
+  let isRoisEditMode = false;
+
+  function toggleRoisEditMode(enable = !isRoisEditMode) {
+    isRoisEditMode = enable;
+    const btnManageRois = document.getElementById("btnManageRois");
+    btnManageRois?.classList.toggle("active", isRoisEditMode);
+
+    document.querySelectorAll(".btn-row-delete-roi").forEach(el => {
+      el.style.display = isRoisEditMode ? "inline-flex" : "none";
+    });
+    document.querySelectorAll(".btn-row-rename-roi").forEach(el => {
+      el.style.display = isRoisEditMode ? "inline-flex" : "none";
+    });
+  }
+
+  document.getElementById("btnManageRois")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleRoisEditMode();
+  });
 
   async function fetchSavedRois() {
     const leftRoisList = document.getElementById("leftRoisList");
@@ -4874,28 +5509,117 @@ window.addEventListener("DOMContentLoaded", () => {
         return;
       }
       
+      const roiItemsData = await Promise.all(jsonFiles.map(async file => {
+        let metadata = null;
+        try {
+          const _url = file.url;
+          const _cacheBuster = _url.includes('?') ? `&t=${Date.now()}` : `?t=${Date.now()}`;
+          const res = await fetch(_url + _cacheBuster, { cache: 'no-store' });
+          if (res.ok) metadata = await res.json();
+        } catch (e) {}
+        const niceName = metadata?.name || metadata?.title || file.fileName.split('/').pop().replace('.json', '');
+        return { file, metadata, niceName };
+      }));
+
       if (featuresListRois) featuresListRois.innerHTML = '';
       if (leftRoisList) leftRoisList.innerHTML = '';
 
-      for (const file of jsonFiles) {
+      for (const { file, metadata, niceName } of roiItemsData) {
         const createRoiItem = () => {
           const item = document.createElement("div");
           item.className = "saved-report-item";
-          const cbHtml = `<input type="checkbox" class="feature-checkbox premium-checkbox" data-filename="${file.fileName}" value="${file.fileName}" style="display: none; margin-right: 8px;">`;
+          const renameRoiBtnHtml = `<button class="btn-row-rename-icon btn-row-rename-roi" data-filename="${file.fileName}" title="Rename ${niceName}" style="display: ${isRoisEditMode ? 'inline-flex' : 'none'}; background: rgba(94, 25, 234, 0.08); border: 1px solid rgba(94, 25, 234, 0.25); color: #5e19ea; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; align-items: center; justify-content: center; padding: 0;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>`;
+          const delRoiBtnHtml = `<button class="btn-row-delete-icon btn-row-delete-roi" data-filename="${file.fileName}" title="Delete ${niceName}" style="display: ${isRoisEditMode ? 'inline-flex' : 'none'};"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>`;
+          const infoRoiBtnHtml = `<button class="btn-row-info-trigger" title="Quick Info" onclick="event.stopPropagation();"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>`;
           item.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
-              ${cbHtml}
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #8b5cf6; flex-shrink: 0;"><polygon points="12 2 22 8.5 18 20 6 20 2 8.5 12 2"></polygon></svg>
-              <span style="font-weight: 500; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${file.fileName.split('/').pop().replace('.json', '')}</span>
+            <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+              <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #8b5cf6; flex-shrink: 0;"><polygon points="12 2 22 8.5 18 20 6 20 2 8.5 12 2"></polygon></svg>
+                <span class="item-title" style="font-weight: 500; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${niceName}">${niceName}</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: 8px;">
+                ${renameRoiBtnHtml}
+                ${delRoiBtnHtml}
+                ${infoRoiBtnHtml}
+              </div>
             </div>
           `;
+
+          const infoBtn = item.querySelector(".btn-row-info-trigger");
+          const triggerRoiQuickInfo = () => {
+            const areaNum = typeof metadata?.area2D === 'number' ? metadata.area2D : (parseFloat(String(metadata?.area2D || metadata?.area || 0).replace(/[^0-9.-]/g, '')) || 0);
+            const perimNum = typeof metadata?.perimeter === 'number' ? metadata.perimeter : (parseFloat(String(metadata?.perimeter || 0).replace(/[^0-9.-]/g, '')) || 0);
+            const ptsCount = metadata?.points ? metadata.points.length : (metadata?.pointsCount || "-");
+            const dateStr = file.lastModified ? new Date(file.lastModified).toLocaleDateString() : (metadata?.timestamp ? new Date(metadata.timestamp).toLocaleDateString() : "-");
+
+            const rows = [
+              { label: "2D Area", val: areaNum ? `${areaNum.toLocaleString(undefined, { maximumFractionDigits: 2 })} m²` : "-" },
+              { label: "Perimeter", val: perimNum ? `${perimNum.toLocaleString(undefined, { maximumFractionDigits: 2 })} m` : "-" },
+              { label: "Vertices", val: ptsCount ? `${ptsCount} points` : "-" },
+              { label: "Date", val: dateStr }
+            ];
+            showQuickInfoPopover(infoBtn, "ROI / Shape", niceName, rows);
+          };
+
+          infoBtn?.addEventListener("mouseenter", triggerRoiQuickInfo);
+          infoBtn?.addEventListener("click", (e) => {
+            e.stopPropagation();
+            triggerRoiQuickInfo();
+          });
+          infoBtn?.addEventListener("mouseleave", hideQuickInfoPopover);
           
           item.addEventListener("click", (e) => {
-            if (window.isFeatureManageMode || window.isVolumeManageMode) return;
-            if (e.target.closest("input")) return;
+            if (isRoisEditMode || window.isFeatureManageMode || window.isVolumeManageMode) return;
+            if (e.target.closest("button")) return;
             setActiveSavedItem(item);
-            loadRoiArea(file.url);
+            loadRoiArea(file.url, file, metadata);
           });
+
+          const renameBtn = item.querySelector(".btn-row-rename-roi");
+          renameBtn?.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            const newName = await showCustomPrompt(`Enter new name for ROI "${niceName}":`, niceName, "Rename ROI");
+            if (!newName || newName.trim() === "" || newName.trim() === niceName) return;
+            const cleanName = newName.trim();
+            try {
+              renameBtn.disabled = true;
+              let meta = metadata || {};
+              meta.name = cleanName;
+              meta.title = cleanName;
+              const res = await fetch(`https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "rois", fileName: file.fileName })
+              });
+              if (res.ok) {
+                const { uploadUrl } = await res.json();
+                if (uploadUrl) {
+                  await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(meta, null, 2) });
+                }
+              }
+              fetchSavedRois();
+            } catch(err) {
+              console.error("Rename ROI error:", err);
+              await showCustomAlert("Failed to rename ROI: " + err.message, "Error", "error");
+            }
+          });
+
+          const delBtn = item.querySelector(".btn-row-delete-roi");
+          delBtn?.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            const confirmed = await showCustomConfirm(`Delete saved ROI "${niceName}"? This cannot be undone.`, "Delete ROI", true);
+            if (confirmed) {
+              try {
+                delBtn.disabled = true;
+                await deleteFile("rois", file.fileName);
+                fetchSavedRois();
+              } catch(err) {
+                console.error("Delete ROI error:", err);
+                await showCustomAlert("Failed to delete ROI: " + err.message, "Error", "error");
+              }
+            }
+          });
+
           return item;
         };
 
@@ -4929,7 +5653,7 @@ window.addEventListener("DOMContentLoaded", () => {
           jsonFiles = files.filter(f => f && f.fileName && f.fileName.endsWith('.json'));
         }
       } catch (netErr) {
-        console.warn("Could not load volumes from S3 API", netErr);
+        console.warn("Could not load volumes", netErr);
       }
 
       if (volumesListLoading) volumesListLoading.style.display = 'none';
@@ -4948,7 +5672,9 @@ window.addEventListener("DOMContentLoaded", () => {
           const res = await fetch(_url + _cacheBuster, { cache: 'no-store' });
           if (!res.ok) continue;
           const metadata = await res.json();
-          const folderName = metadata.folder || "General";
+          const fallbackFolder = file.fileName.includes('/') ? file.fileName.split('/')[0] : "General";
+          const folderName = metadata.folder || fallbackFolder;
+          metadata.folder = folderName;
           addKnownVolumeFolder(folderName, false);
           
           if (!volumeFolders[folderName]) volumeFolders[folderName] = [];
@@ -5028,7 +5754,7 @@ window.addEventListener("DOMContentLoaded", () => {
         renameBtn?.addEventListener("click", async (e) => {
           e.stopPropagation();
           e.preventDefault();
-          const newName = prompt(`Enter new name for folder "${folderName}":`, folderName);
+          const newName = await showCustomPrompt(`Enter new name for folder "${folderName}":`, folderName, "Rename Folder");
           if (!newName || newName.trim() === "" || newName.trim() === folderName) return;
           const cleanName = newName.trim();
           knownVolumeFolders.delete(folderName);
@@ -5067,7 +5793,8 @@ window.addEventListener("DOMContentLoaded", () => {
           e.preventDefault();
 
           if (folderItems.length === 0) {
-            if (confirm(`Delete empty subfolder "${folderName}"?`)) {
+            const confirmed = await showCustomConfirm(`Delete empty subfolder "${folderName}"?`, "Delete Folder", true);
+            if (confirmed) {
               knownVolumeFolders.delete(folderName);
               saveStoredFolders();
               fetchSavedVolumes();
@@ -5076,7 +5803,8 @@ window.addEventListener("DOMContentLoaded", () => {
             return;
           }
 
-          if (confirm(`Delete folder "${folderName}" and all ${folderItems.length} volume(s) in it?`)) {
+          const confirmed = await showCustomConfirm(`Delete folder "${folderName}" and all ${folderItems.length} volume(s) in it?`, "Delete Folder", true);
+          if (confirmed) {
             delBtn.disabled = true;
             delBtn.textContent = "...";
             try {
@@ -5090,7 +5818,7 @@ window.addEventListener("DOMContentLoaded", () => {
               syncFolderDropdowns("VOLUME");
             } catch (err) {
               console.error("Error deleting volume folder items", err);
-              alert("Failed to delete all items in volume folder.");
+              await showCustomAlert("Failed to delete all items in volume folder: " + err.message, "Error", "error");
               fetchSavedVolumes();
             }
           }
@@ -5116,6 +5844,7 @@ window.addEventListener("DOMContentLoaded", () => {
             item.className = "saved-report-item";
             
             const niceName = metadata?.name || metadata?.title || file.fileName.split('/').pop().replace(/_[0-9]+\.json$/, '').replace(/_/g, ' ');
+            const renameVolBtnHtml = `<button class="btn-row-rename-icon btn-row-rename-vol" data-filename="${file.fileName}" title="Rename ${niceName}" style="display: ${isVolumesEditMode ? 'inline-flex' : 'none'}; background: rgba(94, 25, 234, 0.08); border: 1px solid rgba(94, 25, 234, 0.25); color: #5e19ea; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; align-items: center; justify-content: center; padding: 0;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>`;
             const delVolBtnHtml = `<button class="btn-row-delete-icon btn-row-delete-vol" data-filename="${file.fileName}" title="Delete ${niceName}" style="display: ${isVolumesEditMode ? 'inline-flex' : 'none'};"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>`;
             const infoVolBtnHtml = `<button class="btn-row-info-trigger" title="Quick Info" onclick="event.stopPropagation();"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>`;
             const svg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>`;
@@ -5126,19 +5855,67 @@ window.addEventListener("DOMContentLoaded", () => {
                   <span class="item-title" style="flex: 1; font-weight: 500; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${niceName}">${niceName}</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: 8px;">
+                  ${renameVolBtnHtml}
                   ${delVolBtnHtml}
-                  ${isFeaturesSection ? '' : infoVolBtnHtml}
+                  ${infoVolBtnHtml}
                 </div>
               </div>
             `;
 
+            const renameVolBtn = item.querySelector(".btn-row-rename-vol");
+            renameVolBtn?.addEventListener("click", async (e) => {
+              e.stopPropagation();
+              const newName = await showCustomPrompt(`Enter new name for volume "${niceName}":`, niceName, "Rename Volume");
+              if (!newName || newName.trim() === "" || newName.trim() === niceName) return;
+              const cleanName = newName.trim();
+              try {
+                renameVolBtn.disabled = true;
+                let meta = Object.assign({}, metadata || {});
+                if (file && file.url) {
+                  try {
+                    const _u = file.url + (file.url.includes('?') ? '&' : '?') + `t=${Date.now()}`;
+                    const r = await fetch(_u, { cache: 'no-store' });
+                    if (r.ok) meta = Object.assign(meta, await r.json());
+                  } catch(err){}
+                }
+                meta.name = cleanName;
+                meta.title = cleanName;
+                if (!meta.folder && metadata?.folder) meta.folder = metadata.folder;
+                if (!meta.folder) meta.folder = folderName || "General";
+
+                const res = await fetch(`https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "volumes", fileName: file.fileName })
+                });
+                if (res.ok) {
+                  const { uploadUrl } = await res.json();
+                  if (uploadUrl) {
+                    await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(meta, null, 2) });
+                  }
+                }
+                fetchSavedVolumes();
+              } catch(err) {
+                console.error("Rename volume error:", err);
+                await showCustomAlert("Failed to rename volume: " + err.message, "Error", "error");
+              }
+            });
+
             const infoVolBtn = item.querySelector(".btn-row-info-trigger");
             const triggerVolumeQuickInfo = () => {
+              const cutNum = parseFloat(String(metadata?.cutVolume || "").replace(/[^0-9.-]/g, '')) || 0;
+              const fillNum = parseFloat(String(metadata?.fillVolume || "").replace(/[^0-9.-]/g, '')) || 0;
+              const netVal = metadata?.netVolume || (cutNum - fillNum);
+              const netNum = (typeof netVal === 'number') ? netVal : (parseFloat(String(netVal).replace(/[^0-9.-]/g, '')) || 0);
+              const netSign = netNum >= 0 ? "+" : "";
+              const netFormatted = !isNaN(netNum) ? `${netSign}${netNum.toLocaleString(undefined, {maximumFractionDigits: 2})} m³` : (netVal || "-");
+
               const rows = [
                 { label: "2D Area", val: metadata?.area2D || metadata?.area || "-" },
                 { label: "Perimeter", val: metadata?.perimeter || "-" },
-                { label: "Cut Volume", val: metadata?.cutVolume || "-" },
-                { label: "Fill Volume", val: metadata?.fillVolume || "-" },
+                { label: "Cut (Dump)", val: metadata?.cutVolume || "-" },
+                { label: "Fill (Void)", val: metadata?.fillVolume || "-" },
+                { label: "Net Volume", val: netFormatted },
                 { label: "Date", val: new Date(file.lastModified).toLocaleDateString() }
               ];
               showQuickInfoPopover(infoVolBtn, "Volume", niceName, rows);
@@ -5154,13 +5931,14 @@ window.addEventListener("DOMContentLoaded", () => {
             const delVolBtn = item.querySelector(".btn-row-delete-vol");
             delVolBtn?.addEventListener("click", async (e) => {
               e.stopPropagation();
-              if (confirm(`Are you sure you want to delete volume "${niceName}"? This cannot be undone.`)) {
+              const confirmed = await showCustomConfirm(`Are you sure you want to delete volume "${niceName}"? This cannot be undone.`, "Delete Volume", true);
+              if (confirmed) {
                 try {
                   delVolBtn.disabled = true;
                   await deleteFile("volumes", file.fileName);
                   fetchSavedVolumes();
                 } catch(err) {
-                  alert("Failed to delete volume: " + err.message);
+                  await showCustomAlert("Failed to delete volume: " + err.message, "Error", "error");
                 }
               }
             });
@@ -5174,11 +5952,16 @@ window.addEventListener("DOMContentLoaded", () => {
               measureMode = "VOLUME";
               measureState = "FINISHED_VOLUME";
 
+              if (metadata) {
+                metadata.folder = folderName || metadata.folder || "General";
+              }
+
               window.currentViewingFeature = {
                 type: "VOLUME",
                 name: niceName,
                 file,
-                metadata
+                metadata,
+                folder: folderName || metadata?.folder || "General"
               };
               if (typeof updateInfoPanelRenameTrigger === 'function') {
                 updateInfoPanelRenameTrigger(niceName);
@@ -5209,6 +5992,17 @@ window.addEventListener("DOMContentLoaded", () => {
               document.getElementById("volMiniPerim").textContent = metadata.perimeter;
               document.getElementById("volMiniCut").textContent = metadata.cutVolume;
               document.getElementById("volMiniFill").textContent = metadata.fillVolume;
+
+              const netEl = document.getElementById("volMiniNet");
+              if (netEl) {
+                const cutNum = parseFloat(String(metadata.cutVolume || "").replace(/[^0-9.-]/g, '')) || 0;
+                const fillNum = parseFloat(String(metadata.fillVolume || "").replace(/[^0-9.-]/g, '')) || 0;
+                const netVal = metadata.netVolume || (cutNum - fillNum);
+                const netNum = (typeof netVal === 'number') ? netVal : (parseFloat(String(netVal).replace(/[^0-9.-]/g, '')) || 0);
+                const netSign = netNum >= 0 ? "+" : "";
+                netEl.textContent = `${netSign}${netNum.toLocaleString(undefined, {maximumFractionDigits: 2})} m³`;
+                netEl.style.color = netNum >= 0 ? "#10b981" : "#ef4444";
+              }
               
               showUnifiedInfoPanel("VOLUME", `VOLUME: ${niceName}`, metadata, true);
               
@@ -5220,7 +6014,7 @@ window.addEventListener("DOMContentLoaded", () => {
               
             } catch(err) {
               console.error("Failed to load volume metadata", err);
-              alert("Failed to load volume details.");
+              await showCustomAlert("Failed to load volume details.", "Error", "error");
             }
           };
 
@@ -5336,7 +6130,13 @@ window.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll(".btn-row-delete-vol").forEach(el => {
       el.style.display = isVolumesEditMode ? "inline-flex" : "none";
     });
+    document.querySelectorAll(".btn-row-rename-vol").forEach(el => {
+      el.style.display = isVolumesEditMode ? "inline-flex" : "none";
+    });
     document.querySelectorAll("#panel-volume .btn-delete-folder-trigger, #featuresListPolygons .btn-delete-folder-trigger").forEach(b => {
+      b.style.display = isVolumesEditMode ? "inline-flex" : "none";
+    });
+    document.querySelectorAll("#panel-volume .btn-rename-folder-trigger, #featuresListPolygons .btn-rename-folder-trigger").forEach(b => {
       b.style.display = isVolumesEditMode ? "inline-flex" : "none";
     });
   }
@@ -5356,7 +6156,7 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Unified Info Panel Inline Rename Logic
+  // Unified Info Panel Inline Rename Logic (Double-Click & Pencil Trigger)
   // -------------------------------------------------------------------------
   const btnInfoRenameTitle = document.getElementById("btnInfoRenameTitle");
   const infoInlineRenameContainer = document.getElementById("infoInlineRenameContainer");
@@ -5364,7 +6164,14 @@ window.addEventListener("DOMContentLoaded", () => {
   const btnInfoRenameSave = document.getElementById("btnInfoRenameSave");
   const btnInfoRenameCancel = document.getElementById("btnInfoRenameCancel");
 
+  let isInlineTitleEditing = false;
+  let originalInlineTitleName = "";
+
   function updateInfoPanelRenameTrigger(featureName) {
+    if (unifiedInfoTitle) {
+      unifiedInfoTitle.classList.add("editable");
+      unifiedInfoTitle.title = "Double-click to rename";
+    }
     if (btnInfoRenameTitle) {
       btnInfoRenameTitle.classList.remove("hidden");
     }
@@ -5374,36 +6181,93 @@ window.addEventListener("DOMContentLoaded", () => {
     if (infoInlineRenameInput) {
       infoInlineRenameInput.value = featureName || "";
     }
+    isInlineTitleEditing = false;
+    originalInlineTitleName = (featureName || "").trim();
   }
 
+  function startInlineTitleEdit() {
+    if (!window.currentViewingFeature || !infoInlineRenameContainer || !infoInlineRenameInput) return;
+    originalInlineTitleName = (window.currentViewingFeature.name || "").trim();
+    infoInlineRenameInput.value = originalInlineTitleName;
+    infoInlineRenameContainer.classList.remove("hidden");
+    isInlineTitleEditing = true;
+    infoInlineRenameInput.focus();
+    infoInlineRenameInput.select();
+  }
+
+  function cancelInlineTitleEdit() {
+    if (infoInlineRenameContainer) infoInlineRenameContainer.classList.add("hidden");
+    if (infoInlineRenameInput) infoInlineRenameInput.value = originalInlineTitleName;
+    isInlineTitleEditing = false;
+  }
+
+  // Double click directly on the title to edit
+  unifiedInfoTitle?.addEventListener("dblclick", (e) => {
+    e.stopPropagation();
+    startInlineTitleEdit();
+  });
+
+  // Pencil button click
   btnInfoRenameTitle?.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (!window.currentViewingFeature) return;
-    if (infoInlineRenameContainer) {
-      infoInlineRenameContainer.classList.remove("hidden");
-      if (infoInlineRenameInput) {
-        infoInlineRenameInput.value = window.currentViewingFeature.name || "";
-        infoInlineRenameInput.focus();
-        infoInlineRenameInput.select();
-      }
-    }
+    startInlineTitleEdit();
   });
 
   btnInfoRenameCancel?.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (infoInlineRenameContainer) infoInlineRenameContainer.classList.add("hidden");
+    cancelInlineTitleEdit();
+  });
+
+  btnInfoRenameSave?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    handleInfoPanelRename();
+  });
+
+  // Handle Enter (Save) and Escape (Cancel)
+  infoInlineRenameInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      isInlineTitleEditing = false;
+      handleInfoPanelRename();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelInlineTitleEdit();
+    }
+  });
+
+  // Outside click / blur handler: if name changed, ask to save or cancel
+  infoInlineRenameInput?.addEventListener("blur", () => {
+    if (!isInlineTitleEditing) return;
+    const currentVal = infoInlineRenameInput.value.trim();
+    
+    // Give 180ms delay in case user clicked the Save / Cancel buttons directly
+    setTimeout(() => {
+      if (!isInlineTitleEditing) return;
+      if (currentVal && currentVal !== originalInlineTitleName) {
+        showCustomConfirm(`Save changes to "${currentVal}"?`, "Save Rename").then((confirmed) => {
+          if (confirmed) {
+            isInlineTitleEditing = false;
+            handleInfoPanelRename();
+          } else {
+            cancelInlineTitleEdit();
+          }
+        });
+      } else {
+        cancelInlineTitleEdit();
+      }
+    }, 180);
   });
 
   async function handleInfoPanelRename() {
     if (!window.currentViewingFeature || !infoInlineRenameInput) return;
     const newName = infoInlineRenameInput.value.trim();
     if (!newName) {
-      alert("Please enter a valid name.");
+      await showCustomAlert("Please enter a valid name.", "Invalid Name", "warning");
       return;
     }
     const { type, name: oldName, pdfFile, jsonFile, file, metadata } = window.currentViewingFeature;
     if (newName === oldName) {
-      if (infoInlineRenameContainer) infoInlineRenameContainer.classList.add("hidden");
+      cancelInlineTitleEdit();
       return;
     }
 
@@ -5414,22 +6278,24 @@ window.addEventListener("DOMContentLoaded", () => {
     try {
       if (type === "PROFILE") {
         const jsonFileName = jsonFile?.fileName || (pdfFile ? pdfFile.fileName.replace(/\.pdf$/, '.json') : null);
-        let meta = metadata || {};
-        try {
-          const API_BASE = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`;
-          const jsonUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=reports&fileName=${encodeURIComponent(jsonFileName)}`;
-          const gRes = await fetch(jsonUrl, { cache: 'no-store' });
-          if (gRes.ok) {
-            const files = await gRes.json();
-            if (Array.isArray(files) && files.length > 0) {
-              const mRes = await fetch(files[0].url, { cache: 'no-store' });
-              if (mRes.ok) meta = await mRes.json();
+        if (!jsonFileName) throw new Error("Missing profile JSON filename");
+
+        const currentFolder = window.currentViewingFeature.folder || window.currentViewingFeature.metadata?.folder || (pdfFile?.fileName?.includes('/') ? pdfFile.fileName.split('/')[0] : "General");
+        let meta = Object.assign({}, metadata || {});
+        if (jsonFile && jsonFile.url) {
+          try {
+            const _u = jsonFile.url + (jsonFile.url.includes('?') ? '&' : '?') + `t=${Date.now()}`;
+            const gRes = await fetch(_u, { cache: 'no-store' });
+            if (gRes.ok) {
+              const fresh = await gRes.json();
+              meta = Object.assign(meta, fresh);
             }
-          }
-        } catch(e){}
+          } catch(e){}
+        }
 
         meta.name = newName;
         meta.title = newName;
+        meta.folder = currentFolder;
 
         const uploadApiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`;
         const res = await fetch(uploadApiUrl, {
@@ -5448,26 +6314,30 @@ window.addEventListener("DOMContentLoaded", () => {
 
         window.currentViewingFeature.name = newName;
         window.currentViewingFeature.metadata = meta;
-        if (unifiedInfoTitle) unifiedInfoTitle.textContent = `SAVED PATH PROFILE - ${newName.toUpperCase()}`;
-        fetchSavedReports();
+        window.currentViewingFeature.folder = currentFolder;
+        if (unifiedInfoTitle) unifiedInfoTitle.textContent = `SAVED PATH PROFILE: ${newName.toUpperCase()}`;
+        updateInfoPanelRenameTrigger(newName);
+        await fetchSavedReports();
       } else if (type === "VOLUME") {
-        const fileName = file.fileName;
-        let meta = metadata || {};
-        try {
-          const API_BASE = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`;
-          const jsonUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=volumes&fileName=${encodeURIComponent(fileName)}`;
-          const gRes = await fetch(jsonUrl, { cache: 'no-store' });
-          if (gRes.ok) {
-            const files = await gRes.json();
-            if (Array.isArray(files) && files.length > 0) {
-              const mRes = await fetch(files[0].url, { cache: 'no-store' });
-              if (mRes.ok) meta = await mRes.json();
+        const fileName = file?.fileName;
+        if (!fileName) throw new Error("Missing volume filename");
+
+        const currentFolder = window.currentViewingFeature.folder || window.currentViewingFeature.metadata?.folder || (file?.fileName?.includes('/') ? file.fileName.split('/')[0] : "General");
+        let meta = Object.assign({}, metadata || {});
+        if (file && file.url) {
+          try {
+            const _u = file.url + (file.url.includes('?') ? '&' : '?') + `t=${Date.now()}`;
+            const gRes = await fetch(_u, { cache: 'no-store' });
+            if (gRes.ok) {
+              const fresh = await gRes.json();
+              meta = Object.assign(meta, fresh);
             }
-          }
-        } catch(e){}
+          } catch(e){}
+        }
 
         meta.name = newName;
         meta.title = newName;
+        meta.folder = currentFolder;
 
         const uploadApiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`;
         const res = await fetch(uploadApiUrl, {
@@ -5486,33 +6356,62 @@ window.addEventListener("DOMContentLoaded", () => {
 
         window.currentViewingFeature.name = newName;
         window.currentViewingFeature.metadata = meta;
-        if (unifiedInfoTitle) unifiedInfoTitle.textContent = `SAVED VOLUME - ${newName.toUpperCase()}`;
-        fetchSavedVolumes();
+        window.currentViewingFeature.folder = currentFolder;
+        if (unifiedInfoTitle) unifiedInfoTitle.textContent = `SAVED VOLUME: ${newName.toUpperCase()}`;
+        updateInfoPanelRenameTrigger(newName);
+        await fetchSavedVolumes();
+      } else if (type === "POLY_ROI" || type === "ROI" || type === "BOX_ROI") {
+        const fileName = file?.fileName || jsonFile?.fileName || (file?.url ? file.url.split('?')[0].split('/').pop() : null);
+        if (!fileName) throw new Error("Missing ROI filename");
+        let meta = Object.assign({}, metadata || {});
+        if (file && file.url) {
+          try {
+            const _u = file.url + (file.url.includes('?') ? '&' : '?') + `t=${Date.now()}`;
+            const gRes = await fetch(_u, { cache: 'no-store' });
+            if (gRes.ok) {
+              const fresh = await gRes.json();
+              meta = Object.assign(meta, fresh);
+            }
+          } catch(e){}
+        }
+
+        meta.name = newName;
+        meta.title = newName;
+        if (!meta.folder && metadata?.folder) meta.folder = metadata.folder;
+        if (!meta.points && typeof roiPolyPoints !== "undefined" && roiPolyPoints.length > 0) {
+          meta.points = roiPolyPoints.map(p => ({ x: p.coord.x, y: p.coord.y, z: p.coord.z || 0 }));
+        }
+
+        const uploadApiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`;
+        const res = await fetch(uploadApiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "rois", fileName })
+        });
+        if (!res.ok) throw new Error("Failed to get upload URL");
+        const { uploadUrl } = await res.json();
+        const putRes = await fetch(uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(meta, null, 2)
+        });
+        if (!putRes.ok) throw new Error("Failed to upload updated JSON");
+
+        window.currentViewingFeature.name = newName;
+        window.currentViewingFeature.metadata = meta;
+        if (unifiedInfoTitle) unifiedInfoTitle.textContent = `SAVED ROI: ${newName.toUpperCase()}`;
+        updateInfoPanelRenameTrigger(newName);
+        await fetchSavedRois();
       }
 
-      if (infoInlineRenameContainer) infoInlineRenameContainer.classList.add("hidden");
+      cancelInlineTitleEdit();
     } catch(err) {
       console.error("Rename error:", err);
-      alert("Failed to rename: " + err.message);
+      await showCustomAlert("Failed to rename: " + err.message, "Error", "error");
     } finally {
       if (btnInfoRenameSave) btnInfoRenameSave.disabled = false;
     }
   }
-
-  btnInfoRenameSave?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    handleInfoPanelRename();
-  });
-
-  infoInlineRenameInput?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      handleInfoPanelRename();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      if (infoInlineRenameContainer) infoInlineRenameContainer.classList.add("hidden");
-    }
-  });
 
   // Stop 3D Map from swallowing key events on inputs
   ['volSaveName', 'roiSaveName', 'volSaveFolder', 'reportNameInput', 'infoInlineRenameInput'].forEach(id => {
@@ -5666,7 +6565,6 @@ window.addEventListener("DOMContentLoaded", () => {
       const btnDisableElevations = document.getElementById("btnDisableElevations");
       if (btnDisableElevations && !btnDisableElevations.disabled) btnDisableElevations.click();
       if (unifiedInfoPanel) unifiedInfoPanel.classList.add("hidden");
-      if (topSaveBar) topSaveBar.classList.add("hidden");
     } else {
       // Show panel without turning ON
       showUnifiedInfoPanel("GRID", "ELEVATIONS GRID", null, false);
@@ -5711,7 +6609,6 @@ window.addEventListener("DOMContentLoaded", () => {
       const btnDisableHeatmap = document.getElementById("btnDisableHeatmap");
       if (btnDisableHeatmap && !btnDisableHeatmap.disabled) btnDisableHeatmap.click();
       if (unifiedInfoPanel) unifiedInfoPanel.classList.add("hidden");
-      if (topSaveBar) topSaveBar.classList.add("hidden");
     } else {
       // Show panel without turning ON
       showUnifiedInfoPanel("HEATMAP", "SLOPE HEATMAP", null, false);
@@ -5780,7 +6677,6 @@ window.addEventListener("DOMContentLoaded", () => {
       const btnDisableContours = document.getElementById("btnDisableContours");
       if (btnDisableContours && !btnDisableContours.disabled) btnDisableContours.click();
       if (unifiedInfoPanel) unifiedInfoPanel.classList.add("hidden");
-      if (topSaveBar) topSaveBar.classList.add("hidden");
     } else {
       // Show panel without turning ON
       showUnifiedInfoPanel("CONTOUR", "TOPOGRAPHIC CONTOURS", null, false);

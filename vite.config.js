@@ -2,6 +2,14 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   root: '.',
+  server: {
+    proxy: {
+      '/projects/NHPDC': {
+        target: 'https://polygon-giro3d.s3.ap-south-2.amazonaws.com',
+        changeOrigin: true,
+      }
+    }
+  },
   plugins: [
     {
       name: 'disable-tif-cache',

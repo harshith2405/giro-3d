@@ -76,6 +76,55 @@ function updateStatus(text) {
 }
 
 // ---------------------------------------------------------------------------
+// Viewport offset calculation: ensure map is centered in visible canvas
+// ---------------------------------------------------------------------------
+function getVisibleViewportOffset() {
+  const leftPanel = document.getElementById("flyoutPanel");
+  const isLeftPanelOpen = leftPanel && !leftPanel.classList.contains("closed");
+  // 58px icon sidebar + (320px flyout panel if open)
+  const leftPx = isLeftPanelOpen ? 378 : 58;
+  return leftPx;
+}
+
+function frameCameraOnExtent(extent, extentOverride = false) {
+  if (!instance || !instance.view || !instance.view.camera || !controls) return;
+  const center = extent.centerAsVector3();
+  const dims = extent.dimensions();
+  const zOffset = (activeProject?.zOffset || 0);
+
+  const camera = instance.view.camera;
+  const fovRad = (camera.fov || 45) * (Math.PI / 180);
+  const winW = window.innerWidth || 1920;
+  const winH = window.innerHeight || 1080;
+  const leftOffset = getVisibleViewportOffset();
+  const visibleW = Math.max(winW - leftOffset, 400);
+
+  // Calculate required altitude so dims fit cleanly within the visible viewport (accounting for left panel)
+  const aspectVisible = visibleW / winH;
+  const requiredH = Math.max(dims.y, dims.x / aspectVisible);
+  const zoomMultiplier = extentOverride ? 2.4 : 1.35;
+  const altitudeDist = (requiredH / (2 * Math.tan(fovRad / 2))) * zoomMultiplier;
+  const altitude = zOffset + Math.max(altitudeDist, 200);
+
+  // Calculate how much world space is covered per screen pixel at this altitude
+  const visibleWorldH = 2 * altitudeDist * Math.tan(fovRad / 2);
+  const worldPerPixel = visibleWorldH / winH;
+  const shiftWorldX = (leftOffset / 2) * worldPerPixel;
+
+  // Shift camera target to the left so the terrain center appears in the center of the visible area
+  const adjustedCenterX = center.x - shiftWorldX;
+  const adjustedCenterY = center.y;
+
+  const camPos = new Vector3(adjustedCenterX, adjustedCenterY, altitude);
+  camera.position.copy(camPos);
+  controls.target.set(adjustedCenterX, adjustedCenterY, zOffset);
+  controls.update();
+  camera.updateMatrixWorld(true);
+  instance.notifyChange(camera);
+  instance.notifyChange();
+}
+
+// ---------------------------------------------------------------------------
 // Project loading
 // ---------------------------------------------------------------------------
 async function loadProject(project, extentOverride = null) {
@@ -170,22 +219,8 @@ async function loadProject(project, extentOverride = null) {
       }
     }
 
-    // Frame the camera on the loaded extent (Top-Down Nadir View, Tilt = 0).
-    const center = extent.centerAsVector3();
-    const dims = extent.dimensions();
-    const size = Math.max(dims.x, dims.y);
-    const zOffset = project.zOffset || 0;
-    const zoomMultiplier = extentOverride ? 2.4 : 1.4;
-    const camPos = new Vector3(
-      center.x,
-      center.y,
-      zOffset + size * zoomMultiplier
-    );
-    instance.view.camera.position.copy(camPos);
-    controls.target.copy(new Vector3(center.x, center.y, zOffset));
-    controls.update();
-    if (instance?.view?.camera) instance.view.camera.updateMatrixWorld(true);
-    instance.notifyChange(instance.view.camera);
+    // Frame the camera on the loaded extent (accounting for left flyout panel so map is centered in visible space)
+    frameCameraOnExtent(extent, extentOverride);
 
     updateStatus("Ready");
     instance.notifyChange();
@@ -207,7 +242,7 @@ const PROJECTS = {
     folderName: "Chattibhariatu",
     surveys: {
       may_2026: {
-        elevationUrl: "./projects/Chattibhariatu/surveys/may_2026/DSM_cloudoptimised.tif",
+        elevationUrl: "./projects/Chattibhariatu/surveys/may_2026/DTM_cloudoptimised.tif",
         orthoUrl: "./projects/Chattibhariatu/surveys/may_2026/Ortho_CO.tif",
         extent: [9467845.7636, 9473006.4487, 2721268.4801, 2724489.7791],
         zOffset: 429,
@@ -237,6 +272,40 @@ const PROJECTS = {
       }
     }
   },
+  nhpdc_project: {
+    folderName: "NHPDC",
+    surveys: {
+      default: {
+        elevationUrl: "./projects/NHPDC/DTM_Final_CO.tif",
+        orthoUrl: "./projects/NHPDC/Ortho_CO_20cm.tif",
+        extent: [10650229.73, 10662844.23, 3262029.95, 3273051.45],
+        zOffset: 137.3,
+      },
+      july_2026: {
+        elevationUrl: "./projects/NHPDC/DTM_Final_CO.tif",
+        orthoUrl: "./projects/NHPDC/Ortho_CO_20cm.tif",
+        extent: [10650229.73, 10662844.23, 3262029.95, 3273051.45],
+        zOffset: 137.3,
+      }
+    }
+  },
+  nhpdc: {
+    folderName: "NHPDC",
+    surveys: {
+      default: {
+        elevationUrl: "./projects/NHPDC/DTM_Final_CO.tif",
+        orthoUrl: "./projects/NHPDC/Ortho_CO_20cm.tif",
+        extent: [10650229.73, 10662844.23, 3262029.95, 3273051.45],
+        zOffset: 137.3,
+      },
+      july_2026: {
+        elevationUrl: "./projects/NHPDC/DTM_Final_CO.tif",
+        orthoUrl: "./projects/NHPDC/Ortho_CO_20cm.tif",
+        extent: [10650229.73, 10662844.23, 3262029.95, 3273051.45],
+        zOffset: 137.3,
+      }
+    }
+  },
 };
 
 /** Helper to parse URL and return the active project+survey config */
@@ -245,16 +314,11 @@ function getActiveProjectConfig() {
   const projectId = urlParams.get("project") || "chattibhariatu_project";
   const surveyId = urlParams.get("survey") || "may_2026";
   
-  const projectInfo = PROJECTS[projectId] || PROJECTS.chattibhariatu_project;
-  const defaultSurvey = projectInfo.surveys["may_2026"] || Object.values(projectInfo.surveys)[0];
+  const projectInfo = PROJECTS[projectId] || PROJECTS[projectId.toLowerCase()] || PROJECTS.chattibhariatu_project;
+  const defaultSurvey = projectInfo.surveys["may_2026"] || projectInfo.surveys["default"] || Object.values(projectInfo.surveys)[0];
   const surveyInfo = (projectInfo.surveys && projectInfo.surveys[surveyId])
     ? projectInfo.surveys[surveyId]
-    : {
-        elevationUrl: `./projects/${projectInfo.folderName}/surveys/${surveyId}/DSM_cloudoptimised.tif`,
-        orthoUrl: `./projects/${projectInfo.folderName}/surveys/${surveyId}/Ortho_CO.tif`,
-        extent: defaultSurvey ? defaultSurvey.extent : [0,0,0,0],
-        zOffset: defaultSurvey ? defaultSurvey.zOffset : 0
-      };
+    : defaultSurvey;
   
   return {
     ...projectInfo,
@@ -1033,19 +1097,7 @@ window.addEventListener("DOMContentLoaded", () => {
     e.stopPropagation();
     const project = getActiveProjectConfig();
     const extent = new Extent(giroCrs, ...project.extent);
-    const center = extent.centerAsVector3();
-    const dims = extent.dimensions();
-    const size = Math.max(dims.x, dims.y);
-    const zOffset = project.zOffset || 0;
-    const camPos = new Vector3(
-      center.x,
-      center.y,
-      zOffset + size * 1.4
-    );
-    instance.view.camera.position.copy(camPos);
-    controls.target.copy(new Vector3(center.x, center.y, zOffset));
-    controls.update();
-    instance.notifyChange();
+    frameCameraOnExtent(extent, false);
     syncSlidersFromCamera();
   });
 
@@ -1760,6 +1812,17 @@ window.addEventListener("DOMContentLoaded", () => {
       const elev = document.getElementById("pointMiniElev")?.textContent || "-";
       if (saveModalMetricsPreview) saveModalMetricsPreview.textContent = `Elev: ${elev}`;
     }
+
+    const folderGroup = document.getElementById("universalSaveFolderGroup");
+    if (folderGroup) {
+      if (activeInfoTool === "BOX_ROI" || activeInfoTool === "POLY_ROI") {
+        folderGroup.style.display = "none";
+        if (universalSaveFolder) universalSaveFolder.value = "General";
+      } else {
+        folderGroup.style.display = "block";
+      }
+    }
+
     syncFolderDropdowns(activeInfoTool);
   }
 
@@ -1889,8 +1952,32 @@ window.addEventListener("DOMContentLoaded", () => {
       }, 100);
     }
     if (toolType === "VOLUME" && infoViewVolume) infoViewVolume.classList.remove("hidden");
-    if (toolType === "BOX_ROI" && infoViewBoxRoi) infoViewBoxRoi.classList.remove("hidden");
-    if (toolType === "POLY_ROI" && infoViewPolyRoi) infoViewPolyRoi.classList.remove("hidden");
+    if (toolType === "BOX_ROI" && infoViewBoxRoi) {
+      infoViewBoxRoi.classList.remove("hidden");
+      const boxPerimEl = document.getElementById("boxRoiPerim");
+      const boxAreaEl = document.getElementById("boxRoiArea");
+      if (data) {
+        const pRaw = data.perim !== undefined ? data.perim : (data.perimeter !== undefined ? data.perimeter : 0);
+        const aRaw = data.area !== undefined ? data.area : (data.area2D !== undefined ? data.area2D : 0);
+        const p = typeof pRaw === 'string' ? parseFloat(pRaw.replace(/[^0-9.-]/g, '')) || 0 : Number(pRaw || 0);
+        const a = typeof aRaw === 'string' ? parseFloat(aRaw.replace(/[^0-9.-]/g, '')) || 0 : Number(aRaw || 0);
+        if (boxPerimEl) boxPerimEl.textContent = `${p.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m`;
+        if (boxAreaEl) boxAreaEl.textContent = `${a.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m²`;
+      }
+    }
+    if (toolType === "POLY_ROI" && infoViewPolyRoi) {
+      infoViewPolyRoi.classList.remove("hidden");
+      const polyPerimEl = document.getElementById("polyRoiPerim");
+      const polyAreaEl = document.getElementById("polyRoiArea");
+      if (data) {
+        const pRaw = data.perim !== undefined ? data.perim : (data.perimeter !== undefined ? data.perimeter : 0);
+        const aRaw = data.area !== undefined ? data.area : (data.area2D !== undefined ? data.area2D : 0);
+        const p = typeof pRaw === 'string' ? parseFloat(pRaw.replace(/[^0-9.-]/g, '')) || 0 : Number(pRaw || 0);
+        const a = typeof aRaw === 'string' ? parseFloat(aRaw.replace(/[^0-9.-]/g, '')) || 0 : Number(aRaw || 0);
+        if (polyPerimEl) polyPerimEl.textContent = `${p.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m`;
+        if (polyAreaEl) polyAreaEl.textContent = `${a.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m²`;
+      }
+    }
     if (toolType === "POINT" && infoViewPoint) infoViewPoint.classList.remove("hidden");
     if (toolType === "GRID" && infoViewGrid) infoViewGrid.classList.remove("hidden");
     if (toolType === "HEATMAP" && infoViewHeatmap) infoViewHeatmap.classList.remove("hidden");
@@ -2026,20 +2113,32 @@ window.addEventListener("DOMContentLoaded", () => {
       } else if (activeInfoTool === "BOX_ROI" || activeInfoTool === "POLY_ROI") {
         let points = [];
         let metrics = { area: 0, perimeter: 0 };
+        const isBoxTool = activeInfoTool === "BOX_ROI";
+        let boxBounds = null;
+
         if (activeInfoTool === "POLY_ROI") {
           points = roiPolyPoints.map(p => ({ x: p.coord.x, y: p.coord.y, z: p.coord.z || 0 }));
           metrics = calculateRoiPolyMetrics();
-        } else if (activeInfoTool === "BOX_ROI" && window._lastBoxRoiBounds) {
-          const b = window._lastBoxRoiBounds;
-          points = [
-            { x: b.minX, y: b.minY, z: activeProject?.zOffset || 0 },
-            { x: b.maxX, y: b.minY, z: activeProject?.zOffset || 0 },
-            { x: b.maxX, y: b.maxY, z: activeProject?.zOffset || 0 },
-            { x: b.minX, y: b.maxY, z: activeProject?.zOffset || 0 }
-          ];
-          const w = Math.abs(b.maxX - b.minX);
-          const h = Math.abs(b.maxY - b.minY);
-          metrics = { area: w * h, perimeter: 2 * (w + h) };
+        } else if (isBoxTool) {
+          const b = window._lastBoxRoiBounds || activeToolSaveData?.bounds || (activeToolSaveData?.minX !== undefined ? activeToolSaveData : null);
+          if (b) {
+            boxBounds = { minX: b.minX, maxX: b.maxX, minY: b.minY, maxY: b.maxY };
+            const z0 = activeProject?.zOffset || 0;
+            points = [
+              { x: b.minX, y: b.minY, z: z0 },
+              { x: b.maxX, y: b.minY, z: z0 },
+              { x: b.maxX, y: b.maxY, z: z0 },
+              { x: b.minX, y: b.maxY, z: z0 }
+            ];
+            const w = Math.abs(b.maxX - b.minX);
+            const h = Math.abs(b.maxY - b.minY);
+            const a = activeToolSaveData?.area || activeToolSaveData?.area2D || (w * h);
+            const p = activeToolSaveData?.perim || activeToolSaveData?.perimeter || (2 * (w + h));
+            metrics = {
+              area: typeof a === 'number' ? a : (parseFloat(String(a).replace(/[^0-9.-]/g, '')) || 0),
+              perimeter: typeof p === 'number' ? p : (parseFloat(String(p).replace(/[^0-9.-]/g, '')) || 0)
+            };
+          }
         }
 
         const data = {
@@ -2047,8 +2146,10 @@ window.addEventListener("DOMContentLoaded", () => {
           folder: folderVal,
           isOfficial: !window.isDumpDraw,
           timestamp: new Date().toISOString(),
+          roiType: activeInfoTool,
           area2D: metrics.area || 0,
           perimeter: metrics.perimeter || 0,
+          bounds: boxBounds,
           points
         };
 
@@ -2576,12 +2677,23 @@ window.addEventListener("DOMContentLoaded", () => {
     const boxArea = boxW * boxH;
     const boxPerim = 2 * (boxW + boxH);
 
+    window._lastBoxRoiBounds = { minX, maxX, minY, maxY };
+    window._lastBoxRoiArea = boxArea;
+    window._lastBoxRoiPerim = boxPerim;
+
     const boxPerimEl = document.getElementById("boxRoiPerim");
     const boxAreaEl = document.getElementById("boxRoiArea");
     if (boxPerimEl) boxPerimEl.textContent = boxPerim.toLocaleString(undefined, {maximumFractionDigits: 2}) + " m";
     if (boxAreaEl) boxAreaEl.textContent = boxArea.toLocaleString(undefined, {maximumFractionDigits: 2}) + " m²";
 
-    showUnifiedInfoPanel("BOX_ROI", "BOX ROI ANALYSIS", { minX, maxX, minY, maxY, area: boxArea, perim: boxPerim });
+    showUnifiedInfoPanel("BOX_ROI", "BOX ROI ANALYSIS", {
+      minX, maxX, minY, maxY,
+      bounds: { minX, maxX, minY, maxY },
+      area: boxArea,
+      perim: boxPerim,
+      area2D: boxArea,
+      perimeter: boxPerim
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -2706,15 +2818,27 @@ window.addEventListener("DOMContentLoaded", () => {
     return { x, y, z: ndc.z };
   }
 
-  // Helper to position camera looking straight down (tilt = 0) scaled to feature span
+  // Helper to position camera looking straight down (tilt = 0) scaled to feature span in visible canvas
   function setCameraTopDown(targetX, targetY, span = 300) {
     if (!instance || !instance.view || !instance.view.camera || !controls) return;
-    const altitude = (activeProject?.zOffset || 0) + Math.max(span * 1.5, 150);
-    instance.view.camera.position.set(targetX, targetY, altitude);
-    controls.target.set(targetX, targetY, activeProject?.zOffset || 0);
+    const camera = instance.view.camera;
+    const fovRad = (camera.fov || 45) * (Math.PI / 180);
+    const winH = window.innerHeight || 1080;
+    const leftOffset = getVisibleViewportOffset();
+    const altitudeDist = Math.max(span * 1.5, 150);
+    const altitude = (activeProject?.zOffset || 0) + altitudeDist;
+
+    const visibleWorldH = 2 * altitudeDist * Math.tan(fovRad / 2);
+    const worldPerPixel = visibleWorldH / winH;
+    const shiftWorldX = (leftOffset / 2) * worldPerPixel;
+
+    const adjustedTargetX = targetX - shiftWorldX;
+
+    camera.position.set(adjustedTargetX, targetY, altitude);
+    controls.target.set(adjustedTargetX, targetY, activeProject?.zOffset || 0);
     controls.update();
-    if (instance.view.camera) instance.view.camera.updateMatrixWorld(true);
-    instance.notifyChange(instance.view.camera);
+    if (camera) camera.updateMatrixWorld(true);
+    instance.notifyChange(camera);
   }
 
   /**
@@ -3098,7 +3222,12 @@ window.addEventListener("DOMContentLoaded", () => {
         if (polyPerimEl) polyPerimEl.textContent = polyPerim.toLocaleString(undefined, {maximumFractionDigits: 2}) + " m";
         if (polyAreaEl) polyAreaEl.textContent = polyArea.toLocaleString(undefined, {maximumFractionDigits: 2}) + " m²";
 
-        showUnifiedInfoPanel("POLY_ROI", "POLYGON ROI ANALYSIS", { points: roiPolyPoints, area: polyArea, perim: polyPerim });
+        if (window.currentViewingFeature && (window.currentViewingFeature.type === "POLY_ROI" || window.currentViewingFeature.type === "ROI")) {
+          showUnifiedInfoPanel("POLY_ROI", window.currentViewingFeature.name, window.currentViewingFeature.metadata || { points: roiPolyPoints, area: polyArea, perim: polyPerim }, true);
+          updateInfoPanelRenameTrigger(window.currentViewingFeature.name);
+        } else {
+          showUnifiedInfoPanel("POLY_ROI", "POLYGON ROI ANALYSIS", { points: roiPolyPoints, area: polyArea, perim: polyPerim });
+        }
     });
   }
 
@@ -5303,34 +5432,102 @@ window.addEventListener("DOMContentLoaded", () => {
         const res = await fetch(url + _cacheBuster, { cache: 'no-store' });
         data = await res.json();
       }
-      if (!data || !data.points || data.points.length === 0) {
+      if (!data) {
         console.error("Invalid ROI data:", data);
         return;
       }
-      roiPolyPoints = data.points.map(pt => ({
-        coord: new Coordinates(giroCrs, pt.x, pt.y, pt.z || 0),
-        point: new Vector3(pt.x, pt.y, pt.z || 0)
-      }));
-      
-      measureMode = "ROI_POLY";
-      measureState = "FINISHED_ROI_POLY";
-      roiPolyMousePoint = null;
-      if (roiArea) roiArea.textContent = (data.area2D || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
-      if (roiPerimeter) roiPerimeter.textContent = (data.perimeter || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
-      if (roiMetrics) roiMetrics.classList.remove("hidden");
 
       const roiDisplayName = data.name || data.title || (fileObj ? fileObj.fileName.split('/').pop().replace('.json', '') : "SAVED ROI");
-      window.currentViewingFeature = {
-        type: "POLY_ROI",
-        name: roiDisplayName,
-        file: fileObj || { fileName: url.split('?')[0].split('/').pop() },
-        metadata: data
-      };
 
-      showUnifiedInfoPanel("POLY_ROI", roiDisplayName, data, true);
-      updateInfoPanelRenameTrigger(roiDisplayName);
+      // Detect if this is a Box ROI or Polygon ROI
+      const isBox = data.roiType === "BOX_ROI" || data.type === "BOX_ROI" || (data.bounds && (!data.points || data.points.length <= 4)) || (data.points && data.points.length === 4 && data.bounds);
 
-      applyRoiPolyClipping();
+      if (isBox) {
+        // ── Load Box ROI ──
+        let minX, maxX, minY, maxY;
+        if (data.bounds) {
+          minX = data.bounds.minX;
+          maxX = data.bounds.maxX;
+          minY = data.bounds.minY;
+          maxY = data.bounds.maxY;
+        } else if (data.points && data.points.length > 0) {
+          minX = Math.min(...data.points.map(p => p.x));
+          maxX = Math.max(...data.points.map(p => p.x));
+          minY = Math.min(...data.points.map(p => p.y));
+          maxY = Math.max(...data.points.map(p => p.y));
+        } else {
+          console.error("Box ROI missing bounds/points:", data);
+          await showCustomAlert("This Box ROI file has no boundary points stored.", "Cannot Load ROI", "warning");
+          return;
+        }
+
+        window._lastBoxRoiBounds = { minX, maxX, minY, maxY };
+        const clipExtent = new Extent(giroCrs, minX, maxX, minY, maxY);
+        const clipProject = getActiveProjectConfig();
+        isTerrainClippedToRoi = true;
+
+        if (resetROI) resetROI.disabled = false;
+        if (roiHint) roiHint.textContent = `Viewing Box ROI: ${roiDisplayName}. Click 'Reset' to restore full map.`;
+
+        // Frame camera on the box extent and clip the terrain
+        frameCameraOnExtent(clipExtent, true);
+        await loadProject(clipProject, clipExtent);
+
+        // Also draw visual box boundary outline on the clipped terrain
+        const z0 = activeProject?.zOffset || 0;
+        roiPolyPoints = [
+          { coord: new Coordinates(giroCrs, minX, minY, z0), point: new Vector3(minX, minY, z0) },
+          { coord: new Coordinates(giroCrs, maxX, minY, z0), point: new Vector3(maxX, minY, z0) },
+          { coord: new Coordinates(giroCrs, maxX, maxY, z0), point: new Vector3(maxX, maxY, z0) },
+          { coord: new Coordinates(giroCrs, minX, maxY, z0), point: new Vector3(minX, maxY, z0) }
+        ];
+        measureMode = "ROI_POLY";
+        measureState = "FINISHED_ROI_POLY";
+        updateRoiPolySvg();
+
+        window.currentViewingFeature = {
+          type: "BOX_ROI",
+          name: roiDisplayName,
+          file: fileObj || { fileName: url.split('?')[0].split('/').pop() },
+          metadata: data
+        };
+
+        showUnifiedInfoPanel("BOX_ROI", roiDisplayName, data, true);
+        updateInfoPanelRenameTrigger(roiDisplayName);
+
+      } else {
+        // ── Load Polygon ROI ──
+        if (!data.points || data.points.length === 0) {
+          console.error("Invalid Polygon ROI data (no points):", data);
+          await showCustomAlert("This Polygon ROI has no points stored.", "Cannot Load ROI", "warning");
+          return;
+        }
+
+        roiPolyPoints = data.points.map(pt => ({
+          coord: new Coordinates(giroCrs, pt.x, pt.y, pt.z || 0),
+          point: new Vector3(pt.x, pt.y, pt.z || 0)
+        }));
+        
+        measureMode = "ROI_POLY";
+        measureState = "FINISHED_ROI_POLY";
+        roiPolyMousePoint = null;
+        if (roiArea) roiArea.textContent = (data.area2D || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+        if (roiPerimeter) roiPerimeter.textContent = (data.perimeter || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+        if (roiMetrics) roiMetrics.classList.remove("hidden");
+        if (resetROI) resetROI.disabled = false;
+
+        window.currentViewingFeature = {
+          type: "POLY_ROI",
+          name: roiDisplayName,
+          file: fileObj || { fileName: url.split('?')[0].split('/').pop() },
+          metadata: data
+        };
+
+        showUnifiedInfoPanel("POLY_ROI", roiDisplayName, data, true);
+        updateInfoPanelRenameTrigger(roiDisplayName);
+
+        applyRoiPolyClipping();
+      }
     } catch (err) {
       console.error("Error loading ROI", err);
     }

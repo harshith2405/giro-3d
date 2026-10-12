@@ -228,6 +228,17 @@ async function loadProject(project, extentOverride = null) {
     // Sync orthophoto visibility with the (optional) toggle.
     const orthoToggle = document.getElementById("orthoToggle");
     if (orthoToggle) orthoLayer.opacity = orthoToggle.checked ? 1 : 0;
+
+    // Re-apply any active right-toolbar overlays to the newly loaded terrain extent (supports clipped ROI)
+    if (isHeatmapOverlayActive) {
+      document.getElementById("btnEnableHeatmap")?.click();
+    }
+    if (isContourOverlayActive) {
+      document.getElementById("btnEnableContours")?.click();
+    }
+    if (isGridOverlayActive) {
+      document.getElementById("btnEnableElevations")?.click();
+    }
   } catch (err) {
     console.error("Error loading project:", err);
     updateStatus("Error loading project files.");
@@ -237,30 +248,57 @@ async function loadProject(project, extentOverride = null) {
 // ---------------------------------------------------------------------------
 // Project catalogue
 // ---------------------------------------------------------------------------
-const PROJECTS = {
-  chattibhariatu_project: {
-    folderName: "Chattibhariatu",
-    surveys: {
-      may_2026: {
-        elevationUrl: "./projects/Chattibhariatu/surveys/may_2026/DTM_cloudoptimised.tif",
-        orthoUrl: "./projects/Chattibhariatu/surveys/may_2026/Ortho_CO.tif",
-        extent: [9467845.7636, 9473006.4487, 2721268.4801, 2724489.7791],
-        zOffset: 429,
-      },
-      july_2026: {
-        elevationUrl: "./projects/Chattibhariatu/surveys/july_2026/DTM_CO_mercator.tif",
-        orthoUrl: "./projects/Chattibhariatu/surveys/july_2026/Ortho_CO_5cm_mercator.tif",
-        extent: [9467845.7636, 9473006.4487, 2721268.4801, 2724489.7791],
-        zOffset: 429,
-      },
-      August_2026: {
-        elevationUrl: "./projects/Chattibhariatu/surveys/August_2026/DTM_CO.tif",
-        orthoUrl: "./projects/Chattibhariatu/surveys/August_2026/Ortho_CO.tif",
-        extent: [9468023.88, 9472680.48, 2721355.34, 2724299.87],
-        zOffset: 434.5,
-      }
+const chattibhariatuConfig = {
+  folderName: "Chattibhariatu",
+  surveys: {
+    may_2026: {
+      elevationUrl: "./projects/Chattibhariatu/surveys/may_2026/DTM_cloudoptimised.tif",
+      orthoUrl: "./projects/Chattibhariatu/surveys/may_2026/Ortho_CO.tif",
+      extent: [9467845.7636, 9473006.4487, 2721268.4801, 2724489.7791],
+      zOffset: 429,
+    },
+    june_2026: {
+      elevationUrl: "./projects/Chattibhariatu/surveys/june_2026/DTM_CO_mercator.tif",
+      orthoUrl: "./projects/Chattibhariatu/surveys/june_2026/Ortho_CO_5cm_mercator.tif",
+      extent: [9467997.87, 9472740.19, 2721372.36, 2724281.32],
+      zOffset: 432.0,
+    },
+    july_2026: {
+      elevationUrl: "./projects/Chattibhariatu/surveys/july_2026/DTM_CO.tif",
+      orthoUrl: "./projects/Chattibhariatu/surveys/july_2026/Ortho_CO.tif",
+      extent: [9468023.88, 9472680.48, 2721355.34, 2724299.87],
+      zOffset: 436.4,
+    },
+    august_2026: {
+      elevationUrl: "./projects/Chattibhariatu/surveys/august_2026/DTM_CO.tif",
+      orthoUrl: "./projects/Chattibhariatu/surveys/august_2026/Ortho_CO.tif",
+      extent: [9468080.47, 9472626.74, 2721362.94, 2724320.35],
+      zOffset: 430.6,
+    },
+  }
+};
+
+const nhpdcConfig = {
+  folderName: "NHPDC",
+  surveys: {
+    default: {
+      elevationUrl: "./projects/NHPDC/DTM_Final_CO.tif",
+      orthoUrl: "./projects/NHPDC/Ortho_CO_20cm.tif",
+      extent: [10650229.73, 10662844.23, 3262029.95, 3273051.45],
+      zOffset: 137.3,
+    },
+    july_2026: {
+      elevationUrl: "./projects/NHPDC/DTM_Final_CO.tif",
+      orthoUrl: "./projects/NHPDC/Ortho_CO_20cm.tif",
+      extent: [10650229.73, 10662844.23, 3262029.95, 3273051.45],
+      zOffset: 137.3,
     }
-  },
+  }
+};
+
+const PROJECTS = {
+  chattibhariatu_project: chattibhariatuConfig,
+  chattibhariatu: chattibhariatuConfig,
   ahuja_project: {
     folderName: "ahuja",
     surveys: {
@@ -272,53 +310,27 @@ const PROJECTS = {
       }
     }
   },
-  nhpdc_project: {
-    folderName: "NHPDC",
-    surveys: {
-      default: {
-        elevationUrl: "./projects/NHPDC/DTM_Final_CO.tif",
-        orthoUrl: "./projects/NHPDC/Ortho_CO_20cm.tif",
-        extent: [10650229.73, 10662844.23, 3262029.95, 3273051.45],
-        zOffset: 137.3,
-      },
-      july_2026: {
-        elevationUrl: "./projects/NHPDC/DTM_Final_CO.tif",
-        orthoUrl: "./projects/NHPDC/Ortho_CO_20cm.tif",
-        extent: [10650229.73, 10662844.23, 3262029.95, 3273051.45],
-        zOffset: 137.3,
-      }
-    }
-  },
-  nhpdc: {
-    folderName: "NHPDC",
-    surveys: {
-      default: {
-        elevationUrl: "./projects/NHPDC/DTM_Final_CO.tif",
-        orthoUrl: "./projects/NHPDC/Ortho_CO_20cm.tif",
-        extent: [10650229.73, 10662844.23, 3262029.95, 3273051.45],
-        zOffset: 137.3,
-      },
-      july_2026: {
-        elevationUrl: "./projects/NHPDC/DTM_Final_CO.tif",
-        orthoUrl: "./projects/NHPDC/Ortho_CO_20cm.tif",
-        extent: [10650229.73, 10662844.23, 3262029.95, 3273051.45],
-        zOffset: 137.3,
-      }
-    }
-  },
+  nhpdc_project: nhpdcConfig,
+  nhpdc: nhpdcConfig,
 };
 
 /** Helper to parse URL and return the active project+survey config */
 function getActiveProjectConfig() {
   const urlParams = new URLSearchParams(window.location.search);
   const projectId = urlParams.get("project") || "chattibhariatu_project";
-  const surveyId = urlParams.get("survey") || "may_2026";
+  const rawSurveyId = urlParams.get("survey") || "may_2026";
   
   const projectInfo = PROJECTS[projectId] || PROJECTS[projectId.toLowerCase()] || PROJECTS.chattibhariatu_project;
-  const defaultSurvey = projectInfo.surveys["may_2026"] || projectInfo.surveys["default"] || Object.values(projectInfo.surveys)[0];
-  const surveyInfo = (projectInfo.surveys && projectInfo.surveys[surveyId])
-    ? projectInfo.surveys[surveyId]
-    : defaultSurvey;
+  const surveys = projectInfo.surveys || {};
+  const defaultSurvey = surveys["may_2026"] || surveys["default"] || Object.values(surveys)[0];
+
+  // Smart survey lookup: matches "june", "june_2026", "June_2026", etc. cleanly
+  const cleanKey = rawSurveyId.toLowerCase().replace(/_2026$/, "");
+  const surveyInfo = surveys[rawSurveyId]
+    || surveys[rawSurveyId.toLowerCase()]
+    || surveys[`${cleanKey}_2026`]
+    || surveys[cleanKey]
+    || defaultSurvey;
   
   return {
     ...projectInfo,
@@ -328,12 +340,15 @@ function getActiveProjectConfig() {
     zOffset: (typeof surveyInfo.zOffset === "number") ? surveyInfo.zOffset : (defaultSurvey ? defaultSurvey.zOffset : 0),
     id: projectId,
     folderName: projectInfo.folderName || projectId,
-    surveyId: surveyId
+    surveyId: rawSurveyId
   };
 }
 
 let activeProject = null;
 let isTerrainClippedToRoi = false;
+let isGridOverlayActive = false;
+let isHeatmapOverlayActive = false;
+let isContourOverlayActive = false;
 
 // ---------------------------------------------------------------------------
 // Camera controls
@@ -404,16 +419,9 @@ const flyoutPanel = document.getElementById('flyoutPanel');
         flyoutTitle.textContent = btn.getAttribute('title') || 'Panel';
       }
 
-      // Reset left panel drawing/measure state & un-clip ROI when switching left tabs
+      // Reset left panel active drawing/measure state (preserves active clipped ROI & right panel overlays)
       if (typeof window.clearAllLeftPanelState === 'function') {
-        window.clearAllLeftPanelState();
-      }
-
-      // Automatically restore full unclipped map if switching to Features, Profiles, Volumes, or Measure
-      if (['panel-features', 'panel-profile', 'panel-volume', 'panel-measure'].includes(targetId)) {
-        if (typeof window.restoreFullMapIfClipped === 'function') {
-          window.restoreFullMapIfClipped();
-        }
+        window.clearAllLeftPanelState(true);
       }
     });
   });
@@ -429,7 +437,6 @@ const flyoutPanel = document.getElementById('flyoutPanel');
 
   btnDrawFeaturePoint?.addEventListener('click', (e) => {
     e.stopPropagation();
-    restoreFullMapIfClipped();
     measureState = "SELECTING_POINT";
     measureMode = "POINT";
     controls.enabled = false;
@@ -2412,8 +2419,11 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btnDrawFeatureRoi")?.addEventListener("click", (e) => startRoiPolyDrawing(e));
 
   resetROI?.addEventListener("click", () => {
+    isTerrainClippedToRoi = false;
+    if (map) map.clippingPlanes = [];
     resetRoiState();
     if (roiSvg) roiSvg.style.display = "none";
+    if (roiPolySvg) roiPolySvg.style.display = "none";
     
     if (typeof roiPolyPoints !== "undefined") roiPolyPoints = [];
     if (measureMode === "ROI_POLY" || measureState === "FINISHED_ROI_POLY") {
@@ -2791,6 +2801,11 @@ window.addEventListener("DOMContentLoaded", () => {
   const volumePolygonSvg = document.getElementById("volumePolygonOverlay");
   const volumeVerticesSvg = document.getElementById("volumeVerticesOverlay");
 
+  // Dedicated Polygon ROI SVG Overlay elements
+  const roiPolySvg = document.getElementById("roiPolySvg");
+  const roiPolyPolygonOverlay = document.getElementById("roiPolyPolygonOverlay");
+  const roiPolyVerticesOverlay = document.getElementById("roiPolyVerticesOverlay");
+
   // Clear the current measurement overlay + points.
   function clearMeasure() {
     if (measureSvg) measureSvg.style.display = "none";
@@ -2806,16 +2821,32 @@ window.addEventListener("DOMContentLoaded", () => {
     currentProfilePoints3D = [];
   }
 
-  // Project a world-space point to screen pixel coordinates.
-  function projectToScreen(worldPoint) {
-    if (instance?.view?.camera) {
-      instance.view.camera.updateMatrixWorld(true);
+  // Project a world-space point to screen pixel coordinates with near-frustum clipping to eliminate jumps
+  function projectToScreen(worldPoint, rectOverride = null) {
+    if (!instance || !instance.view || !instance.view.camera || !worldPoint) {
+      return { x: 0, y: 0, z: 9999, isBehind: true };
     }
-    const ndc = worldPoint.clone().project(instance.view.camera);
-    const rect = canvas.getBoundingClientRect();
+    const camera = instance.view.camera;
+    camera.updateMatrixWorld(true);
+
+    // 1. Check if point is behind the camera or closer than the near clipping plane
+    const camPoint = worldPoint.clone().applyMatrix4(camera.matrixWorldInverse);
+    const nearLimit = -(camera.near || 0.1);
+    if (camPoint.z >= nearLimit) {
+      return { x: 0, y: 0, z: 9999, isBehind: true };
+    }
+
+    // 2. Project into NDC
+    const ndc = worldPoint.clone().project(camera);
+    if (ndc.z > 1) {
+      return { x: 0, y: 0, z: ndc.z, isBehind: true };
+    }
+
+    // 3. Convert NDC to Screen Coordinates
+    const rect = rectOverride || canvas.getBoundingClientRect();
     const x = ((ndc.x + 1) / 2) * rect.width;
     const y = ((-ndc.y + 1) / 2) * rect.height;
-    return { x, y, z: ndc.z };
+    return { x, y, z: ndc.z, isBehind: false };
   }
 
   // Helper to position camera looking straight down (tilt = 0) scaled to feature span in visible canvas
@@ -2914,35 +2945,58 @@ window.addEventListener("DOMContentLoaded", () => {
       return;
     }
     if ((measureMode === "SIMPLE" || measureMode === "PROFILE") && measureStartPoint && measureEndPoint) {
-      const start = projectToScreen(measureStartPoint);
-      const end = projectToScreen(measureEndPoint);
-      if (start.z > 1 && end.z > 1) {
+      const cachedRect = canvas.getBoundingClientRect();
+      const start = projectToScreen(measureStartPoint, cachedRect);
+      const end = projectToScreen(measureEndPoint, cachedRect);
+
+      // If both endpoints are behind the camera, hide the overlay completely
+      if ((start.isBehind && end.isBehind) || (start.z > 1 && end.z > 1)) {
         measureSvg.style.display = "none";
         return;
       }
       measureSvg.style.display = "block";
       
-      measureSvgStart.setAttribute("cx", start.x);
-      measureSvgStart.setAttribute("cy", start.y);
-      measureSvgEnd.setAttribute("cx", end.x);
-      measureSvgEnd.setAttribute("cy", end.y);
+      // Update Start/End marker dots only if in front of the camera
+      if (start.isBehind || start.z > 1) {
+        measureSvgStart.style.display = "none";
+      } else {
+        measureSvgStart.setAttribute("cx", start.x.toFixed(1));
+        measureSvgStart.setAttribute("cy", start.y.toFixed(1));
+        measureSvgStart.style.display = "block";
+      }
+
+      if (end.isBehind || end.z > 1) {
+        measureSvgEnd.style.display = "none";
+      } else {
+        measureSvgEnd.setAttribute("cx", end.x.toFixed(1));
+        measureSvgEnd.setAttribute("cy", end.y.toFixed(1));
+        measureSvgEnd.style.display = "block";
+      }
 
       // If finished profile with high-density draped terrain points, render smooth SVG polyline
       if (measureMode === "PROFILE" && currentProfilePoints3D.length >= 2) {
         let ptsStr = "";
+        let visibleCount = 0;
         for (let i = 0; i < currentProfilePoints3D.length; i++) {
-          const ptScreen = projectToScreen(currentProfilePoints3D[i]);
-          if (ptScreen.z <= 1) {
+          const ptScreen = projectToScreen(currentProfilePoints3D[i], cachedRect);
+          if (!ptScreen.isBehind && ptScreen.z <= 1) {
             ptsStr += `${ptScreen.x.toFixed(1)},${ptScreen.y.toFixed(1)} `;
+            visibleCount++;
           }
         }
-        if (measureSvgPolylineHalo) {
-          measureSvgPolylineHalo.setAttribute("points", ptsStr);
-          measureSvgPolylineHalo.style.display = "block";
-        }
-        if (measureSvgPolyline) {
-          measureSvgPolyline.setAttribute("points", ptsStr);
-          measureSvgPolyline.style.display = "block";
+        if (visibleCount >= 2) {
+          const cleanPts = ptsStr.trim();
+          if (measureSvgPolylineHalo) {
+            measureSvgPolylineHalo.setAttribute("points", cleanPts);
+            measureSvgPolylineHalo.style.display = "block";
+          }
+          if (measureSvgPolyline) {
+            measureSvgPolyline.setAttribute("points", cleanPts);
+            measureSvgPolyline.style.display = "block";
+          }
+        } else {
+          if (measureSvgPolylineHalo) measureSvgPolylineHalo.style.display = "none";
+          if (measureSvgPolyline) measureSvgPolyline.style.display = "none";
         }
         if (measureSvgLineHalo) measureSvgLineHalo.style.display = "none";
         if (measureSvgLine) measureSvgLine.style.display = "none";
@@ -2950,19 +3004,25 @@ window.addEventListener("DOMContentLoaded", () => {
         // Active dragging or simple distance measurement
         if (measureSvgPolylineHalo) measureSvgPolylineHalo.style.display = "none";
         if (measureSvgPolyline) measureSvgPolyline.style.display = "none";
-        if (measureSvgLineHalo) {
-          measureSvgLineHalo.style.display = "block";
-          measureSvgLineHalo.setAttribute("x1", start.x);
-          measureSvgLineHalo.setAttribute("y1", start.y);
-          measureSvgLineHalo.setAttribute("x2", end.x);
-          measureSvgLineHalo.setAttribute("y2", end.y);
-        }
-        if (measureSvgLine) {
-          measureSvgLine.style.display = "block";
-          measureSvgLine.setAttribute("x1", start.x);
-          measureSvgLine.setAttribute("y1", start.y);
-          measureSvgLine.setAttribute("x2", end.x);
-          measureSvgLine.setAttribute("y2", end.y);
+
+        if (!start.isBehind && !end.isBehind && start.z <= 1 && end.z <= 1) {
+          if (measureSvgLineHalo) {
+            measureSvgLineHalo.style.display = "block";
+            measureSvgLineHalo.setAttribute("x1", start.x.toFixed(1));
+            measureSvgLineHalo.setAttribute("y1", start.y.toFixed(1));
+            measureSvgLineHalo.setAttribute("x2", end.x.toFixed(1));
+            measureSvgLineHalo.setAttribute("y2", end.y.toFixed(1));
+          }
+          if (measureSvgLine) {
+            measureSvgLine.style.display = "block";
+            measureSvgLine.setAttribute("x1", start.x.toFixed(1));
+            measureSvgLine.setAttribute("y1", start.y.toFixed(1));
+            measureSvgLine.setAttribute("x2", end.x.toFixed(1));
+            measureSvgLine.setAttribute("y2", end.y.toFixed(1));
+          }
+        } else {
+          if (measureSvgLineHalo) measureSvgLineHalo.style.display = "none";
+          if (measureSvgLine) measureSvgLine.style.display = "none";
         }
       }
     } else if (measureSvg) {
@@ -3013,7 +3073,7 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     const screenP = projectToScreen(currentProfileHover3DPoint);
-    if (screenP.z > 1) {
+    if (screenP.isBehind || screenP.z > 1) {
       hoverGroup.style.display = "none";
       return;
     }
@@ -3031,12 +3091,12 @@ window.addEventListener("DOMContentLoaded", () => {
   function updatePointSvg() {
     if ((measureMode === "POINT" || measureState === "FINISHED_POINT") && pointDrawPoint && pointSvg) {
       const p = projectToScreen(pointDrawPoint);
-      if (p.z > 1) {
+      if (p.isBehind || p.z > 1) {
         pointSvg.style.display = "none";
         return;
       }
-      pointSvgMarker.setAttribute("cx", p.x);
-      pointSvgMarker.setAttribute("cy", p.y);
+      pointSvgMarker.setAttribute("cx", p.x.toFixed(1));
+      pointSvgMarker.setAttribute("cy", p.y.toFixed(1));
       pointSvg.style.display = "block";
     } else if (pointSvg) {
       pointSvg.style.display = "none";
@@ -3045,29 +3105,29 @@ window.addEventListener("DOMContentLoaded", () => {
   controls.addEventListener("change", updateMeasureSvg);
   controls.addEventListener("change", updateProfileHoverSvg);
 
-  // Redraw volume polygon
-  
+  // Redraw polygon ROI boundary
   function updateRoiPolySvg() {
-    if ((measureMode === "ROI_POLY" || measureState === "FINISHED_ROI_POLY") && roiPolyPoints.length > 0) {
+    if ((measureMode === "ROI_POLY" || measureState === "FINISHED_ROI_POLY" || isTerrainClippedToRoi) && roiPolyPoints.length > 0) {
+      const cachedRect = canvas.getBoundingClientRect();
       let pointsAttr = "";
-      if (volumeVerticesSvg) volumeVerticesSvg.innerHTML = "";
+      if (roiPolyVerticesOverlay) roiPolyVerticesOverlay.innerHTML = "";
       
       // Render primary anchor dots on user-clicked vertices
       for (const p of roiPolyPoints) {
-        const screenP = projectToScreen(p.point);
-        if (screenP.z <= 1 && volumeVerticesSvg) {
+        const screenP = projectToScreen(p.point, cachedRect);
+        if (!screenP.isBehind && screenP.z <= 1 && roiPolyVerticesOverlay) {
           const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-          circle.setAttribute("cx", screenP.x);
-          circle.setAttribute("cy", screenP.y);
+          circle.setAttribute("cx", screenP.x.toFixed(1));
+          circle.setAttribute("cy", screenP.y.toFixed(1));
           circle.setAttribute("r", "4");
           circle.setAttribute("fill", "#ffff00");
           circle.setAttribute("stroke", "#000");
           circle.setAttribute("stroke-width", "1.5");
-          volumeVerticesSvg.appendChild(circle);
+          roiPolyVerticesOverlay.appendChild(circle);
         }
       }
 
-      const isClosed = measureState === "FINISHED_ROI_POLY" && roiPolyPoints.length >= 3;
+      const isClosed = (measureState === "FINISHED_ROI_POLY" || isTerrainClippedToRoi) && roiPolyPoints.length >= 3;
       const activePoints = (roiPolyMousePoint && measureState === "SELECTING")
         ? [...roiPolyPoints, { point: roiPolyMousePoint, coord: roiPolyMousePoint }]
         : roiPolyPoints;
@@ -3075,25 +3135,24 @@ window.addEventListener("DOMContentLoaded", () => {
       // Project terrain-draped points along the polygon perimeter
       const drapedPts = getDrapedPolygon3DPoints(activePoints, isClosed);
       for (const pt of drapedPts) {
-        const sp = projectToScreen(pt);
-        if (sp.z <= 1) {
-          pointsAttr += `${sp.x},${sp.y} `;
+        const sp = projectToScreen(pt, cachedRect);
+        if (!sp.isBehind && sp.z <= 1) {
+          pointsAttr += `${sp.x.toFixed(1)},${sp.y.toFixed(1)} `;
         }
       }
       
-      if (volumePolygonSvg) {
-        volumePolygonSvg.setAttribute("points", pointsAttr.trim());
-        volumePolygonSvg.setAttribute("fill", "none");
-        volumePolygonSvg.setAttribute("stroke", "#8b5cf6");
-        volumePolygonSvg.setAttribute("stroke-width", "2.5");
-        volumePolygonSvg.style.display = "block";
+      if (roiPolyPolygonOverlay) {
+        roiPolyPolygonOverlay.setAttribute("points", pointsAttr.trim());
+        roiPolyPolygonOverlay.setAttribute("fill", "none");
+        roiPolyPolygonOverlay.style.fill = "none";
+        roiPolyPolygonOverlay.style.display = "block";
       }
-      if (volumeVerticesSvg) volumeVerticesSvg.style.display = "block";
-      if (volumeSvg) volumeSvg.style.display = "block";
-    } else if (measureMode !== "VOLUME" && measureState !== "FINISHED_VOLUME") {
-      if (volumePolygonSvg) volumePolygonSvg.style.display = "none";
-      if (volumeVerticesSvg) volumeVerticesSvg.style.display = "none";
-      if (volumeSvg) volumeSvg.style.display = "none";
+      if (roiPolyVerticesOverlay) roiPolyVerticesOverlay.style.display = "block";
+      if (roiPolySvg) roiPolySvg.style.display = "block";
+    } else {
+      if (roiPolyPolygonOverlay) roiPolyPolygonOverlay.style.display = "none";
+      if (roiPolyVerticesOverlay) roiPolyVerticesOverlay.style.display = "none";
+      if (roiPolySvg) roiPolySvg.style.display = "none";
     }
   }
   controls.addEventListener("change", updateRoiPolySvg);
@@ -3238,16 +3297,17 @@ window.addEventListener("DOMContentLoaded", () => {
       return;
     }
     if ((measureMode === "VOLUME" || measureState === "FINISHED_VOLUME") && volumePoints.length > 0) {
+      const cachedRect = canvas.getBoundingClientRect();
       let pointsAttr = "";
       if (volumeVerticesSvg) volumeVerticesSvg.innerHTML = "";
       
       // Render primary anchor dots on user-clicked vertices
       for (const p of volumePoints) {
-        const screenP = projectToScreen(p.point);
-        if (screenP.z <= 1 && volumeVerticesSvg) {
+        const screenP = projectToScreen(p.point, cachedRect);
+        if (!screenP.isBehind && screenP.z <= 1 && volumeVerticesSvg) {
           const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-          circle.setAttribute("cx", screenP.x);
-          circle.setAttribute("cy", screenP.y);
+          circle.setAttribute("cx", screenP.x.toFixed(1));
+          circle.setAttribute("cy", screenP.y.toFixed(1));
           circle.setAttribute("r", "4");
           circle.setAttribute("fill", "#5e19ea");
           circle.setAttribute("stroke", "#ffffff");
@@ -3264,9 +3324,9 @@ window.addEventListener("DOMContentLoaded", () => {
       // Project terrain-draped points along the polygon perimeter
       const drapedPts = getDrapedPolygon3DPoints(activePoints, isClosed);
       for (const pt of drapedPts) {
-        const sp = projectToScreen(pt);
-        if (sp.z <= 1) {
-          pointsAttr += `${sp.x},${sp.y} `;
+        const sp = projectToScreen(pt, cachedRect);
+        if (!sp.isBehind && sp.z <= 1) {
+          pointsAttr += `${sp.x.toFixed(1)},${sp.y.toFixed(1)} `;
         }
       }
       
@@ -3280,7 +3340,7 @@ window.addEventListener("DOMContentLoaded", () => {
       }
       if (volumeVerticesSvg) volumeVerticesSvg.style.display = "block";
       if (volumeSvg) volumeSvg.style.display = "block";
-    } else if (measureMode !== "ROI_POLY" && measureState !== "FINISHED_ROI_POLY") {
+    } else {
       if (volumePolygonHalo) volumePolygonHalo.style.display = "none";
       if (volumePolygonSvg) volumePolygonSvg.style.display = "none";
       if (volumeVerticesSvg) volumeVerticesSvg.style.display = "none";
@@ -3309,7 +3369,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // --- Simple Measurement ---
   btnMeasureSimple?.addEventListener("click", () => {
     resetRoiState();
-    restoreFullMapIfClipped();
+    if (typeof clearAllLeftPanelState === "function") clearAllLeftPanelState(true);
     measureState = "SELECTING";
     measureMode = "SIMPLE";
     setLiveGuidance("📐", "Click start point on map, then drag or click end point to measure.");
@@ -3344,7 +3404,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // --- Path Profile ---
   btnProfile?.addEventListener("click", () => {
     resetRoiState();
-    restoreFullMapIfClipped();
+    if (typeof clearAllLeftPanelState === "function") clearAllLeftPanelState(true);
     measureState = "SELECTING";
     measureMode = "PROFILE";
     setLiveGuidance("📏", "Click on the map to place start point, then drag or tap end point.");
@@ -3389,7 +3449,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   btnDrawVolume?.addEventListener("click", () => {
     resetRoiState();
-    restoreFullMapIfClipped();
+    if (typeof clearAllLeftPanelState === "function") clearAllLeftPanelState(true);
     measureState = "SELECTING";
     measureMode = "VOLUME";
     setLiveGuidance("📦", "Click points on the map to build volume polygon. Click Finish when done.");
@@ -4009,9 +4069,12 @@ window.addEventListener("DOMContentLoaded", () => {
       elevations.push(z);
       currentProfileData.push({ dist: currentDist, elev: z, x, y, z });
 
-      const xLocal = startLocal.x + t * (endLocal.x - startLocal.x);
-      const yLocal = startLocal.y + t * (endLocal.y - startLocal.y);
-      currentProfilePoints3D.push(new Vector3(xLocal, yLocal, z + 0.35));
+      const svgStep = Math.max(1, Math.floor(numSamples / 80));
+      if (i % svgStep === 0 || i === numSamples) {
+        const xLocal = startLocal.x + t * (endLocal.x - startLocal.x);
+        const yLocal = startLocal.y + t * (endLocal.y - startLocal.y);
+        currentProfilePoints3D.push(new Vector3(xLocal, yLocal, z + 0.35));
+      }
     }
 
     // Immediately trigger 3D draped line update
@@ -4412,9 +4475,13 @@ window.addEventListener("DOMContentLoaded", () => {
   const customHeatmapUI = document.getElementById('customHeatmapUI');
   const haulroadHeatmapUI = document.getElementById('haulroadHeatmapUI');
   const customHeatmapRanges = document.getElementById('customHeatmapRanges');
+  const infoCustomHeatmapRanges = document.getElementById('infoCustomHeatmapRanges');
   const btnAddHeatmapRange = document.getElementById('btnAddHeatmapRange');
+  const infoAddHeatmapRange = document.getElementById('infoAddHeatmapRange');
   const btnApplyCustomHeatmap = document.getElementById('btnApplyCustomHeatmap');
+  const infoApplyCustomHeatmap = document.getElementById('infoApplyCustomHeatmap');
   const customHeatmapError = document.getElementById('customHeatmapError');
+  const infoCustomHeatmapError = document.getElementById('infoCustomHeatmapError');
   
   let customRanges = [
     { min: 0, max: 15, color: '#00ff00' },
@@ -4422,57 +4489,86 @@ window.addEventListener("DOMContentLoaded", () => {
   ];
 
   function renderCustomRanges() {
-    if (!customHeatmapRanges) return;
-    customHeatmapRanges.innerHTML = '';
-    customRanges.forEach((range, index) => {
-      const row = document.createElement('div');
-      row.style.display = 'flex';
-      row.style.gap = '5px';
-      row.style.alignItems = 'center';
-      
-      const colorInput = document.createElement('input');
-      colorInput.type = 'color';
-      colorInput.value = range.color;
-      colorInput.style.width = '30px';
-      colorInput.style.height = '24px';
-      colorInput.style.padding = '0';
-      colorInput.style.border = 'none';
-      colorInput.addEventListener('change', (e) => { customRanges[index].color = e.target.value; });
-      
-      const minInput = document.createElement('input');
-      minInput.type = 'number';
-      minInput.value = range.min;
-      minInput.style.width = '55px';
-      minInput.style.padding = '2px';
-      minInput.addEventListener('change', (e) => { customRanges[index].min = parseFloat(e.target.value); });
-      
-      const span = document.createElement('span');
-      span.textContent = 'to';
-      span.style.fontSize = '12px';
-      
-      const maxInput = document.createElement('input');
-      maxInput.type = 'number';
-      maxInput.value = range.max;
-      maxInput.style.width = '55px';
-      maxInput.style.padding = '2px';
-      maxInput.addEventListener('change', (e) => { customRanges[index].max = parseFloat(e.target.value); });
-      
-      const btnDel = document.createElement('button');
-      btnDel.textContent = 'X';
-      btnDel.className = 'btn btn-outline';
-      btnDel.style.padding = '2px 6px';
-      btnDel.addEventListener('click', () => {
-        customRanges.splice(index, 1);
-        renderCustomRanges();
+    const containers = [customHeatmapRanges, infoCustomHeatmapRanges].filter(Boolean);
+    if (containers.length === 0) return;
+
+    containers.forEach(container => {
+      container.innerHTML = '';
+      customRanges.forEach((range, index) => {
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.gap = '6px';
+        row.style.alignItems = 'center';
+        row.style.marginBottom = '6px';
+        
+        const colorInput = document.createElement('input');
+        colorInput.type = 'color';
+        colorInput.value = range.color;
+        colorInput.style.width = '30px';
+        colorInput.style.height = '26px';
+        colorInput.style.padding = '0';
+        colorInput.style.border = 'none';
+        colorInput.style.borderRadius = '4px';
+        colorInput.style.cursor = 'pointer';
+        colorInput.addEventListener('change', (e) => {
+          customRanges[index].color = e.target.value;
+          renderCustomRanges();
+        });
+        
+        const minInput = document.createElement('input');
+        minInput.type = 'number';
+        minInput.value = range.min;
+        minInput.style.width = '55px';
+        minInput.style.padding = '4px 6px';
+        minInput.style.fontSize = '12px';
+        minInput.style.borderRadius = '4px';
+        minInput.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+        minInput.style.background = 'rgba(0, 0, 0, 0.25)';
+        minInput.style.color = '#ffffff';
+        minInput.addEventListener('change', (e) => {
+          customRanges[index].min = parseFloat(e.target.value);
+        });
+        
+        const span = document.createElement('span');
+        span.textContent = 'to';
+        span.style.fontSize = '12px';
+        span.style.color = 'rgba(255, 255, 255, 0.7)';
+        
+        const maxInput = document.createElement('input');
+        maxInput.type = 'number';
+        maxInput.value = range.max;
+        maxInput.style.width = '55px';
+        maxInput.style.padding = '4px 6px';
+        maxInput.style.fontSize = '12px';
+        maxInput.style.borderRadius = '4px';
+        maxInput.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+        maxInput.style.background = 'rgba(0, 0, 0, 0.25)';
+        maxInput.style.color = '#ffffff';
+        maxInput.addEventListener('change', (e) => {
+          customRanges[index].max = parseFloat(e.target.value);
+        });
+        
+        const btnDel = document.createElement('button');
+        btnDel.textContent = '✕';
+        btnDel.className = 'btn btn-outline';
+        btnDel.style.padding = '3px 8px';
+        btnDel.style.fontSize = '11px';
+        btnDel.style.color = '#ef4444';
+        btnDel.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+        btnDel.title = 'Remove Range';
+        btnDel.addEventListener('click', () => {
+          customRanges.splice(index, 1);
+          renderCustomRanges();
+        });
+        
+        row.appendChild(colorInput);
+        row.appendChild(minInput);
+        row.appendChild(span);
+        row.appendChild(maxInput);
+        row.appendChild(btnDel);
+        
+        container.appendChild(row);
       });
-      
-      row.appendChild(colorInput);
-      row.appendChild(minInput);
-      row.appendChild(span);
-      row.appendChild(maxInput);
-      row.appendChild(btnDel);
-      
-      customHeatmapRanges.appendChild(row);
     });
   }
 
@@ -4492,7 +4588,8 @@ window.addEventListener("DOMContentLoaded", () => {
         if (slopeColorMap) {
           const RESOLUTION = 256;
           const newColors = [];
-          const val = parseFloat(heatmapOpacity.value);
+          const origOp = document.getElementById('heatmapOpacity');
+          const val = origOp ? parseFloat(origOp.value) : 0.35;
           const newOpacities = new Array(RESOLUTION).fill(val);
           
           for (let i = 0; i < RESOLUTION; i++) {
@@ -4519,7 +4616,8 @@ window.addEventListener("DOMContentLoaded", () => {
             new Color('red'),
             new Color('darkred')
           ];
-          const val = parseFloat(heatmapOpacity.value);
+          const origOp = document.getElementById('heatmapOpacity');
+          const val = origOp ? parseFloat(origOp.value) : 0.35;
           slopeColorMap.opacity = new Array(5).fill(val);
           instance.notifyChange();
         }
@@ -4527,26 +4625,28 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  btnAddHeatmapRange?.addEventListener('click', () => {
+  const handleAddHeatmapRange = () => {
     const lastMax = customRanges.length > 0 ? customRanges[customRanges.length - 1].max : 0;
-    customRanges.push({ min: lastMax, max: lastMax + 15, color: '#ff0000' });
+    customRanges.push({ min: lastMax, max: Math.min(90, lastMax + 15), color: '#ff0000' });
     renderCustomRanges();
-  });
+  };
+  btnAddHeatmapRange?.addEventListener('click', handleAddHeatmapRange);
+  infoAddHeatmapRange?.addEventListener('click', handleAddHeatmapRange);
 
-  btnApplyCustomHeatmap?.addEventListener('click', () => {
-    if (!customHeatmapError) return;
-    customHeatmapError.style.display = 'none';
+  const handleApplyCustomHeatmap = () => {
+    const errorEls = [customHeatmapError, infoCustomHeatmapError].filter(Boolean);
+    errorEls.forEach(el => { el.style.display = 'none'; });
     
     const sorted = [...customRanges].sort((a, b) => a.min - b.min);
     for (let i = 0; i < sorted.length; i++) {
       if (sorted[i].min >= sorted[i].max) {
-        customHeatmapError.textContent = `Error: Range must have min < max (${sorted[i].min} to ${sorted[i].max})`;
-        customHeatmapError.style.display = 'block';
+        const msg = `Error: Range must have min < max (${sorted[i].min} to ${sorted[i].max})`;
+        errorEls.forEach(el => { el.textContent = msg; el.style.display = 'block'; });
         return;
       }
       if (i > 0 && sorted[i].min < sorted[i-1].max) {
-        customHeatmapError.textContent = `Error: Degrees overlap (${sorted[i-1].max} encounters ${sorted[i].min})`;
-        customHeatmapError.style.display = 'block';
+        const msg = `Error: Degrees overlap (${sorted[i-1].max} encounters ${sorted[i].min})`;
+        errorEls.forEach(el => { el.textContent = msg; el.style.display = 'block'; });
         return;
       }
     }
@@ -4555,7 +4655,8 @@ window.addEventListener("DOMContentLoaded", () => {
       const RESOLUTION = 256;
       const newColors = [];
       const newOpacities = [];
-      const val = parseFloat(heatmapOpacity.value);
+      const origOp = document.getElementById('heatmapOpacity');
+      const val = origOp ? parseFloat(origOp.value) : 0.35;
       
       for (let i = 0; i < RESOLUTION; i++) {
         // Giro3D maps 0..90 degrees across the array length
@@ -4579,7 +4680,9 @@ window.addEventListener("DOMContentLoaded", () => {
       slopeColorMap.opacity = newOpacities;
       instance.notifyChange();
     }
-  });
+  };
+  btnApplyCustomHeatmap?.addEventListener('click', handleApplyCustomHeatmap);
+  infoApplyCustomHeatmap?.addEventListener('click', handleApplyCustomHeatmap);
 
   function setActiveSavedItem(itemEl) {
     document.querySelectorAll(".saved-report-item").forEach(el => el.classList.remove("selected-item"));
@@ -5574,6 +5677,9 @@ window.addEventListener("DOMContentLoaded", () => {
       if (map) map.clippingPlanes = [];
       if (typeof resetRoiState === "function") resetRoiState();
       if (typeof roiSvg !== "undefined" && roiSvg) roiSvg.style.display = "none";
+      if (typeof roiPolySvg !== "undefined" && roiPolySvg) roiPolySvg.style.display = "none";
+      if (typeof roiPolyPolygonOverlay !== "undefined" && roiPolyPolygonOverlay) roiPolyPolygonOverlay.style.display = "none";
+      if (typeof roiPolyVerticesOverlay !== "undefined" && roiPolyVerticesOverlay) roiPolyVerticesOverlay.innerHTML = "";
       if (typeof roiPolyPoints !== "undefined") roiPolyPoints = [];
       if (typeof volumePolygonSvg !== "undefined" && volumePolygonSvg) volumePolygonSvg.style.display = "none";
       if (typeof volumeVerticesSvg !== "undefined" && volumeVerticesSvg) volumeVerticesSvg.style.display = "none";
@@ -5596,7 +5702,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // -------------------------------------------------------------------------
   // Left Panel Exclusive State: only one feature can be active at a time
   // -------------------------------------------------------------------------
-  function clearAllLeftPanelState(skipRestoreMap = false) {
+  function clearAllLeftPanelState(skipRestoreMap = true) {
     // 1. Clear Profile/Line & Distance Measurements
     const btnClearProfile = document.getElementById('btnClearProfile');
     if (btnClearProfile) {
@@ -5660,8 +5766,8 @@ window.addEventListener("DOMContentLoaded", () => {
       el.classList.remove("active", "selected-item");
     });
 
-    // 9. Restore full unclipped map if ROI was active
-    if (!skipRestoreMap) {
+    // 9. Restore full unclipped map ONLY if explicitly requested (skipRestoreMap === false)
+    if (skipRestoreMap === false) {
       restoreFullMapIfClipped();
     }
   }
@@ -6719,11 +6825,17 @@ window.addEventListener("DOMContentLoaded", () => {
 
   const btnResetMap = document.getElementById("btnResetMap");
   btnResetMap?.addEventListener("click", () => {
+    isTerrainClippedToRoi = false;
+    if (map) map.clippingPlanes = [];
+
     // 1. Clear UI states
     if (typeof resetRoiState === "function") resetRoiState();
     
     // 2. Clear ROIs
     if (typeof roiSvg !== "undefined" && roiSvg) roiSvg.style.display = "none";
+    if (typeof roiPolySvg !== "undefined" && roiPolySvg) roiPolySvg.style.display = "none";
+    if (typeof roiPolyPolygonOverlay !== "undefined" && roiPolyPolygonOverlay) roiPolyPolygonOverlay.style.display = "none";
+    if (typeof roiPolyVerticesOverlay !== "undefined" && roiPolyVerticesOverlay) roiPolyVerticesOverlay.innerHTML = "";
     if (typeof roiPolyPoints !== "undefined") roiPolyPoints = [];
     if (typeof updateRoiPolySvg === 'function') updateRoiPolySvg();
     
@@ -6748,10 +6860,10 @@ window.addEventListener("DOMContentLoaded", () => {
   const btnRightHeatmap = document.getElementById("btnRightHeatmap");
   const btnRightContour = document.getElementById("btnRightContour");
 
-  // Track overlay active states
-  let isGridOverlayActive = false;
-  let isHeatmapOverlayActive = false;
-  let isContourOverlayActive = false;
+  // Track overlay active states (reusing hoisted state variables)
+  isGridOverlayActive = false;
+  isHeatmapOverlayActive = false;
+  isContourOverlayActive = false;
 
   // --- Grid Toggle ---
   btnRightGrid?.addEventListener("click", () => {
@@ -6846,10 +6958,10 @@ window.addEventListener("DOMContentLoaded", () => {
       // Toggle info panel legends
       const infoPredefined = document.getElementById("infoPredefinedHeatmapUI");
       const infoHaulroad = document.getElementById("infoHaulroadHeatmapUI");
-      const infoCustom = document.getElementById("infoCustomHeatmapUI");
-      if (infoPredefined) infoPredefined.classList.toggle("hidden", mode !== "predefined");
-      if (infoHaulroad) infoHaulroad.classList.toggle("hidden", mode !== "haulroad");
-      if (infoCustom) infoCustom.classList.toggle("hidden", mode !== "custom");
+      if (infoCustom) {
+        infoCustom.classList.toggle("hidden", mode !== "custom");
+        if (mode === "custom") renderCustomRanges();
+      }
     });
   });
 

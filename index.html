@@ -85,6 +85,12 @@
     <path id="kmlLine" fill="none" stroke="#ff0044" stroke-width="3" filter="url(#kmlGlow)" stroke-linejoin="round" d=""></path>
   </svg>
 
+  <!-- Polygon ROI SVG Overlay (Dedicated for ROI boundary so Volume & Profile can operate simultaneously) -->
+  <svg id="roiPolySvg" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index: 9; display:none;">
+    <polygon id="roiPolyPolygonOverlay" fill="none" stroke="#8b5cf6" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" points=""></polygon>
+    <g id="roiPolyVerticesOverlay"></g>
+  </svg>
+
   <!-- Volume SVG Overlay -->
   <svg id="volumeSvg" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index: 10; display:none;">
     <polygon id="volumePolygonHalo" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round" points=""></polygon>

@@ -7,6 +7,10 @@ export default defineConfig({
       '/projects/NHPDC': {
         target: 'https://polygon-giro3d.s3.ap-south-2.amazonaws.com',
         changeOrigin: true,
+      },
+      '/projects/Chattibhariatu': {
+        target: 'https://polygon-giro3d.s3.ap-south-2.amazonaws.com',
+        changeOrigin: true,
       }
     }
   },

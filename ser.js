@@ -272,8 +272,23 @@ const chattibhariatuConfig = {
     august_2026: {
       elevationUrl: "./projects/Chattibhariatu/surveys/august_2026/DTM_CO.tif",
       orthoUrl: "./projects/Chattibhariatu/surveys/august_2026/Ortho_CO.tif",
-      extent: [9468080.47, 9472626.74, 2721362.94, 2724320.35],
-      zOffset: 430.6,
+      extent: [9468040.67, 9472665.87, 2721360.00, 2724320.30],
+      zOffset: 436.0,
+      displayName: "August 2026",
+    },
+    september_2026: {
+      elevationUrl: "./projects/Chattibhariatu/surveys/september_2026/DTM_CO.tif",
+      orthoUrl: "./projects/Chattibhariatu/surveys/september_2026/Ortho_CO.tif",
+      extent: [9467937.20, 9472761.00, 2721391.00, 2724470.00],
+      zOffset: 432.0,
+      displayName: "September 2026",
+    },
+    october_2026: {
+      elevationUrl: "./projects/Chattibhariatu/surveys/October/DTM_CO.tif",
+      orthoUrl: "./projects/Chattibhariatu/surveys/October/Ortho_CO.tif",
+      extent: [9467993.08, 9472764.75, 2721407.00, 2724254.39],
+      zOffset: 432.0,
+      displayName: "October 2026",
     },
   }
 };
@@ -318,29 +333,45 @@ const PROJECTS = {
 function getActiveProjectConfig() {
   const urlParams = new URLSearchParams(window.location.search);
   const projectId = urlParams.get("project") || "chattibhariatu_project";
-  const rawSurveyId = urlParams.get("survey") || "may_2026";
+  const hasExplicitSurvey = urlParams.has("survey");
+  // Default to the latest active survey (October 2026) when no survey is specified
+  const rawSurveyId = urlParams.get("survey") || "october_2026";
   
   const projectInfo = PROJECTS[projectId] || PROJECTS[projectId.toLowerCase()] || PROJECTS.chattibhariatu_project;
   const surveys = projectInfo.surveys || {};
-  const defaultSurvey = surveys["may_2026"] || surveys["default"] || Object.values(surveys)[0];
+  const defaultSurvey = surveys["october_2026"] || surveys["september_2026"] || surveys["august_2026"] || surveys["may_2026"] || surveys["default"] || Object.values(surveys)[0];
 
-  // Smart survey lookup: matches "june", "june_2026", "June_2026", etc. cleanly
+  // Smart survey lookup: matches "october", "october_2026", "september", "september_2026", etc.
   const cleanKey = rawSurveyId.toLowerCase().replace(/_2026$/, "");
   const surveyInfo = surveys[rawSurveyId]
     || surveys[rawSurveyId.toLowerCase()]
     || surveys[`${cleanKey}_2026`]
-    || surveys[cleanKey]
-    || defaultSurvey;
-  
+    || surveys[cleanKey];
+
+  // If the user explicitly requested a survey and no 3D data exists for it:
+  // DO NOT fall back to previous surveys! Flag it as not available.
+  if (hasExplicitSurvey && !surveyInfo) {
+    return {
+      ...projectInfo,
+      notAvailable: true,
+      surveyId: rawSurveyId,
+      id: projectId,
+      folderName: projectInfo.folderName || projectId,
+    };
+  }
+
+  const activeSurvey = surveyInfo || defaultSurvey;
   return {
     ...projectInfo,
-    elevationUrl: surveyInfo.elevationUrl,
-    orthoUrl: surveyInfo.orthoUrl,
-    extent: surveyInfo.extent || (defaultSurvey ? defaultSurvey.extent : [0,0,0,0]),
-    zOffset: (typeof surveyInfo.zOffset === "number") ? surveyInfo.zOffset : (defaultSurvey ? defaultSurvey.zOffset : 0),
+    notAvailable: false,
+    elevationUrl: activeSurvey.elevationUrl,
+    orthoUrl: activeSurvey.orthoUrl,
+    extent: activeSurvey.extent || (defaultSurvey ? defaultSurvey.extent : [0,0,0,0]),
+    zOffset: (typeof activeSurvey.zOffset === "number") ? activeSurvey.zOffset : (defaultSurvey ? defaultSurvey.zOffset : 0),
     id: projectId,
     folderName: projectInfo.folderName || projectId,
-    surveyId: rawSurveyId
+    surveyId: hasExplicitSurvey ? rawSurveyId : (activeSurvey === surveys["october_2026"] ? "october_2026" : rawSurveyId),
+    displayName: activeSurvey.displayName || rawSurveyId.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())
   };
 }
 
@@ -1038,8 +1069,100 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  function formatSurveyTitle(rawId) {
+    if (!rawId) return "Selected Survey";
+    return rawId
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+
+  function showSurveyNotAvailableUI(surveyId, folderName) {
+    const formatted = formatSurveyTitle(surveyId);
+    updateStatus("3D model not available");
+
+    // Hide loading spinners
+    const loadingIndicators = document.querySelectorAll(".spinner, #infoHeatmapLoading, #infoContourLoading");
+    loadingIndicators.forEach(el => el.classList.add("hidden"));
+
+    // Hide left and right tool panels so they don't block the screen
+    const toolFlyout = document.querySelector(".flyout-panel");
+    if (toolFlyout) toolFlyout.classList.remove("active");
+    const unifiedInfo = document.getElementById("unifiedInfoPanel");
+    if (unifiedInfo) unifiedInfo.classList.add("hidden");
+    const rightSidebar = document.querySelector(".right-sidebar");
+    if (rightSidebar) rightSidebar.style.opacity = "0.3";
+
+    // Create or show the sleek glassmorphism card
+    let modal = document.getElementById("surveyNotAvailableModal");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "surveyNotAvailableModal";
+      modal.style.cssText = `
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at center, rgba(15, 23, 42, 0.90), rgba(10, 15, 30, 0.98));
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        padding: 24px;
+      `;
+      document.body.appendChild(modal);
+    }
+
+    modal.innerHTML = `
+      <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 24px; padding: 36px 32px; max-width: 460px; width: 100%; text-align: center; box-shadow: 0 30px 60px rgba(0, 0, 0, 0.7), 0 0 50px rgba(94, 25, 234, 0.2); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        <div style="width: 68px; height: 68px; margin: 0 auto 18px; border-radius: 18px; background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(245, 158, 11, 0.18)); border: 1px solid rgba(239, 68, 68, 0.35); display: flex; align-items: center; justify-content: center; font-size: 30px; box-shadow: 0 8px 24px rgba(239, 68, 68, 0.2);">
+          🏔️
+        </div>
+        <div style="display: inline-block; padding: 4px 12px; border-radius: 999px; background: rgba(94, 25, 234, 0.25); border: 1px solid rgba(139, 92, 246, 0.45); color: #c4b5fd; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 12px;">
+          3D Surface Model
+        </div>
+        <h2 style="margin: 0 0 10px; color: #ffffff; font-size: 22px; font-weight: 700; letter-spacing: -0.3px;">
+          3D Model Not Available
+        </h2>
+        <p style="margin: 0 0 24px; color: #94a3b8; font-size: 13.5px; line-height: 1.6;">
+          3D terrain elevation and orthophoto models have not been processed yet for <span style="color: #f8fafc; font-weight: 600;">${formatted}</span>.<br>
+          Only 2D map views are currently active for this period.
+        </p>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <button id="btnSwitchToLatest3D" style="width: 100%; padding: 12px 20px; border-radius: 12px; border: none; background: linear-gradient(135deg, #5e19ea, #8b5cf6); color: #ffffff; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 16px rgba(94, 25, 234, 0.4); transition: transform 0.15s ease;">
+            View Latest 3D Survey (October 2026) →
+          </button>
+          <button id="btnStayOn2D" style="width: 100%; padding: 10px 20px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.18); background: rgba(255, 255, 255, 0.04); color: #cbd5e1; font-size: 12.5px; font-weight: 500; cursor: pointer; transition: background 0.15s ease;">
+            Return to 2D Map
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.getElementById("btnSwitchToLatest3D")?.addEventListener("click", () => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("survey", "october_2026");
+      window.location.href = url.toString();
+    });
+
+    document.getElementById("btnStayOn2D")?.addEventListener("click", () => {
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: "CLOSE_3D_VIEWER" }, "*");
+        } else {
+          window.history.back();
+        }
+      } catch (e) {
+        window.history.back();
+      }
+    });
+  }
+
   activeProject = getActiveProjectConfig();
-  loadProject(activeProject).then(() => {});
+  if (activeProject.notAvailable) {
+    showSurveyNotAvailableUI(activeProject.surveyId, activeProject.folderName);
+  } else {
+    loadProject(activeProject).then(() => {});
+  }
 
   // -------------------------------------------------------------------------
   // Heading / Tilt sliders
@@ -1987,7 +2110,15 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     if (toolType === "POINT" && infoViewPoint) infoViewPoint.classList.remove("hidden");
     if (toolType === "GRID" && infoViewGrid) infoViewGrid.classList.remove("hidden");
-    if (toolType === "HEATMAP" && infoViewHeatmap) infoViewHeatmap.classList.remove("hidden");
+    if (toolType === "HEATMAP" && infoViewHeatmap) {
+      infoViewHeatmap.classList.remove("hidden");
+      const currentMode = document.querySelector('input[name="infoHeatmapMode"]:checked')?.value ||
+                          document.querySelector('input[name="heatmapMode"]:checked')?.value ||
+                          'predefined';
+      if (typeof setHeatmapMode === 'function') {
+        setHeatmapMode(currentMode);
+      }
+    }
     if (toolType === "CONTOUR" && infoViewContour) infoViewContour.classList.remove("hidden");
 
     if (unifiedInfoPanel) unifiedInfoPanel.classList.remove("hidden");
@@ -4415,24 +4546,72 @@ window.addEventListener("DOMContentLoaded", () => {
   const heatmapOpacityVal = document.getElementById('heatmapOpacityVal');
   const heatmapLoading = document.getElementById('infoHeatmapLoading') || document.getElementById('heatmapLoading');
 
+  const handleHeatmapOpacityInput = (e) => {
+    const val = parseFloat(e.target.value);
+    const infoVal = document.getElementById("infoHeatmapOpacityVal");
+    const flyoutVal = document.getElementById("heatmapOpacityVal");
+    const pct = Math.round(val * 100) + "%";
+    if (infoVal) infoVal.textContent = pct;
+    if (flyoutVal) flyoutVal.textContent = pct;
+
+    const infoOp = document.getElementById("infoHeatmapOpacity");
+    const flyoutOp = document.getElementById("heatmapOpacity");
+    if (infoOp && e.target !== infoOp) infoOp.value = val;
+    if (flyoutOp && e.target !== flyoutOp) flyoutOp.value = val;
+
+    const curMode = document.querySelector('input[name="infoHeatmapMode"]:checked')?.value ||
+                    document.querySelector('input[name="heatmapMode"]:checked')?.value ||
+                    'predefined';
+
+    if (slopeColorMap && slopeColorMap.active) {
+      if (curMode === 'custom') {
+        handleApplyCustomHeatmap(false);
+      } else if (curMode === 'haulroad') {
+        slopeColorMap.opacity = new Array(256).fill(val);
+        instance.notifyChange();
+      } else {
+        slopeColorMap.opacity = new Array(5).fill(val);
+        instance.notifyChange();
+      }
+    }
+  };
+
+  document.getElementById("heatmapOpacity")?.addEventListener("input", handleHeatmapOpacityInput);
+  document.getElementById("infoHeatmapOpacity")?.addEventListener("input", handleHeatmapOpacityInput);
+
   btnEnableHeatmap?.addEventListener('click', () => {
     btnEnableHeatmap.disabled = true;
-    heatmapLoading.classList.remove('hidden');
+    heatmapLoading?.classList.remove('hidden');
 
     setTimeout(() => {
       if (slopeColorMap && elevationLayer) {
         elevationLayer.colorMap = slopeColorMap;
         slopeColorMap.active = true;
         if (orthoLayer) {
-          orthoLayer.opacity = 0.4; // Fade the satellite image so the heatmap shines through
+          orthoLayer.opacity = 0.4; // Fade satellite image so heatmap colors shine through
         }
-        instance.notifyChange();
       }
+
+      const curMode = document.querySelector('input[name="infoHeatmapMode"]:checked')?.value ||
+                      document.querySelector('input[name="heatmapMode"]:checked')?.value ||
+                      'predefined';
+
+      if (curMode === 'custom') {
+        handleApplyCustomHeatmap(false);
+      } else {
+        setHeatmapMode(curMode);
+      }
+
+      instance.notifyChange();
       btnDisableHeatmap.disabled = false;
       heatmapLoading?.classList.add('hidden');
       heatmapSettings?.classList.remove('hidden');
       document.getElementById("infoHeatmapExportCard")?.classList.remove("hidden");
-    }, 600);
+
+      isHeatmapOverlayActive = true;
+      const btnRightHeatmap = document.getElementById("btnRightHeatmap");
+      if (btnRightHeatmap) btnRightHeatmap.classList.add("overlay-active");
+    }, 400);
   });
 
   btnDisableHeatmap?.addEventListener('click', () => {
@@ -4448,23 +4627,10 @@ window.addEventListener("DOMContentLoaded", () => {
     btnDisableHeatmap.disabled = true;
     heatmapSettings?.classList.add('hidden');
     document.getElementById("infoHeatmapExportCard")?.classList.add("hidden");
-  });
 
-  heatmapOpacity?.addEventListener('input', (e) => {
-    const val = parseFloat(e.target.value);
-    heatmapOpacityVal.textContent = Math.round(val * 100) + '%';
-    if (slopeColorMap) {
-      const mode = document.querySelector('input[name="heatmapMode"]:checked')?.value || 'predefined';
-      if (mode === 'predefined') {
-        slopeColorMap.opacity = new Array(5).fill(val);
-        instance.notifyChange();
-      } else if (mode === 'haulroad') {
-        slopeColorMap.opacity = new Array(256).fill(val);
-        instance.notifyChange();
-      } else {
-        btnApplyCustomHeatmap?.click();
-      }
-    }
+    isHeatmapOverlayActive = false;
+    const btnRightHeatmap = document.getElementById("btnRightHeatmap");
+    if (btnRightHeatmap) btnRightHeatmap.classList.remove("overlay-active");
   });
 
   // -------------------------------------------------------------------------
@@ -4482,89 +4648,166 @@ window.addEventListener("DOMContentLoaded", () => {
   const infoApplyCustomHeatmap = document.getElementById('infoApplyCustomHeatmap');
   const customHeatmapError = document.getElementById('customHeatmapError');
   const infoCustomHeatmapError = document.getElementById('infoCustomHeatmapError');
+  const infoPredefinedHeatmapUI = document.getElementById('infoPredefinedHeatmapUI');
+  const infoHaulroadHeatmapUI = document.getElementById('infoHaulroadHeatmapUI');
+  const infoCustomHeatmapUI = document.getElementById('infoCustomHeatmapUI');
   
+  // Start with ONLY 2 ranges by default per user request
   let customRanges = [
-    { min: 0, max: 15, color: '#00ff00' },
-    { min: 15, max: 30, color: '#ffff00' }
+    { min: 0, max: 15, color: '#22c55e' },
+    { min: 15, max: 30, color: '#eab308' }
   ];
 
+  // Helper to read the exact numbers & colors currently in the DOM inputs
+  function getLiveCustomRanges() {
+    const container = document.getElementById('infoCustomHeatmapRanges') || document.getElementById('customHeatmapRanges');
+    if (!container || container.children.length === 0) return customRanges;
+
+    const rows = container.querySelectorAll('.custom-range-row');
+    if (rows.length === 0) return customRanges;
+
+    const extracted = [];
+    rows.forEach(row => {
+      const colorInput = row.querySelector('input[type="color"]');
+      const minInput = row.querySelector('.range-min-input');
+      const maxInput = row.querySelector('.range-max-input');
+      if (colorInput && minInput && maxInput) {
+        extracted.push({
+          color: colorInput.value,
+          min: parseFloat(minInput.value) || 0,
+          max: parseFloat(maxInput.value) || 0
+        });
+      }
+    });
+
+    if (extracted.length > 0) {
+      customRanges = extracted;
+    }
+    return customRanges;
+  }
+
   function renderCustomRanges() {
-    const containers = [customHeatmapRanges, infoCustomHeatmapRanges].filter(Boolean);
+    const containers = [
+      document.getElementById('customHeatmapRanges'),
+      document.getElementById('infoCustomHeatmapRanges')
+    ].filter(Boolean);
     if (containers.length === 0) return;
 
     containers.forEach(container => {
       container.innerHTML = '';
       customRanges.forEach((range, index) => {
         const row = document.createElement('div');
+        row.className = 'custom-range-row';
         row.style.display = 'flex';
-        row.style.gap = '6px';
+        row.style.gap = '8px';
         row.style.alignItems = 'center';
-        row.style.marginBottom = '6px';
+        row.style.marginBottom = '8px';
+        row.style.padding = '6px 8px';
+        row.style.background = '#f8fafc';
+        row.style.border = '1px solid #e2e8f0';
+        row.style.borderRadius = '8px';
+        row.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.03)';
         
         const colorInput = document.createElement('input');
         colorInput.type = 'color';
         colorInput.value = range.color;
-        colorInput.style.width = '30px';
-        colorInput.style.height = '26px';
+        colorInput.className = 'range-color-input';
+        colorInput.style.width = '32px';
+        colorInput.style.height = '28px';
         colorInput.style.padding = '0';
-        colorInput.style.border = 'none';
-        colorInput.style.borderRadius = '4px';
+        colorInput.style.border = '1px solid #cbd5e1';
+        colorInput.style.borderRadius = '6px';
         colorInput.style.cursor = 'pointer';
+        colorInput.style.background = '#ffffff';
+        colorInput.title = 'Choose Slope Color';
         colorInput.addEventListener('change', (e) => {
           customRanges[index].color = e.target.value;
           renderCustomRanges();
+          if (slopeColorMap && slopeColorMap.active) {
+            handleApplyCustomHeatmap(false);
+          }
         });
         
         const minInput = document.createElement('input');
         minInput.type = 'number';
+        minInput.className = 'range-min-input';
         minInput.value = range.min;
+        minInput.min = '0';
+        minInput.max = '90';
         minInput.style.width = '55px';
         minInput.style.padding = '4px 6px';
         minInput.style.fontSize = '12px';
-        minInput.style.borderRadius = '4px';
-        minInput.style.border = '1px solid rgba(255, 255, 255, 0.2)';
-        minInput.style.background = 'rgba(0, 0, 0, 0.25)';
-        minInput.style.color = '#ffffff';
+        minInput.style.fontWeight = '600';
+        minInput.style.borderRadius = '6px';
+        minInput.style.border = '1px solid #cbd5e1';
+        minInput.style.background = '#ffffff';
+        minInput.style.color = '#0f172a';
+        minInput.addEventListener('input', (e) => {
+          customRanges[index].min = parseFloat(e.target.value) || 0;
+        });
         minInput.addEventListener('change', (e) => {
-          customRanges[index].min = parseFloat(e.target.value);
+          customRanges[index].min = parseFloat(e.target.value) || 0;
         });
         
         const span = document.createElement('span');
         span.textContent = 'to';
         span.style.fontSize = '12px';
-        span.style.color = 'rgba(255, 255, 255, 0.7)';
+        span.style.fontWeight = '600';
+        span.style.color = '#64748b';
         
         const maxInput = document.createElement('input');
         maxInput.type = 'number';
+        maxInput.className = 'range-max-input';
         maxInput.value = range.max;
+        maxInput.min = '0';
+        maxInput.max = '90';
         maxInput.style.width = '55px';
         maxInput.style.padding = '4px 6px';
         maxInput.style.fontSize = '12px';
-        maxInput.style.borderRadius = '4px';
-        maxInput.style.border = '1px solid rgba(255, 255, 255, 0.2)';
-        maxInput.style.background = 'rgba(0, 0, 0, 0.25)';
-        maxInput.style.color = '#ffffff';
-        maxInput.addEventListener('change', (e) => {
-          customRanges[index].max = parseFloat(e.target.value);
+        maxInput.style.fontWeight = '600';
+        maxInput.style.borderRadius = '6px';
+        maxInput.style.border = '1px solid #cbd5e1';
+        maxInput.style.background = '#ffffff';
+        maxInput.style.color = '#0f172a';
+        maxInput.addEventListener('input', (e) => {
+          customRanges[index].max = parseFloat(e.target.value) || 0;
         });
+        maxInput.addEventListener('change', (e) => {
+          customRanges[index].max = parseFloat(e.target.value) || 0;
+        });
+
+        const degSpan = document.createElement('span');
+        degSpan.textContent = '°';
+        degSpan.style.fontSize = '13px';
+        degSpan.style.fontWeight = '600';
+        degSpan.style.color = '#64748b';
         
         const btnDel = document.createElement('button');
         btnDel.textContent = '✕';
         btnDel.className = 'btn btn-outline';
-        btnDel.style.padding = '3px 8px';
+        btnDel.style.padding = '4px 8px';
         btnDel.style.fontSize = '11px';
+        btnDel.style.fontWeight = '700';
         btnDel.style.color = '#ef4444';
         btnDel.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+        btnDel.style.background = '#ffffff';
+        btnDel.style.borderRadius = '6px';
+        btnDel.style.cursor = 'pointer';
         btnDel.title = 'Remove Range';
         btnDel.addEventListener('click', () => {
+          getLiveCustomRanges();
           customRanges.splice(index, 1);
           renderCustomRanges();
+          if (slopeColorMap && slopeColorMap.active) {
+            handleApplyCustomHeatmap(false);
+          }
         });
         
         row.appendChild(colorInput);
         row.appendChild(minInput);
         row.appendChild(span);
         row.appendChild(maxInput);
+        row.appendChild(degSpan);
         row.appendChild(btnDel);
         
         container.appendChild(row);
@@ -4572,97 +4815,153 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  function setHeatmapMode(mode) {
+    // 1. Sync checked radio in both panels
+    document.querySelectorAll('input[name="heatmapMode"]').forEach(r => {
+      r.checked = (r.value === mode);
+    });
+    document.querySelectorAll('input[name="infoHeatmapMode"]').forEach(r => {
+      r.checked = (r.value === mode);
+    });
+
+    // 2. Toggle Flyout panel legend views
+    if (predefinedHeatmapUI) predefinedHeatmapUI.classList.toggle('hidden', mode !== 'predefined');
+    if (haulroadHeatmapUI) haulroadHeatmapUI.classList.toggle('hidden', mode !== 'haulroad');
+    if (customHeatmapUI) customHeatmapUI.classList.toggle('hidden', mode !== 'custom');
+
+    // 3. Toggle Unified Info Panel legend views
+    const infoPre = document.getElementById('infoPredefinedHeatmapUI');
+    const infoHaul = document.getElementById('infoHaulroadHeatmapUI');
+    const infoCust = document.getElementById('infoCustomHeatmapUI');
+    if (infoPre) infoPre.classList.toggle('hidden', mode !== 'predefined');
+    if (infoHaul) infoHaul.classList.toggle('hidden', mode !== 'haulroad');
+    if (infoCust) infoCust.classList.toggle('hidden', mode !== 'custom');
+
+    // 4. Render custom range cards if in custom mode
+    if (mode === 'custom') {
+      renderCustomRanges();
+    }
+
+    // 5. If heatmap is active on terrain, update color shader
+    const opacityEl = document.getElementById('infoHeatmapOpacity') || document.getElementById('heatmapOpacity');
+    const val = opacityEl ? parseFloat(opacityEl.value) : 0.35;
+
+    if (slopeColorMap && slopeColorMap.active) {
+      if (mode === 'custom') {
+        handleApplyCustomHeatmap(false);
+      } else if (mode === 'haulroad') {
+        const RESOLUTION = 256;
+        const newColors = [];
+        const newOpacities = new Array(RESOLUTION).fill(val);
+        for (let i = 0; i < RESOLUTION; i++) {
+          const deg = (i / (RESOLUTION - 1)) * 90;
+          if (deg <= 5) newColors.push(new Color('green'));
+          else if (deg <= 8) newColors.push(new Color('yellow'));
+          else if (deg <= 10) newColors.push(new Color('orange'));
+          else newColors.push(new Color('red'));
+        }
+        slopeColorMap.colors = newColors;
+        slopeColorMap.opacity = newOpacities;
+        instance.notifyChange();
+      } else {
+        slopeColorMap.colors = [
+          new Color('green'),
+          new Color('yellow'),
+          new Color('orange'),
+          new Color('red'),
+          new Color('darkred')
+        ];
+        slopeColorMap.opacity = new Array(5).fill(val);
+        instance.notifyChange();
+      }
+    }
+  }
+
   heatmapRadios.forEach(radio => {
     radio.addEventListener('change', (e) => {
-      const mode = e.target.value;
-      if (mode === 'custom') {
-        predefinedHeatmapUI.classList.add('hidden');
-        if (haulroadHeatmapUI) haulroadHeatmapUI.classList.add('hidden');
-        customHeatmapUI.classList.remove('hidden');
-        renderCustomRanges();
-      } else if (mode === 'haulroad') {
-        predefinedHeatmapUI.classList.add('hidden');
-        customHeatmapUI.classList.add('hidden');
-        if (haulroadHeatmapUI) haulroadHeatmapUI.classList.remove('hidden');
-        
-        if (slopeColorMap) {
-          const RESOLUTION = 256;
-          const newColors = [];
-          const origOp = document.getElementById('heatmapOpacity');
-          const val = origOp ? parseFloat(origOp.value) : 0.35;
-          const newOpacities = new Array(RESOLUTION).fill(val);
-          
-          for (let i = 0; i < RESOLUTION; i++) {
-            const deg = (i / (RESOLUTION - 1)) * 90;
-            if (deg <= 5) newColors.push(new Color('green'));
-            else if (deg <= 8) newColors.push(new Color('yellow'));
-            else if (deg <= 10) newColors.push(new Color('orange'));
-            else newColors.push(new Color('red'));
-          }
-          slopeColorMap.colors = newColors;
-          slopeColorMap.opacity = newOpacities;
-          instance.notifyChange();
-        }
-      } else {
-        predefinedHeatmapUI.classList.remove('hidden');
-        customHeatmapUI.classList.add('hidden');
-        if (haulroadHeatmapUI) haulroadHeatmapUI.classList.add('hidden');
-        
-        if (slopeColorMap) {
-          slopeColorMap.colors = [
-            new Color('green'),
-            new Color('yellow'),
-            new Color('orange'),
-            new Color('red'),
-            new Color('darkred')
-          ];
-          const origOp = document.getElementById('heatmapOpacity');
-          const val = origOp ? parseFloat(origOp.value) : 0.35;
-          slopeColorMap.opacity = new Array(5).fill(val);
-          instance.notifyChange();
-        }
-      }
+      setHeatmapMode(e.target.value);
+    });
+  });
+
+  document.querySelectorAll('input[name="infoHeatmapMode"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      setHeatmapMode(e.target.value);
     });
   });
 
   const handleAddHeatmapRange = () => {
+    getLiveCustomRanges();
     const lastMax = customRanges.length > 0 ? customRanges[customRanges.length - 1].max : 0;
-    customRanges.push({ min: lastMax, max: Math.min(90, lastMax + 15), color: '#ff0000' });
+    const nextMax = Math.min(90, lastMax + 15);
+    const colorPalette = ['#f97316', '#ef4444', '#a855f7', '#3b82f6'];
+    const color = colorPalette[(customRanges.length - 2) % colorPalette.length] || '#ef4444';
+    customRanges.push({ min: lastMax, max: nextMax, color });
     renderCustomRanges();
+    if (slopeColorMap && slopeColorMap.active) {
+      handleApplyCustomHeatmap(false);
+    }
   };
   btnAddHeatmapRange?.addEventListener('click', handleAddHeatmapRange);
   infoAddHeatmapRange?.addEventListener('click', handleAddHeatmapRange);
 
-  const handleApplyCustomHeatmap = () => {
-    const errorEls = [customHeatmapError, infoCustomHeatmapError].filter(Boolean);
-    errorEls.forEach(el => { el.style.display = 'none'; });
+  const handleApplyCustomHeatmap = (showFeedback = true) => {
+    const errorEls = [
+      document.getElementById('customHeatmapError'),
+      document.getElementById('infoCustomHeatmapError')
+    ].filter(Boolean);
+    errorEls.forEach(el => { el.style.display = 'none'; el.textContent = ''; });
+
+    const ranges = getLiveCustomRanges();
+    if (!ranges || ranges.length === 0) {
+      const msg = 'Please add at least one slope range';
+      errorEls.forEach(el => { el.textContent = msg; el.style.display = 'block'; });
+      return;
+    }
     
-    const sorted = [...customRanges].sort((a, b) => a.min - b.min);
+    const sorted = [...ranges].sort((a, b) => a.min - b.min);
     for (let i = 0; i < sorted.length; i++) {
       if (sorted[i].min >= sorted[i].max) {
-        const msg = `Error: Range must have min < max (${sorted[i].min} to ${sorted[i].max})`;
+        const msg = `Error: Range must have min < max (${sorted[i].min}° to ${sorted[i].max}°)`;
         errorEls.forEach(el => { el.textContent = msg; el.style.display = 'block'; });
         return;
       }
       if (i > 0 && sorted[i].min < sorted[i-1].max) {
-        const msg = `Error: Degrees overlap (${sorted[i-1].max} encounters ${sorted[i].min})`;
+        const msg = `Error: Overlapping degrees (${sorted[i-1].max}° encounters ${sorted[i].min}°)`;
         errorEls.forEach(el => { el.textContent = msg; el.style.display = 'block'; });
         return;
       }
     }
     
-    if (slopeColorMap) {
+    // 1. Automatically turn on the heatmap so custom ranges are immediately visible!
+    if (slopeColorMap && elevationLayer) {
+      elevationLayer.colorMap = slopeColorMap;
+      slopeColorMap.active = true;
+      if (orthoLayer) {
+        orthoLayer.opacity = 0.4; // Fade satellite image so custom colors show through
+      }
+      
+      // Update UI button & active states
+      if (btnEnableHeatmap) btnEnableHeatmap.disabled = true;
+      if (btnDisableHeatmap) btnDisableHeatmap.disabled = false;
+      isHeatmapOverlayActive = true;
+      const btnRightHeatmap = document.getElementById("btnRightHeatmap");
+      if (btnRightHeatmap) btnRightHeatmap.classList.add("overlay-active");
+      const exportCard = document.getElementById("infoHeatmapExportCard");
+      if (exportCard) exportCard.classList.remove("hidden");
+      const heatmapSettings = document.getElementById("heatmapSettings");
+      if (heatmapSettings) heatmapSettings.classList.remove("hidden");
+
+      // 2. Build 256-step LUT mapping for high-precision terrain rendering
       const RESOLUTION = 256;
       const newColors = [];
       const newOpacities = [];
-      const origOp = document.getElementById('heatmapOpacity');
-      const val = origOp ? parseFloat(origOp.value) : 0.35;
+      const opacityEl = document.getElementById('infoHeatmapOpacity') || document.getElementById('heatmapOpacity');
+      const val = opacityEl ? parseFloat(opacityEl.value) : 0.35;
       
       for (let i = 0; i < RESOLUTION; i++) {
-        // Giro3D maps 0..90 degrees across the array length
         const deg = (i / (RESOLUTION - 1)) * 90;
         let foundColor = null;
-        for (const r of customRanges) {
+        for (const r of sorted) {
           if (deg >= r.min && deg <= r.max) {
             foundColor = r.color;
             break;
@@ -4680,9 +4979,29 @@ window.addEventListener("DOMContentLoaded", () => {
       slopeColorMap.opacity = newOpacities;
       instance.notifyChange();
     }
+
+    // 3. Visual button feedback
+    if (showFeedback) {
+      const applyBtns = [
+        document.getElementById('infoApplyCustomHeatmap'),
+        document.getElementById('btnApplyCustomHeatmap')
+      ].filter(Boolean);
+      applyBtns.forEach(btn => {
+        const origText = btn.dataset.origText || btn.textContent;
+        btn.dataset.origText = origText;
+        btn.textContent = 'Applied to Map! ✓';
+        btn.style.background = '#10b981';
+        btn.style.color = '#ffffff';
+        setTimeout(() => {
+          btn.textContent = origText;
+          btn.style.background = '';
+          btn.style.color = '';
+        }, 1500);
+      });
+    }
   };
-  btnApplyCustomHeatmap?.addEventListener('click', handleApplyCustomHeatmap);
-  infoApplyCustomHeatmap?.addEventListener('click', handleApplyCustomHeatmap);
+  btnApplyCustomHeatmap?.addEventListener('click', () => handleApplyCustomHeatmap(true));
+  infoApplyCustomHeatmap?.addEventListener('click', () => handleApplyCustomHeatmap(true));
 
   function setActiveSavedItem(itemEl) {
     document.querySelectorAll(".saved-report-item").forEach(el => el.classList.remove("selected-item"));
@@ -6944,27 +7263,6 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     if (infoOpacityVal) infoOpacityVal.textContent = Math.round(parseFloat(e.target.value) * 100) + "%";
   });
-
-  // Sync info panel heatmap mode radios -> original radios
-  document.querySelectorAll('input[name="infoHeatmapMode"]').forEach(radio => {
-    radio.addEventListener("change", (e) => {
-      const mode = e.target.value;
-      // Click the corresponding original radio
-      const origRadio = document.querySelector(`input[name="heatmapMode"][value="${mode}"]`);
-      if (origRadio) {
-        origRadio.checked = true;
-        origRadio.dispatchEvent(new Event("change"));
-      }
-      // Toggle info panel legends
-      const infoPredefined = document.getElementById("infoPredefinedHeatmapUI");
-      const infoHaulroad = document.getElementById("infoHaulroadHeatmapUI");
-      if (infoCustom) {
-        infoCustom.classList.toggle("hidden", mode !== "custom");
-        if (mode === "custom") renderCustomRanges();
-      }
-    });
-  });
-
   // Sync original disable/enable heatmap buttons -> clear/set active state  
   document.getElementById("btnDisableHeatmap")?.addEventListener("click", () => {
     isHeatmapOverlayActive = false;

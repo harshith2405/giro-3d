@@ -1927,12 +1927,26 @@ window.addEventListener("DOMContentLoaded", () => {
       if (saveModalTypeBadge) saveModalTypeBadge.textContent = "📈 Path Profile";
       const dist3D = document.getElementById("profile3D")?.textContent || "0.00 m";
       if (saveModalMetricsPreview) saveModalMetricsPreview.textContent = `3D: ${dist3D}`;
+      const scopeGroup = document.getElementById("multiVolumeSaveScopeGroup");
+      if (scopeGroup) scopeGroup.classList.add("hidden");
     } else if (activeInfoTool === "VOLUME") {
-      if (saveModalTypeBadge) saveModalTypeBadge.textContent = "🧊 Volume Area";
-      const cut = document.getElementById("volMiniCut")?.textContent || "0 m³";
-      const fill = document.getElementById("volMiniFill")?.textContent || "0 m³";
-      const net = document.getElementById("volMiniNet")?.textContent || "0 m³";
-      if (saveModalMetricsPreview) saveModalMetricsPreview.textContent = `Cut: ${cut} | Fill: ${fill} | Net: ${net}`;
+      const scopeGroup = document.getElementById("multiVolumeSaveScopeGroup");
+      if (typeof multiKmlPolygons !== 'undefined' && multiKmlPolygons && multiKmlPolygons.length > 1) {
+        if (scopeGroup) scopeGroup.classList.remove("hidden");
+        const activeBadge = document.getElementById("activePolySaveNameBadge");
+        if (activeBadge) activeBadge.textContent = multiKmlPolygons[activeKmlPolyIndex]?.name || `Area ${activeKmlPolyIndex + 1}`;
+        if (saveModalTypeBadge) saveModalTypeBadge.textContent = `🧊 Multi-Volume (${multiKmlPolygons.length} Areas)`;
+        const totalNet = multiKmlPolygons.reduce((acc, p) => acc + (p.metrics.netVolumeNum || 0), 0);
+        const sign = totalNet >= 0 ? "+" : "";
+        if (saveModalMetricsPreview) saveModalMetricsPreview.textContent = `Total Net: ${sign}${totalNet.toLocaleString(undefined, {maximumFractionDigits: 1})} m³`;
+      } else {
+        if (scopeGroup) scopeGroup.classList.add("hidden");
+        if (saveModalTypeBadge) saveModalTypeBadge.textContent = "🧊 Volume Area";
+        const cut = document.getElementById("volMiniCut")?.textContent || "0 m³";
+        const fill = document.getElementById("volMiniFill")?.textContent || "0 m³";
+        const net = document.getElementById("volMiniNet")?.textContent || "0 m³";
+        if (saveModalMetricsPreview) saveModalMetricsPreview.textContent = `Cut: ${cut} | Fill: ${fill} | Net: ${net}`;
+      }
     } else if (activeInfoTool === "BOX_ROI" || activeInfoTool === "POLY_ROI") {
       if (saveModalTypeBadge) saveModalTypeBadge.textContent = "✂️ ROI Boundary";
       const area = (document.getElementById("boxRoiArea") || document.getElementById("polyRoiArea"))?.textContent || "0 m²";
@@ -2219,7 +2233,58 @@ window.addEventListener("DOMContentLoaded", () => {
         fetchSavedReports();
 
       } else if (activeInfoTool === "VOLUME") {
-        // ── Upload Volume JSON (same as btnConfirmVolSave) ──
+        if (typeof multiKmlPolygons !== 'undefined' && multiKmlPolygons && multiKmlPolygons.length > 1) {
+          const scope = document.querySelector('input[name="volumeSaveScope"]:checked')?.value || "ALL";
+
+          if (scope === "ALL") {
+            const count = multiKmlPolygons.length;
+            for (let i = 0; i < count; i++) {
+              btnUniversalSave.textContent = `Saving (${i + 1}/${count})...`;
+              const poly = multiKmlPolygons[i];
+              const itemNum = i + 1;
+              const polyName = `${nameVal}_${itemNum}`;
+              const safeName = polyName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+              const fileName = `${folderVal}/${safeName}_${Date.now() + i}.json`;
+
+              const polyData = {
+                name: polyName,
+                folder: folderVal,
+                isOfficial: !window.isDumpDraw,
+                timestamp: new Date().toISOString(),
+                area2D: poly.metrics.area2D,
+                perimeter: poly.metrics.perimeter,
+                cutVolume: poly.metrics.cutVolume,
+                fillVolume: poly.metrics.fillVolume,
+                netVolume: poly.metrics.netVolume,
+                points: poly.volumePoints.map(p => ({ x: p.coord.x, y: p.coord.y, z: p.coord.z }))
+              };
+
+              const volRes = await fetch(apiUrl, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "volumes", fileName })
+              });
+              if (!volRes.ok) throw new Error(`Failed to get upload URL for polygon ${itemNum}`);
+              const { uploadUrl } = await volRes.json();
+
+              const putRes = await fetch(uploadUrl, {
+                method: "PUT", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(polyData, null, 2)
+              });
+              if (!putRes.ok) throw new Error(`Failed to upload polygon ${itemNum}`);
+            }
+
+            closeUniversalSaveModal();
+            await showCustomAlert(`Successfully saved all ${count} volume polygons!`, "Saved", "success");
+            fetchSavedVolumes();
+            return;
+          }
+        }
+
+        // Standard Single Volume Save (or Single Active Polygon Save)
+        const activePoints = (typeof multiKmlPolygons !== 'undefined' && multiKmlPolygons && multiKmlPolygons[activeKmlPolyIndex])
+          ? multiKmlPolygons[activeKmlPolyIndex].volumePoints
+          : volumePoints;
+
         const data = {
           name: nameVal,
           folder: folderVal,
@@ -2230,7 +2295,7 @@ window.addEventListener("DOMContentLoaded", () => {
           cutVolume: document.getElementById("volMiniCut")?.textContent || "0",
           fillVolume: document.getElementById("volMiniFill")?.textContent || "0",
           netVolume: document.getElementById("volMiniNet")?.textContent || "0",
-          points: volumePoints.map(p => ({ x: p.coord.x, y: p.coord.y, z: p.coord.z }))
+          points: activePoints.map(p => ({ x: p.coord.x, y: p.coord.y, z: p.coord.z }))
         };
 
         const safeName = nameVal.replace(/[^a-z0-9]/gi, '_').toLowerCase();
@@ -3431,6 +3496,40 @@ window.addEventListener("DOMContentLoaded", () => {
       const cachedRect = canvas.getBoundingClientRect();
       let pointsAttr = "";
       if (volumeVerticesSvg) volumeVerticesSvg.innerHTML = "";
+
+      // Render secondary (inactive) polygons if multi-polygon mode is active
+      const secondaryGroup = document.getElementById("volumeSecondaryPolygonsGroup");
+      if (secondaryGroup) {
+        secondaryGroup.innerHTML = "";
+        if (typeof multiKmlPolygons !== 'undefined' && multiKmlPolygons && multiKmlPolygons.length > 1) {
+          multiKmlPolygons.forEach((poly, pIdx) => {
+            if (pIdx === activeKmlPolyIndex) return; // Active polygon rendered below
+            const draped = getDrapedPolygon3DPoints(poly.volumePoints, true);
+            let sPoints = "";
+            for (const pt of draped) {
+              const sp = projectToScreen(pt, cachedRect);
+              if (!sp.isBehind && sp.z <= 1) {
+                sPoints += `${sp.x.toFixed(1)},${sp.y.toFixed(1)} `;
+              }
+            }
+            if (sPoints.trim()) {
+              const polyEl = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+              polyEl.setAttribute("points", sPoints.trim());
+              polyEl.setAttribute("fill", "rgba(94, 25, 234, 0.08)");
+              polyEl.setAttribute("stroke", "#8b5cf6");
+              polyEl.setAttribute("stroke-width", "1.6");
+              polyEl.setAttribute("stroke-dasharray", "4,3");
+              polyEl.setAttribute("stroke-linejoin", "round");
+              polyEl.style.cursor = "pointer";
+              polyEl.style.pointerEvents = "auto";
+              polyEl.addEventListener("click", () => {
+                if (typeof selectKmlPolygon === 'function') selectKmlPolygon(pIdx, true);
+              });
+              secondaryGroup.appendChild(polyEl);
+            }
+          });
+        }
+      }
       
       // Render primary anchor dots on user-clicked vertices
       for (const p of volumePoints) {
@@ -3472,6 +3571,8 @@ window.addEventListener("DOMContentLoaded", () => {
       if (volumeVerticesSvg) volumeVerticesSvg.style.display = "block";
       if (volumeSvg) volumeSvg.style.display = "block";
     } else {
+      const secondaryGroup = document.getElementById("volumeSecondaryPolygonsGroup");
+      if (secondaryGroup) secondaryGroup.innerHTML = "";
       if (volumePolygonHalo) volumePolygonHalo.style.display = "none";
       if (volumePolygonSvg) volumePolygonSvg.style.display = "none";
       if (volumeVerticesSvg) volumeVerticesSvg.style.display = "none";
@@ -3585,10 +3686,91 @@ window.addEventListener("DOMContentLoaded", () => {
   const volumeMiniContainer = document.getElementById("volumeMiniContainer");
   let uploadedVolumeFileName = "";
 
+  // ── Multi-Polygon KML State ──
+  let multiKmlPolygons = [];
+  let activeKmlPolyIndex = 0;
+  const multiVolumeSelectorContainer = document.getElementById("multiVolumeSelectorContainer");
+  const multiVolumeCountTitle = document.getElementById("multiVolumeCountTitle");
+  const multiVolumeActiveBadge = document.getElementById("multiVolumeActiveBadge");
+  const multiVolumeTabs = document.getElementById("multiVolumeTabs");
+
+  function resetMultiVolumeState() {
+    multiKmlPolygons = [];
+    activeKmlPolyIndex = 0;
+    if (multiVolumeSelectorContainer) multiVolumeSelectorContainer.classList.add("hidden");
+    if (multiVolumeTabs) multiVolumeTabs.innerHTML = "";
+    const secondaryGroup = document.getElementById("volumeSecondaryPolygonsGroup");
+    if (secondaryGroup) secondaryGroup.innerHTML = "";
+    const saveScopeGroup = document.getElementById("multiVolumeSaveScopeGroup");
+    if (saveScopeGroup) saveScopeGroup.classList.add("hidden");
+  }
+
   function resetVolumeKmlBadge() {
     uploadedVolumeFileName = "";
+    resetMultiVolumeState();
     if (volumeKmlBadge) volumeKmlBadge.classList.add("hidden");
     if (volumeKmlUpload) volumeKmlUpload.value = "";
+  }
+
+  function selectKmlPolygon(idx, flyTo = true) {
+    if (!multiKmlPolygons || !multiKmlPolygons[idx]) return;
+    activeKmlPolyIndex = idx;
+    const poly = multiKmlPolygons[idx];
+
+    // Set main volumePoints to active polygon's points
+    volumePoints = poly.volumePoints;
+
+    // Update mini-metrics in Unified Info Panel
+    const areaEl = document.getElementById("volMiniArea");
+    const perimEl = document.getElementById("volMiniPerim");
+    const cutEl = document.getElementById("volMiniCut");
+    const fillEl = document.getElementById("volMiniFill");
+    const netEl = document.getElementById("volMiniNet");
+
+    if (areaEl) areaEl.textContent = poly.metrics.area2D;
+    if (perimEl) perimEl.textContent = poly.metrics.perimeter;
+    if (cutEl) cutEl.textContent = poly.metrics.cutVolume;
+    if (fillEl) fillEl.textContent = poly.metrics.fillVolume;
+    if (netEl) {
+      netEl.textContent = poly.metrics.netVolume;
+      netEl.style.color = poly.metrics.netVolumeNum >= 0 ? "#10b981" : "#ef4444";
+    }
+
+    // Update pill tabs active state
+    document.querySelectorAll(".multi-poly-tab").forEach(tab => {
+      const tabIdx = parseInt(tab.getAttribute("data-idx"), 10);
+      if (tabIdx === idx) {
+        tab.classList.add("active");
+        tab.style.background = "linear-gradient(135deg, #5e19ea, #8b5cf6)";
+        tab.style.color = "#ffffff";
+        tab.style.borderColor = "#5e19ea";
+        tab.style.boxShadow = "0 2px 8px rgba(94, 25, 234, 0.35)";
+      } else {
+        tab.classList.remove("active");
+        tab.style.background = "#ffffff";
+        tab.style.color = "#1e293b";
+        tab.style.borderColor = "rgba(94, 25, 234, 0.2)";
+        tab.style.boxShadow = "none";
+      }
+    });
+
+    if (multiVolumeActiveBadge) {
+      multiVolumeActiveBadge.textContent = `Area ${idx + 1} of ${multiKmlPolygons.length}`;
+    }
+    const activeSaveBadge = document.getElementById("activePolySaveNameBadge");
+    if (activeSaveBadge) {
+      activeSaveBadge.textContent = poly.name || `Area ${idx + 1}`;
+    }
+
+    if (flyTo && typeof setCameraTopDown === 'function') {
+      setCameraTopDown(poly.center.cx, poly.center.cy, poly.center.span * 1.3);
+    }
+
+    updateVolumeSvg();
+    requestAnimationFrame(() => {
+      if (instance?.view?.camera) instance.view.camera.updateMatrixWorld(true);
+      updateVolumeSvg();
+    });
   }
 
   btnDrawVolume?.addEventListener("click", () => {
@@ -3665,6 +3847,219 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  function parseKmlCoordinatesString(coordsStr) {
+    if (!coordsStr) return null;
+    const pointStrings = coordsStr.trim().split(/\s+/);
+    const pts = [];
+    for (const pt of pointStrings) {
+      if (!pt.trim()) continue;
+      const parts = pt.split(",");
+      if (parts.length >= 2) {
+        const lon = parseFloat(parts[0]);
+        const lat = parseFloat(parts[1]);
+        if (isNaN(lon) || isNaN(lat)) continue;
+
+        let x, y;
+        if (Math.abs(lon) <= 180 && Math.abs(lat) <= 90) {
+          [x, y] = proj4("WGS84", "EPSG:3395", [lon, lat]);
+        } else {
+          x = lon;
+          y = lat;
+        }
+        pts.push({ x, y });
+      }
+    }
+    // Remove duplicate closing point if present
+    if (pts.length >= 4) {
+      const first = pts[0];
+      const last = pts[pts.length - 1];
+      if (Math.hypot(first.x - last.x, first.y - last.y) < 0.05) {
+        pts.pop();
+      }
+    }
+    return pts.length >= 3 ? pts : null;
+  }
+
+  function extractAllPolygonsFromKml(xmlDoc) {
+    const list = [];
+
+    // 1. Check Placemarks
+    const placemarks = xmlDoc.getElementsByTagName("Placemark");
+    if (placemarks && placemarks.length > 0) {
+      for (let p = 0; p < placemarks.length; p++) {
+        const pm = placemarks[p];
+        const nameTag = pm.getElementsByTagName("name")[0];
+        const pmName = nameTag ? nameTag.textContent.trim() : "";
+
+        const polys = pm.getElementsByTagName("Polygon");
+        for (let k = 0; k < polys.length; k++) {
+          const polyEl = polys[k];
+          const outer = polyEl.getElementsByTagName("outerBoundaryIs")[0];
+          const coordsTag = outer ? outer.getElementsByTagName("coordinates")[0] : polyEl.getElementsByTagName("coordinates")[0];
+          if (coordsTag) {
+            const pts = parseKmlCoordinatesString(coordsTag.textContent);
+            if (pts) {
+              list.push({
+                name: pmName || `Area ${list.length + 1}`,
+                coords: pts
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // 2. Fallback: Polygon elements directly
+    if (list.length === 0) {
+      const polys = xmlDoc.getElementsByTagName("Polygon");
+      for (let k = 0; k < polys.length; k++) {
+        const polyEl = polys[k];
+        const outer = polyEl.getElementsByTagName("outerBoundaryIs")[0];
+        const coordsTag = outer ? outer.getElementsByTagName("coordinates")[0] : polyEl.getElementsByTagName("coordinates")[0];
+        if (coordsTag) {
+          const pts = parseKmlCoordinatesString(coordsTag.textContent);
+          if (pts) {
+            list.push({
+              name: `Area ${list.length + 1}`,
+              coords: pts
+            });
+          }
+        }
+      }
+    }
+
+    // 3. Fallback: LinearRing elements
+    if (list.length === 0) {
+      const rings = xmlDoc.getElementsByTagName("LinearRing");
+      for (let r = 0; r < rings.length; r++) {
+        const coordsTag = rings[r].getElementsByTagName("coordinates")[0];
+        if (coordsTag) {
+          const pts = parseKmlCoordinatesString(coordsTag.textContent);
+          if (pts) {
+            list.push({
+              name: `Area ${list.length + 1}`,
+              coords: pts
+            });
+          }
+        }
+      }
+    }
+
+    return list;
+  }
+
+  function computeSinglePolygonVolumeData(coords, name) {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    const volPoints = [];
+
+    for (const pt of coords) {
+      if (pt.x < minX) minX = pt.x;
+      if (pt.x > maxX) maxX = pt.x;
+      if (pt.y < minY) minY = pt.y;
+      if (pt.y > maxY) maxY = pt.y;
+
+      let z = activeProject?.zOffset || 0;
+      if (map && typeof map.getElevationFast === 'function') {
+        const sample = map.getElevationFast(pt.x, pt.y);
+        if (sample && sample.elevation !== undefined && !isNaN(sample.elevation)) {
+          z = sample.elevation;
+        }
+      }
+
+      volPoints.push({
+        point: new Vector3(pt.x, pt.y, z),
+        coord: new Coordinates(giroCrs, pt.x, pt.y, z)
+      });
+    }
+
+    // 1. Calculate 3D Perimeter & Reference Elevation
+    let perimeter = 0;
+    let sumElevation = 0;
+    const cList = volPoints.map(p => p.coord);
+
+    for (let i = 0; i < cList.length; i++) {
+      const p1 = cList[i];
+      const p2 = cList[(i + 1) % cList.length];
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+
+      const sample1 = map?.getElevationFast(p1.x, p1.y);
+      const z1 = sample1 ? sample1.elevation : 0;
+      const sample2 = map?.getElevationFast(p2.x, p2.y);
+      const z2 = sample2 ? sample2.elevation : 0;
+
+      const dz = z2 - z1;
+      perimeter += Math.sqrt(dx * dx + dy * dy + dz * dz);
+      sumElevation += z1;
+    }
+    const referenceElevation = sumElevation / cList.length;
+
+    // 2. 2D Area (Shoelace Formula)
+    let area2D = 0;
+    for (let i = 0; i < cList.length; i++) {
+      const p1 = cList[i];
+      const p2 = cList[(i + 1) % cList.length];
+      area2D += p1.x * p2.y - p2.x * p1.y;
+    }
+    area2D = Math.abs(area2D) / 2;
+
+    // 3. Grid Sampling for Volume (1m grid)
+    const gridStep = 1.0;
+    let cutVolume = 0;
+    let fillVolume = 0;
+
+    function pointInPoly(px, py, poly) {
+      let isInside = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const xi = poly[i].x, yi = poly[i].y;
+        const xj = poly[j].x, yj = poly[j].y;
+        const intersect = ((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+        if (intersect) isInside = !isInside;
+      }
+      return isInside;
+    }
+
+    for (let x = minX; x <= maxX; x += gridStep) {
+      for (let y = minY; y <= maxY; y += gridStep) {
+        if (pointInPoly(x, y, cList)) {
+          const sample = map?.getElevationFast(x, y);
+          const z = sample ? sample.elevation : 0;
+          const diff = z - referenceElevation;
+          if (diff > 0) {
+            cutVolume += diff * (gridStep * gridStep);
+          } else {
+            fillVolume += Math.abs(diff) * (gridStep * gridStep);
+          }
+        }
+      }
+    }
+
+    const netVolume = cutVolume - fillVolume;
+    const netSign = netVolume >= 0 ? "+" : "";
+
+    return {
+      name,
+      coords,
+      volumePoints: volPoints,
+      minX, maxX, minY, maxY,
+      center: {
+        cx: (minX + maxX) / 2,
+        cy: (minY + maxY) / 2,
+        span: Math.max(maxX - minX, maxY - minY, 100)
+      },
+      metrics: {
+        area2DNum: area2D,
+        area2D: area2D.toLocaleString(undefined, { maximumFractionDigits: 2 }) + " m²",
+        perimeter: perimeter.toLocaleString(undefined, { maximumFractionDigits: 2 }) + " m",
+        cutVolume: cutVolume.toLocaleString(undefined, { maximumFractionDigits: 2 }) + " m³",
+        fillVolume: fillVolume.toLocaleString(undefined, { maximumFractionDigits: 2 }) + " m³",
+        netVolume: `${netSign}${netVolume.toLocaleString(undefined, { maximumFractionDigits: 2 })} m³`,
+        netVolumeNum: netVolume,
+        coords: cList
+      }
+    };
+  }
+
   async function processVolumeKmlFile(file) {
     if (!file) return;
     if (!file.name.toLowerCase().endsWith(".kml") && !file.name.toLowerCase().endsWith(".xml")) {
@@ -3685,121 +4080,25 @@ window.addEventListener("DOMContentLoaded", () => {
           return;
         }
 
-        // Find coordinates tag prioritizing Polygon outerBoundaryIs
-        let targetCoordsTag = null;
-        const polygonTags = xmlDoc.getElementsByTagName("Polygon");
-        if (polygonTags && polygonTags.length > 0) {
-          const outer = polygonTags[0].getElementsByTagName("outerBoundaryIs")[0];
-          if (outer) {
-            targetCoordsTag = outer.getElementsByTagName("coordinates")[0];
-          }
-          if (!targetCoordsTag) {
-            targetCoordsTag = polygonTags[0].getElementsByTagName("coordinates")[0];
-          }
-        }
-        if (!targetCoordsTag) {
-          // Fallback: pick the coordinates tag with the longest string
-          const allCoords = xmlDoc.getElementsByTagName("coordinates");
-          let maxLen = 0;
-          for (let i = 0; i < allCoords.length; i++) {
-            const txt = (allCoords[i].textContent || "").trim();
-            if (txt.length > maxLen) {
-              maxLen = txt.length;
-              targetCoordsTag = allCoords[i];
-            }
-          }
-        }
-
-        if (!targetCoordsTag) {
-          await showCustomAlert("No polygon boundary coordinates found in this KML file.", "Coordinates Missing", "warning");
+        const rawPolygons = extractAllPolygonsFromKml(xmlDoc);
+        if (!rawPolygons || rawPolygons.length === 0) {
+          await showCustomAlert("No closed polygon boundary coordinates found in this KML file.", "Coordinates Missing", "warning");
           return;
         }
 
-        const coordsText = targetCoordsTag.textContent.trim();
-        const rawPointStrings = coordsText.split(/\s+/);
-        const parsedCoords = [];
-
-        for (const pt of rawPointStrings) {
-          if (!pt.trim()) continue;
-          const parts = pt.split(",");
-          if (parts.length >= 2) {
-            const lon = parseFloat(parts[0]);
-            const lat = parseFloat(parts[1]);
-            if (isNaN(lon) || isNaN(lat)) continue;
-
-            let x, y;
-            if (Math.abs(lon) <= 180 && Math.abs(lat) <= 90) {
-              // Convert WGS84 (lon, lat) to EPSG:3395 (x, y)
-              [x, y] = proj4("WGS84", "EPSG:3395", [lon, lat]);
-            } else {
-              x = lon;
-              y = lat;
-            }
-            parsedCoords.push({ x, y });
-          }
-        }
-
-        // Remove duplicate closing vertex if present (KML standard requires first == last)
-        if (parsedCoords.length >= 4) {
-          const first = parsedCoords[0];
-          const last = parsedCoords[parsedCoords.length - 1];
-          if (Math.hypot(first.x - last.x, first.y - last.y) < 0.05) {
-            parsedCoords.pop();
-          }
-        }
-
-        if (parsedCoords.length < 3) {
-          await showCustomAlert("A volume polygon requires at least 3 distinct boundary points.", "Insufficient Points", "warning");
-          return;
-        }
-
-        // Reset previous state
+        // Reset previous viewer state
         resetRoiState();
         if (typeof clearAllLeftPanelState === "function") clearAllLeftPanelState(true);
+        resetMultiVolumeState();
 
-        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        volumePoints = [];
+        // Precompute metrics for all polygons
+        multiKmlPolygons = rawPolygons.map((p, idx) => {
+          const polyName = p.name || `Area ${idx + 1}`;
+          return computeSinglePolygonVolumeData(p.coords, polyName);
+        });
 
-        for (const pt of parsedCoords) {
-          if (pt.x < minX) minX = pt.x;
-          if (pt.x > maxX) maxX = pt.x;
-          if (pt.y < minY) minY = pt.y;
-          if (pt.y > maxY) maxY = pt.y;
-
-          let z = activeProject?.zOffset || 0;
-          if (map && typeof map.getElevationFast === 'function') {
-            const sample = map.getElevationFast(pt.x, pt.y);
-            if (sample && sample.elevation !== undefined && !isNaN(sample.elevation)) {
-              z = sample.elevation;
-            }
-          }
-
-          volumePoints.push({
-            point: new Vector3(pt.x, pt.y, z),
-            coord: new Coordinates(giroCrs, pt.x, pt.y, z)
-          });
-        }
-
-        // Extent check
-        if (activeProject?.extent) {
-          const pMinX = Math.min(activeProject.extent[0], activeProject.extent[1]);
-          const pMaxX = Math.max(activeProject.extent[0], activeProject.extent[1]);
-          const pMinY = Math.min(activeProject.extent[2], activeProject.extent[3]);
-          const pMaxY = Math.max(activeProject.extent[2], activeProject.extent[3]);
-
-          const overlaps = (minX <= pMaxX && maxX >= pMinX && minY <= pMaxY && maxY >= pMinY);
-          if (!overlaps) {
-            await showCustomAlert("Notice: The uploaded KML coordinates fall outside the current project terrain bounds.", "Boundary Notice", "warning");
-          }
-        }
-
-        // Focus camera smoothly
-        const cx = (minX + maxX) / 2;
-        const cy = (minY + maxY) / 2;
-        const span = Math.max(maxX - minX, maxY - minY, 100);
-        if (typeof setCameraTopDown === 'function') {
-          setCameraTopDown(cx, cy, span * 1.3);
-        }
+        // Store file name for saving modal
+        uploadedVolumeFileName = file.name.replace(/\.[^/.]+$/, "");
 
         // Set state to FINISHED_VOLUME
         measureMode = "VOLUME";
@@ -3814,25 +4113,80 @@ window.addEventListener("DOMContentLoaded", () => {
         }
         if (btnFinishVolume) btnFinishVolume.classList.add("hidden");
         if (btnClearVolume) btnClearVolume.disabled = false;
-        if (volumeHint) volumeHint.textContent = `KML loaded (${parsedCoords.length} points). Volume analysis complete.`;
 
-        // Store file name for saving modal
-        uploadedVolumeFileName = file.name.replace(/\.[^/.]+$/, "");
+        // If multiple polygons detected:
+        if (multiKmlPolygons.length > 1) {
+          if (volumeKmlBadge && volumeKmlBadgeText) {
+            volumeKmlBadgeText.textContent = `${file.name} (${multiKmlPolygons.length} areas)`;
+            volumeKmlBadge.classList.remove("hidden");
+          }
+          if (volumeHint) {
+            volumeHint.textContent = `KML loaded (${multiKmlPolygons.length} areas). Click any area tab in the Info Panel to inspect.`;
+          }
 
-        // Show status badge
-        if (volumeKmlBadge && volumeKmlBadgeText) {
-          volumeKmlBadgeText.textContent = `${file.name} (${parsedCoords.length} pts)`;
-          volumeKmlBadge.classList.remove("hidden");
+          // Build Tabs in Info Panel
+          if (multiVolumeTabs) {
+            multiVolumeTabs.innerHTML = "";
+            multiKmlPolygons.forEach((poly, idx) => {
+              const tabBtn = document.createElement("button");
+              tabBtn.className = `multi-poly-tab ${idx === 0 ? 'active' : ''}`;
+              tabBtn.setAttribute("data-idx", idx);
+              tabBtn.style.cssText = "display: flex; align-items: center; gap: 5px; padding: 5px 11px; font-size: 11px; font-weight: 600; border-radius: 20px; border: 1px solid rgba(94, 25, 234, 0.2); background: #ffffff; color: #1e293b; cursor: pointer; white-space: nowrap; transition: all 0.2s ease; flex-shrink: 0;";
+              tabBtn.innerHTML = `<span>#${idx + 1} ${poly.name}</span>`;
+              tabBtn.addEventListener("click", () => selectKmlPolygon(idx, true));
+              multiVolumeTabs.appendChild(tabBtn);
+            });
+          }
+
+          if (multiVolumeCountTitle) {
+            multiVolumeCountTitle.textContent = `${multiKmlPolygons.length} Areas Detected`;
+          }
+          if (multiVolumeSelectorContainer) {
+            multiVolumeSelectorContainer.classList.remove("hidden");
+          }
+
+          // Frame all polygons together in camera
+          let overallMinX = Infinity, overallMaxX = -Infinity, overallMinY = Infinity, overallMaxY = -Infinity;
+          multiKmlPolygons.forEach(p => {
+            if (p.minX < overallMinX) overallMinX = p.minX;
+            if (p.maxX > overallMaxX) overallMaxX = p.maxX;
+            if (p.minY < overallMinY) overallMinY = p.minY;
+            if (p.maxY > overallMaxY) overallMaxY = p.maxY;
+          });
+          const cx = (overallMinX + overallMaxX) / 2;
+          const cy = (overallMinY + overallMaxY) / 2;
+          const span = Math.max(overallMaxX - overallMinX, overallMaxY - overallMinY, 120);
+          if (typeof setCameraTopDown === 'function') {
+            setCameraTopDown(cx, cy, span * 1.3);
+          }
+
+          // Select Area 1 as active
+          selectKmlPolygon(0, false);
+          showUnifiedInfoPanel("VOLUME", `VOLUME: ${multiKmlPolygons[0].name}`, multiKmlPolygons[0].metrics);
+        } else {
+          // Single Polygon Mode
+          const singlePoly = multiKmlPolygons[0];
+          volumePoints = singlePoly.volumePoints;
+          if (volumeKmlBadge && volumeKmlBadgeText) {
+            volumeKmlBadgeText.textContent = `${file.name} (${singlePoly.coords.length} pts)`;
+            volumeKmlBadge.classList.remove("hidden");
+          }
+          if (volumeHint) volumeHint.textContent = `KML loaded (${singlePoly.coords.length} points). Volume analysis complete.`;
+          if (multiVolumeSelectorContainer) multiVolumeSelectorContainer.classList.add("hidden");
+
+          if (typeof setCameraTopDown === 'function') {
+            setCameraTopDown(singlePoly.center.cx, singlePoly.center.cy, singlePoly.center.span * 1.3);
+          }
+          updateVolumeSvg();
+          calculateVolumeMetrics();
         }
 
         volumeMousePoint = null;
-        updateVolumeSvg();
         requestAnimationFrame(() => {
           if (instance?.view?.camera) instance.view.camera.updateMatrixWorld(true);
           updateVolumeSvg();
         });
 
-        calculateVolumeMetrics();
       } catch (err) {
         console.error("Error processing volume KML file:", err);
         await showCustomAlert("Failed to parse KML file: " + err.message, "Upload Error", "error");

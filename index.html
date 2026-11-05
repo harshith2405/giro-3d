@@ -93,6 +93,7 @@
 
   <!-- Volume SVG Overlay -->
   <svg id="volumeSvg" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index: 10; display:none;">
+    <g id="volumeSecondaryPolygonsGroup"></g>
     <polygon id="volumePolygonHalo" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round" points=""></polygon>
     <polygon id="volumePolygonOverlay" fill="none" stroke="#5e19ea" stroke-width="2.0" stroke-linejoin="round" stroke-linecap="round" filter="url(#kmlGlow)" points=""></polygon>
     <g id="volumeVerticesOverlay"></g>
@@ -179,6 +180,19 @@
           <input type="text" id="universalSaveName" class="input" placeholder="e.g. Pit A - Line 1..." style="width: 100%; box-sizing: border-box; padding: 9px 12px; font-size: 13px; border-radius: 8px;" />
         </div>
 
+        <!-- Multi-Polygon Save Scope Option -->
+        <div id="multiVolumeSaveScopeGroup" class="hidden" style="margin-bottom: 6px; padding: 10px; background: rgba(94, 25, 234, 0.04); border: 1px solid rgba(94, 25, 234, 0.15); border-radius: 8px;">
+          <div style="font-size: 11px; font-weight: 700; color: #5e19ea; margin-bottom: 6px; text-transform: uppercase;">Save Option</div>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; margin-bottom: 6px; color: #1e293b;">
+            <input type="radio" name="volumeSaveScope" value="ALL" checked style="accent-color: #5e19ea;">
+            <span><strong>Save All Polygons</strong> with numbered suffixes (_1, _2, _3)</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; color: #1e293b;">
+            <input type="radio" name="volumeSaveScope" value="ACTIVE" style="accent-color: #5e19ea;">
+            <span>Save Only Active Polygon (<span id="activePolySaveNameBadge">Area 1</span>)</span>
+          </label>
+        </div>
+
         <div id="universalSaveFolderGroup">
           <label style="display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px;">Assign Folder</label>
           <div style="display: flex; gap: 8px; align-items: center;">
@@ -250,6 +264,20 @@
 
     <!-- Viewport 2: Volume Analysis Metrics -->
     <div id="infoViewVolume" class="info-viewport hidden">
+      <!-- Multi-Polygon Selector Tabs (shown dynamically when multiple polygons exist) -->
+      <div id="multiVolumeSelectorContainer" class="hidden" style="margin-bottom: 12px; padding: 10px; background: rgba(94, 25, 234, 0.04); border: 1px solid rgba(94, 25, 234, 0.15); border-radius: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-size: 11px; font-weight: 700; color: #5e19ea; text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 5px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+            <span id="multiVolumeCountTitle">3 Areas Detected</span>
+          </span>
+          <span id="multiVolumeActiveBadge" style="font-size: 10px; background: #5e19ea; color: white; padding: 2px 7px; border-radius: 10px; font-weight: 600;">Area 1 of 3</span>
+        </div>
+        <div id="multiVolumeTabs" style="display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin;">
+          <!-- Injected dynamically -->
+        </div>
+      </div>
+
       <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px; padding: 4px 0;">
         <div style="display: flex; justify-content: space-between;"><span style="color: var(--muted);">Area (2D):</span><strong id="volMiniArea" style="color: var(--text); font-size: 13px;">0.00 m²</strong></div>
         <div style="display: flex; justify-content: space-between;"><span style="color: var(--muted);">Perimeter:</span><strong id="volMiniPerim" style="color: var(--text); font-size: 13px;">0.00 m</strong></div>

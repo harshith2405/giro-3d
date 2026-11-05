@@ -3573,21 +3573,36 @@ window.addEventListener("DOMContentLoaded", () => {
   const volumeHeader = document.getElementById("volumeHeader");
   const volumeSettings = document.getElementById("volumeSettings");
   const btnDrawVolume = document.getElementById("btnDrawVolume");
+  const btnDrawVolumeText = document.getElementById("btnDrawVolumeText");
+  const btnUploadVolumeKml = document.getElementById("btnUploadVolumeKml");
+  const volumeKmlUpload = document.getElementById("volumeKmlUpload");
+  const volumeKmlBadge = document.getElementById("volumeKmlBadge");
+  const volumeKmlBadgeText = document.getElementById("volumeKmlBadgeText");
+  const btnRemoveVolumeKml = document.getElementById("btnRemoveVolumeKml");
   const btnClearVolume = document.getElementById("btnClearVolume");
   const btnFinishVolume = document.getElementById("btnFinishVolume");
   const volumeHint = document.getElementById("volumeHint");
   const volumeMiniContainer = document.getElementById("volumeMiniContainer");
+  let uploadedVolumeFileName = "";
+
+  function resetVolumeKmlBadge() {
+    uploadedVolumeFileName = "";
+    if (volumeKmlBadge) volumeKmlBadge.classList.add("hidden");
+    if (volumeKmlUpload) volumeKmlUpload.value = "";
+  }
 
   btnDrawVolume?.addEventListener("click", () => {
     resetRoiState();
     if (typeof clearAllLeftPanelState === "function") clearAllLeftPanelState(true);
+    resetVolumeKmlBadge();
     measureState = "SELECTING";
     measureMode = "VOLUME";
     setLiveGuidance("📦", "Click points on the map to build volume polygon. Click Finish when done.");
     controls.enabled = false;
     document.body.classList.add("roi-selecting");
     btnDrawVolume.classList.add("active");
-    btnDrawVolume.textContent = "Click to place points";
+    if (btnDrawVolumeText) btnDrawVolumeText.textContent = "Click map...";
+    else btnDrawVolume.textContent = "Click map...";
     if (volumeHint) volumeHint.textContent = "Click points on the map. Click Finish when done.";
     if (btnClearVolume) btnClearVolume.disabled = false;
     if (btnFinishVolume) btnFinishVolume.classList.remove("hidden");
@@ -3607,6 +3622,229 @@ window.addEventListener("DOMContentLoaded", () => {
     if (volumeMiniContainer) volumeMiniContainer.classList.add("hidden");
   });
 
+  btnUploadVolumeKml?.addEventListener("click", () => {
+    volumeKmlUpload?.click();
+  });
+
+  // Drag & drop support directly on the upload button
+  ['dragenter', 'dragover'].forEach(eventName => {
+    btnUploadVolumeKml?.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      btnUploadVolumeKml.style.background = 'rgba(94, 25, 234, 0.12)';
+    });
+  });
+  ['dragleave', 'drop'].forEach(eventName => {
+    btnUploadVolumeKml?.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      btnUploadVolumeKml.style.background = 'rgba(94, 25, 234, 0.04)';
+    });
+  });
+  btnUploadVolumeKml?.addEventListener('drop', (e) => {
+    const dt = e.dataTransfer;
+    const files = dt?.files;
+    if (files && files.length > 0) {
+      processVolumeKmlFile(files[0]);
+    }
+  });
+
+  volumeKmlUpload?.addEventListener("change", (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processVolumeKmlFile(file);
+    }
+  });
+
+  btnRemoveVolumeKml?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    resetVolumeKmlBadge();
+    if (btnClearVolume) {
+      btnClearVolume.disabled = false;
+      btnClearVolume.click();
+    }
+  });
+
+  async function processVolumeKmlFile(file) {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".kml") && !file.name.toLowerCase().endsWith(".xml")) {
+      await showCustomAlert("Please select a valid .kml or .xml boundary file.", "Invalid File", "warning");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        const text = ev.target.result;
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(text, "text/xml");
+
+        const parseError = xmlDoc.getElementsByTagName("parsererror");
+        if (parseError && parseError.length > 0) {
+          await showCustomAlert("The selected file is not a valid XML/KML document.", "Parse Error", "error");
+          return;
+        }
+
+        // Find coordinates tag prioritizing Polygon outerBoundaryIs
+        let targetCoordsTag = null;
+        const polygonTags = xmlDoc.getElementsByTagName("Polygon");
+        if (polygonTags && polygonTags.length > 0) {
+          const outer = polygonTags[0].getElementsByTagName("outerBoundaryIs")[0];
+          if (outer) {
+            targetCoordsTag = outer.getElementsByTagName("coordinates")[0];
+          }
+          if (!targetCoordsTag) {
+            targetCoordsTag = polygonTags[0].getElementsByTagName("coordinates")[0];
+          }
+        }
+        if (!targetCoordsTag) {
+          // Fallback: pick the coordinates tag with the longest string
+          const allCoords = xmlDoc.getElementsByTagName("coordinates");
+          let maxLen = 0;
+          for (let i = 0; i < allCoords.length; i++) {
+            const txt = (allCoords[i].textContent || "").trim();
+            if (txt.length > maxLen) {
+              maxLen = txt.length;
+              targetCoordsTag = allCoords[i];
+            }
+          }
+        }
+
+        if (!targetCoordsTag) {
+          await showCustomAlert("No polygon boundary coordinates found in this KML file.", "Coordinates Missing", "warning");
+          return;
+        }
+
+        const coordsText = targetCoordsTag.textContent.trim();
+        const rawPointStrings = coordsText.split(/\s+/);
+        const parsedCoords = [];
+
+        for (const pt of rawPointStrings) {
+          if (!pt.trim()) continue;
+          const parts = pt.split(",");
+          if (parts.length >= 2) {
+            const lon = parseFloat(parts[0]);
+            const lat = parseFloat(parts[1]);
+            if (isNaN(lon) || isNaN(lat)) continue;
+
+            let x, y;
+            if (Math.abs(lon) <= 180 && Math.abs(lat) <= 90) {
+              // Convert WGS84 (lon, lat) to EPSG:3395 (x, y)
+              [x, y] = proj4("WGS84", "EPSG:3395", [lon, lat]);
+            } else {
+              x = lon;
+              y = lat;
+            }
+            parsedCoords.push({ x, y });
+          }
+        }
+
+        // Remove duplicate closing vertex if present (KML standard requires first == last)
+        if (parsedCoords.length >= 4) {
+          const first = parsedCoords[0];
+          const last = parsedCoords[parsedCoords.length - 1];
+          if (Math.hypot(first.x - last.x, first.y - last.y) < 0.05) {
+            parsedCoords.pop();
+          }
+        }
+
+        if (parsedCoords.length < 3) {
+          await showCustomAlert("A volume polygon requires at least 3 distinct boundary points.", "Insufficient Points", "warning");
+          return;
+        }
+
+        // Reset previous state
+        resetRoiState();
+        if (typeof clearAllLeftPanelState === "function") clearAllLeftPanelState(true);
+
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        volumePoints = [];
+
+        for (const pt of parsedCoords) {
+          if (pt.x < minX) minX = pt.x;
+          if (pt.x > maxX) maxX = pt.x;
+          if (pt.y < minY) minY = pt.y;
+          if (pt.y > maxY) maxY = pt.y;
+
+          let z = activeProject?.zOffset || 0;
+          if (map && typeof map.getElevationFast === 'function') {
+            const sample = map.getElevationFast(pt.x, pt.y);
+            if (sample && sample.elevation !== undefined && !isNaN(sample.elevation)) {
+              z = sample.elevation;
+            }
+          }
+
+          volumePoints.push({
+            point: new Vector3(pt.x, pt.y, z),
+            coord: new Coordinates(giroCrs, pt.x, pt.y, z)
+          });
+        }
+
+        // Extent check
+        if (activeProject?.extent) {
+          const pMinX = Math.min(activeProject.extent[0], activeProject.extent[1]);
+          const pMaxX = Math.max(activeProject.extent[0], activeProject.extent[1]);
+          const pMinY = Math.min(activeProject.extent[2], activeProject.extent[3]);
+          const pMaxY = Math.max(activeProject.extent[2], activeProject.extent[3]);
+
+          const overlaps = (minX <= pMaxX && maxX >= pMinX && minY <= pMaxY && maxY >= pMinY);
+          if (!overlaps) {
+            await showCustomAlert("Notice: The uploaded KML coordinates fall outside the current project terrain bounds.", "Boundary Notice", "warning");
+          }
+        }
+
+        // Focus camera smoothly
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
+        const span = Math.max(maxX - minX, maxY - minY, 100);
+        if (typeof setCameraTopDown === 'function') {
+          setCameraTopDown(cx, cy, span * 1.3);
+        }
+
+        // Set state to FINISHED_VOLUME
+        measureMode = "VOLUME";
+        measureState = "FINISHED_VOLUME";
+        controls.enabled = true;
+        document.body.classList.remove("roi-selecting");
+
+        if (btnDrawVolume) {
+          btnDrawVolume.classList.remove("active");
+          if (btnDrawVolumeText) btnDrawVolumeText.textContent = "Draw Area";
+          else btnDrawVolume.textContent = "Draw Area";
+        }
+        if (btnFinishVolume) btnFinishVolume.classList.add("hidden");
+        if (btnClearVolume) btnClearVolume.disabled = false;
+        if (volumeHint) volumeHint.textContent = `KML loaded (${parsedCoords.length} points). Volume analysis complete.`;
+
+        // Store file name for saving modal
+        uploadedVolumeFileName = file.name.replace(/\.[^/.]+$/, "");
+
+        // Show status badge
+        if (volumeKmlBadge && volumeKmlBadgeText) {
+          volumeKmlBadgeText.textContent = `${file.name} (${parsedCoords.length} pts)`;
+          volumeKmlBadge.classList.remove("hidden");
+        }
+
+        volumeMousePoint = null;
+        updateVolumeSvg();
+        requestAnimationFrame(() => {
+          if (instance?.view?.camera) instance.view.camera.updateMatrixWorld(true);
+          updateVolumeSvg();
+        });
+
+        calculateVolumeMetrics();
+      } catch (err) {
+        console.error("Error processing volume KML file:", err);
+        await showCustomAlert("Failed to parse KML file: " + err.message, "Upload Error", "error");
+      }
+    };
+    reader.onerror = async () => {
+      await showCustomAlert("Failed to read the selected file.", "File Read Error", "error");
+    };
+    reader.readAsText(file);
+    if (volumeKmlUpload) volumeKmlUpload.value = "";
+  }
+
   btnClearVolume?.addEventListener("click", () => {
     setLiveGuidance(null, null);
     measureState = "IDLE";
@@ -3615,11 +3853,13 @@ window.addEventListener("DOMContentLoaded", () => {
     document.body.classList.remove("roi-selecting");
     if (btnDrawVolume) {
       btnDrawVolume.classList.remove("active");
-      btnDrawVolume.textContent = "Draw Volume Area";
+      if (btnDrawVolumeText) btnDrawVolumeText.textContent = "Draw Area";
+      else btnDrawVolume.textContent = "Draw Area";
     }
     if (btnFinishVolume) btnFinishVolume.classList.add("hidden");
-    if (volumeHint) volumeHint.textContent = "Click 'Draw Volume Area' to lock view to 2D. Then click points on the map to build a polygon.";
+    if (volumeHint) volumeHint.textContent = "Draw an area on the map or upload a KML boundary file to calculate cut/fill volumes.";
     
+    resetVolumeKmlBadge();
     volumePoints = [];
     volumeMousePoint = null;
     updateVolumeSvg();
@@ -3639,7 +3879,8 @@ window.addEventListener("DOMContentLoaded", () => {
     document.body.classList.remove("roi-selecting");
     if (btnDrawVolume) {
       btnDrawVolume.classList.remove("active");
-      btnDrawVolume.textContent = "Draw Volume Area";
+      if (btnDrawVolumeText) btnDrawVolumeText.textContent = "Draw Area";
+      else btnDrawVolume.textContent = "Draw Area";
     }
     if (btnFinishVolume) btnFinishVolume.classList.add("hidden");
     if (volumeHint) volumeHint.textContent = "Volume Analysis complete. Click 'Clear' to remove.";
@@ -5665,7 +5906,7 @@ window.addEventListener("DOMContentLoaded", () => {
   btnSaveVolume?.addEventListener("click", () => {
     if (volumeSaveModal) {
       volumeSaveModal.classList.remove("hidden");
-      volSaveName.value = "";
+      volSaveName.value = uploadedVolumeFileName || "";
       volSaveName.focus();
     }
   });
@@ -6039,6 +6280,7 @@ window.addEventListener("DOMContentLoaded", () => {
       btnClearVolume.disabled = false;
       btnClearVolume.click();
     }
+    if (typeof resetVolumeKmlBadge === 'function') resetVolumeKmlBadge();
     volumePoints = [];
     volumeMousePoint = null;
     if (volumeSvg) volumeSvg.style.display = "none";
@@ -7385,6 +7627,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
       // Reset button states
       [btnMeasureSimple, btnProfile, btnDrawVolume, btnDrawPolyRoi].forEach(b => b?.classList.remove("active"));
+      if (document.getElementById("btnDrawVolumeText")) document.getElementById("btnDrawVolumeText").textContent = "Draw Area";
       if (btnClearMeasureSimple) btnClearMeasureSimple.disabled = true;
       if (btnClearProfile) btnClearProfile.disabled = true;
       if (btnClearVolume) btnClearVolume.disabled = true;

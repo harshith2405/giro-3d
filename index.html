@@ -1013,14 +1013,32 @@
             </div>
             
             <div id="volumeSettings" class="feature-group-body" style="display: block; margin-top: 4px;">
-              <div class="btn-group">
-                <button id="btnDrawVolume" class="btn">Draw Volume Area</button>
-                <button id="btnClearVolume" class="btn btn-outline" disabled>Clear</button>
+              <div class="volume-action-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+                <button id="btnDrawVolume" class="btn" style="display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 6px; font-size: 11px; font-weight: 600;">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                  <span id="btnDrawVolumeText">Draw Area</span>
+                </button>
+                <button id="btnUploadVolumeKml" class="btn btn-outline" style="display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 6px; font-size: 11px; font-weight: 600; border-color: rgba(94, 25, 234, 0.25); color: #5e19ea; background: rgba(94, 25, 234, 0.04);" title="Upload KML boundary file (.kml or .xml)">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                  <span>Upload KML</span>
+                </button>
+                <input type="file" id="volumeKmlUpload" accept=".kml,.xml" style="display: none;" />
               </div>
-              <button id="btnFinishVolume" class="btn hidden" style="width: 100%; margin-top: 10px; background: #10b981; border: none; color: white;">Finish Drawing</button>
+
+              <!-- Sleek KML File Status Badge -->
+              <div id="volumeKmlBadge" class="hidden" style="margin-bottom: 8px; padding: 6px 10px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; font-size: 11px; color: #059669; display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden;">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="flex-shrink: 0;"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <span id="volumeKmlBadgeText" style="font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">filename.kml</span>
+                </div>
+                <button id="btnRemoveVolumeKml" style="background: none; border: none; color: #ef4444; font-size: 13px; font-weight: bold; cursor: pointer; padding: 0 4px; line-height: 1; flex-shrink: 0;" title="Remove KML">✕</button>
+              </div>
+
+              <button id="btnFinishVolume" class="btn hidden" style="width: 100%; margin-bottom: 8px; background: #10b981; border: none; color: white; font-weight: 600;">Finish Drawing</button>
+              <button id="btnClearVolume" class="btn btn-outline" style="width: 100%; font-size: 12px; padding: 7px;" disabled>Clear Volume</button>
               
               <div class="hint" id="volumeHint" style="margin-top: 6px;">
-                Click 'Draw Volume Area' to lock view to 2D. Then click points on the map to build a polygon.
+                Draw an area on the map or upload a KML boundary file to calculate cut/fill volumes.
               </div>
             </div>
           </div>

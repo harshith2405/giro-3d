@@ -1393,7 +1393,8 @@ body {
   box-shadow: 0 0 0 3px rgba(94, 25, 234, 0.1);
 }
 
-.save-name-input.input-invalid {
+.save-name-input.input-invalid,
+.save-folder-select.input-invalid {
   border-color: #ef4444 !important;
   box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2) !important;
   animation: shake 0.3s ease;

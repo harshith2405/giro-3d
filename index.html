@@ -95,7 +95,7 @@
   <svg id="volumeSvg" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index: 10; display:none;">
     <g id="volumeSecondaryPolygonsGroup"></g>
     <polygon id="volumePolygonHalo" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round" points=""></polygon>
-    <polygon id="volumePolygonOverlay" fill="none" stroke="#5e19ea" stroke-width="2.0" stroke-linejoin="round" stroke-linecap="round" filter="url(#kmlGlow)" points=""></polygon>
+    <polygon id="volumePolygonOverlay" fill="rgba(94, 25, 234, 0.20)" stroke="#5e19ea" stroke-width="2.0" stroke-linejoin="round" stroke-linecap="round" filter="url(#kmlGlow)" points=""></polygon>
     <g id="volumeVerticesOverlay"></g>
   </svg>
 
@@ -135,6 +135,59 @@
   <div id="liveGuidanceHud" class="live-guidance-hud hidden">
     <span id="guidanceIcon" class="guidance-icon">📍</span>
     <span id="guidanceText" class="guidance-text">Select a tool to begin drawing</span>
+  </div>
+
+
+  <!-- Top Floating Workspace Notice HUD (When clicked feature is outside ROI) -->
+  <div id="roiWorkspaceNoticeHud" class="hidden" style="
+    position: fixed;
+    top: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10025;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(15, 23, 42, 0.90);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(245, 158, 11, 0.45);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3), 0 0 15px rgba(245, 158, 11, 0.2);
+    color: #ffffff;
+    padding: 7px 16px;
+    border-radius: 30px;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: 'Inter', sans-serif;
+    pointer-events: auto;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  ">
+    <span style="font-size: 15px;">⚠️</span>
+    <span id="roiWorkspaceNoticeText" style="max-width: 320px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Selected area is outside the active ROI workspace view</span>
+    <button id="btnRestoreMapFromNotice" style="
+      background: linear-gradient(135deg, #5e19ea, #8b5cf6);
+      border: none;
+      color: #ffffff;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-left: 4px;
+      box-shadow: 0 2px 6px rgba(94, 25, 234, 0.4);
+      white-space: nowrap;
+      transition: transform 0.15s ease;
+    ">Restore Full Map</button>
+    <button id="btnCloseRoiNotice" style="
+      background: none;
+      border: none;
+      color: #94a3b8;
+      font-size: 16px;
+      cursor: pointer;
+      padding: 0 2px;
+      line-height: 1;
+      margin-left: 2px;
+    " title="Dismiss">&times;</button>
   </div>
   <!-- Central Universal Save Modal (Popup Dialog) -->
   <div id="universalSaveModal" class="hidden" style="
@@ -197,9 +250,6 @@
           <label style="display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px;">Assign Folder</label>
           <div style="display: flex; gap: 8px; align-items: center;">
             <select id="universalSaveFolder" class="save-folder-select" style="flex: 1; padding: 9px 12px; font-size: 13px; border-radius: 8px;">
-              <option value="General">General</option>
-              <option value="Pits">Pits</option>
-              <option value="Stockpiles">Stockpiles</option>
             </select>
             <button id="btnUniversalNewFolder" class="btn-outline" title="Add New Folder" style="width: 38px; height: 38px; flex-shrink: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid #cbd5e1; color: #1f2937; background: white; cursor: pointer; transition: all 0.2s;">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
@@ -210,7 +260,7 @@
 
       <div style="display: flex; gap: 10px; justify-content: flex-end;">
         <button id="btnCancelSaveModal" class="btn btn-outline" style="padding: 9px 16px; font-size: 13px; border-radius: 8px;">Cancel</button>
-        <button id="btnUniversalSave" class="btn" style="padding: 9px 20px; font-size: 13px; font-weight: 600; border-radius: 8px; background: linear-gradient(135deg, #5e19ea, #8b5cf6); color: white; border: none; cursor: pointer; box-shadow: 0 4px 12px rgba(94, 25, 234, 0.3);">Save to Cloud</button>
+        <button id="btnUniversalSave" class="btn" style="padding: 9px 20px; font-size: 13px; font-weight: 600; border-radius: 8px; background: linear-gradient(135deg, #5e19ea, #8b5cf6); color: white; border: none; cursor: pointer; box-shadow: 0 4px 12px rgba(94, 25, 234, 0.3);">Save</button>
       </div>
     </div>
   </div>
@@ -263,34 +313,61 @@
     </div>
 
     <!-- Viewport 2: Volume Analysis Metrics -->
+    <!-- Viewport 2: Volume Analysis Metrics -->
     <div id="infoViewVolume" class="info-viewport hidden">
-      <!-- Multi-Polygon Selector Tabs (shown dynamically when multiple polygons exist) -->
-      <div id="multiVolumeSelectorContainer" class="hidden" style="margin-bottom: 12px; padding: 10px; background: rgba(94, 25, 234, 0.04); border: 1px solid rgba(94, 25, 234, 0.15); border-radius: 8px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+      <!-- Multi-Polygon Accordion Container (shown dynamically when multiple polygons exist) -->
+      <div id="multiVolumeAccordionContainer" class="hidden" style="display: flex; flex-direction: column; gap: 10px;">
+        <!-- Header / Controls Bar -->
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0 6px 0; border-bottom: 1px solid rgba(94, 25, 234, 0.12);">
           <span style="font-size: 11px; font-weight: 700; color: #5e19ea; text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 5px;">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
             <span id="multiVolumeCountTitle">3 Areas Detected</span>
           </span>
-          <span id="multiVolumeActiveBadge" style="font-size: 10px; background: #5e19ea; color: white; padding: 2px 7px; border-radius: 10px; font-weight: 600;">Area 1 of 3</span>
+          <div style="display: flex; gap: 8px; font-size: 11px;">
+            <button id="btnMultiVolSelectAll" type="button" style="background: none; border: none; color: #5e19ea; font-weight: 600; cursor: pointer; padding: 0;">Select All</button>
+            <span style="color: #cbd5e1;">|</span>
+            <button id="btnMultiVolDeselectAll" type="button" style="background: none; border: none; color: #64748b; font-weight: 600; cursor: pointer; padding: 0;">Deselect All</button>
+          </div>
         </div>
-        <div id="multiVolumeTabs" style="display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin;">
-          <!-- Injected dynamically -->
+
+        <!-- Dynamic Vertical Accordion Cards Container -->
+        <div id="multiVolumeCardsList" style="display: flex; flex-direction: column; gap: 8px; max-height: 380px; overflow-y: auto; padding-right: 2px;">
+          <!-- Populated dynamically via buildMultiVolumeAccordion() -->
+        </div>
+
+        <!-- Batch Save Section at Bottom -->
+        <div style="margin-top: 6px; padding-top: 10px; border-top: 1px solid rgba(94, 25, 234, 0.12); display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <label style="font-size: 11.5px; font-weight: 600; color: #475569;">Assign Folder:</label>
+            <div style="display: flex; gap: 6px; align-items: center; flex: 1; max-width: 170px;">
+              <select id="multiVolumeTargetFolder" class="save-folder-select" style="flex: 1; padding: 5px 8px; font-size: 12px; border-radius: 6px;"></select>
+              <button id="btnMultiVolumeNewFolder" class="btn-outline" title="Add New Folder" style="width: 28px; height: 28px; flex-shrink: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; border: 1px solid #cbd5e1; color: #1f2937; background: white; cursor: pointer;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+            </div>
+          </div>
+          <button id="btnMultiVolumeBatchSave" class="btn btn-save-action" style="width: 100%; padding: 10px; font-weight: 600; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 6px; background: linear-gradient(135deg, #5e19ea, #8b5cf6); color: white; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 12px rgba(94, 25, 234, 0.25);">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+            <span id="btnMultiVolumeBatchSaveText">Save Selected Areas</span>
+          </button>
         </div>
       </div>
 
-      <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px; padding: 4px 0;">
-        <div style="display: flex; justify-content: space-between;"><span style="color: var(--muted);">Area (2D):</span><strong id="volMiniArea" style="color: var(--text); font-size: 13px;">0.00 m²</strong></div>
-        <div style="display: flex; justify-content: space-between;"><span style="color: var(--muted);">Perimeter:</span><strong id="volMiniPerim" style="color: var(--text); font-size: 13px;">0.00 m</strong></div>
-        <div style="display: flex; justify-content: space-between; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--panel-border);"><span style="color: #10b981; font-weight: bold; font-size: 13px;">Cut (Stockpile / Dump):</span><strong id="volMiniCut" style="color: #10b981; font-size: 14px;">0.00 m³</strong></div>
-        <div style="display: flex; justify-content: space-between;"><span style="color: #ef4444; font-weight: bold; font-size: 13px;">Fill (Pit / Void):</span><strong id="volMiniFill" style="color: #ef4444; font-size: 14px;">0.00 m³</strong></div>
-        <div style="display: flex; justify-content: space-between; margin-top: 2px; padding-top: 6px; border-top: 1px dashed rgba(94, 25, 234, 0.2);"><span style="color: var(--purple-primary); font-weight: bold; font-size: 13px;">Net Volume:</span><strong id="volMiniNet" style="color: var(--purple-primary); font-size: 14px; font-weight: 700;">0.00 m³</strong></div>
+      <!-- Single Volume Metrics (used for manually drawn volume or single-polygon KML) -->
+      <div id="singleVolumeMetricsContainer">
+        <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px; padding: 4px 0;">
+          <div style="display: flex; justify-content: space-between;"><span style="color: var(--muted);">Area (2D):</span><strong id="volMiniArea" style="color: var(--text); font-size: 13px;">0.00 m²</strong></div>
+          <div style="display: flex; justify-content: space-between;"><span style="color: var(--muted);">Perimeter:</span><strong id="volMiniPerim" style="color: var(--text); font-size: 13px;">0.00 m</strong></div>
+          <div style="display: flex; justify-content: space-between; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--panel-border);"><span style="color: #10b981; font-weight: bold; font-size: 13px;">Cut (Stockpile / Dump):</span><strong id="volMiniCut" style="color: #10b981; font-size: 14px;">0.00 m³</strong></div>
+          <div style="display: flex; justify-content: space-between;"><span style="color: #ef4444; font-weight: bold; font-size: 13px;">Fill (Pit / Void):</span><strong id="volMiniFill" style="color: #ef4444; font-size: 14px;">0.00 m³</strong></div>
+          <div style="display: flex; justify-content: space-between; margin-top: 2px; padding-top: 6px; border-top: 1px dashed rgba(94, 25, 234, 0.2);"><span style="color: var(--purple-primary); font-weight: bold; font-size: 13px;">Net Volume:</span><strong id="volMiniNet" style="color: var(--purple-primary); font-size: 14px; font-weight: 700;">0.00 m³</strong></div>
+        </div>
+        <button id="btnSaveFromInfoVolume" class="btn btn-save-action info-save-btn" style="margin-top: 14px; width: 100%; padding: 10px; font-weight: 600; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 6px; background: linear-gradient(135deg, #5e19ea, #8b5cf6); color: white; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 12px rgba(94, 25, 234, 0.25);">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+          Save Volume Area
+        </button>
       </div>
-      <button id="btnSaveFromInfoVolume" class="btn btn-save-action info-save-btn" style="margin-top: 14px; width: 100%; padding: 10px; font-weight: 600; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 6px; background: linear-gradient(135deg, #5e19ea, #8b5cf6); color: white; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 12px rgba(94, 25, 234, 0.25);">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-        Save Volume Area
-      </button>
     </div>
-
     <!-- Viewport 3: Box / Regular ROI Metrics -->
     <div id="infoViewBoxRoi" class="info-viewport hidden">
       <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px; padding: 4px 0;">

@@ -23,6 +23,14 @@ import autoTable from "jspdf-autotable";
 // Fix for Chromium's ERR_CACHE_OPERATION_NOT_SUPPORTED on GeoTIFF range requests
 HttpConfiguration.setOptions(window.location.origin, { cache: "no-store" });
 
+// Purge legacy persistent localStorage folder keys to prevent multi-survey cross-contamination
+try {
+  localStorage.removeItem("polygon_profile_folders");
+  localStorage.removeItem("polygon_volume_folders");
+  localStorage.removeItem("polygon_known_folders");
+  localStorage.removeItem("polygon_folders");
+} catch(e) {}
+
 const giroCrs = new CoordinateSystem("EPSG:3395");
 
 import { Vector3, Vector2, Color, DoubleSide, Plane } from "three";
@@ -34,6 +42,10 @@ import { MapControls } from "three/examples/jsm/controls/MapControls.js";
 proj4.defs(
   "EPSG:3395",
   "+proj=merc +lon_0=0 +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +type=crs"
+);
+proj4.defs(
+  "EPSG:32645",
+  "+proj=utm +zone=45 +datum=WGS84 +units=m +no_defs +type=crs"
 );
 register(proj4);
 
@@ -68,6 +80,12 @@ let elevationLayer = null;
 let orthoLayer = null;
 let elevationRange = { min: 0, max: 1000 };
 let slopeColorMap = null;
+
+// ── Scoped Dynamic Folder Stores (Strictly in-memory, scoped per survey) ──
+const knownProfileFolders = new Set();
+const knownVolumeFolders = new Set();
+const sessionCreatedProfileFolders = new Set();
+const sessionCreatedVolumeFolders = new Set();
 
 /** Update the on-screen status text (if a `.status` element exists). */
 function updateStatus(text) {
@@ -130,6 +148,20 @@ function frameCameraOnExtent(extent, extentOverride = false) {
 async function loadProject(project, extentOverride = null) {
   try {
     updateStatus("Cleaning up previous project...");
+
+    if (!extentOverride) {
+      if (project) activeProject = project;
+      knownProfileFolders.clear();
+      knownVolumeFolders.clear();
+      sessionCreatedProfileFolders.clear();
+      sessionCreatedVolumeFolders.clear();
+      if (typeof window !== "undefined") {
+        if (typeof window.syncFolderDropdowns === "function") window.syncFolderDropdowns();
+        if (typeof window.fetchSavedReports === "function") window.fetchSavedReports();
+        if (typeof window.fetchSavedVolumes === "function") window.fetchSavedVolumes();
+        if (typeof window.fetchSavedRois === "function") window.fetchSavedRois();
+      }
+    }
 
     // Remove any previously loaded map entity.
     if (map) {
@@ -284,8 +316,8 @@ const chattibhariatuConfig = {
       displayName: "September 2026",
     },
     october_2026: {
-      elevationUrl: "./projects/Chattibhariatu/surveys/October/DTM_CO.tif",
-      orthoUrl: "./projects/Chattibhariatu/surveys/October/Ortho_CO.tif",
+      elevationUrl: "./projects/Chattibhariatu/surveys/october_2026/DTM-CO.tif",
+      orthoUrl: "./projects/Chattibhariatu/surveys/october_2026/Ortho_CO.tif",
       extent: [9467993.08, 9472764.75, 2721407.00, 2724254.39],
       zOffset: 432.0,
       displayName: "October 2026",
@@ -377,6 +409,106 @@ function getActiveProjectConfig() {
 
 let activeProject = null;
 let isTerrainClippedToRoi = false;
+
+// ── ROI Workspace & Spatial Scoping Helpers ──
+let roiNoticeTimeout = null;
+
+function showRoiWorkspaceNotice(message, onRestore) {
+  const hud = document.getElementById("roiWorkspaceNoticeHud");
+  const textEl = document.getElementById("roiWorkspaceNoticeText");
+  const restoreBtn = document.getElementById("btnRestoreMapFromNotice");
+  const closeBtn = document.getElementById("btnCloseRoiNotice");
+  if (!hud || !textEl) return;
+
+  textEl.textContent = message;
+  hud.classList.remove("hidden");
+
+  if (restoreBtn) {
+    restoreBtn.onclick = () => {
+      hideRoiWorkspaceNotice();
+      if (typeof onRestore === 'function') onRestore();
+    };
+  }
+  if (closeBtn) {
+    closeBtn.onclick = () => hideRoiWorkspaceNotice();
+  }
+
+  if (roiNoticeTimeout) clearTimeout(roiNoticeTimeout);
+  roiNoticeTimeout = setTimeout(() => {
+    hideRoiWorkspaceNotice();
+  }, 6000);
+}
+
+function hideRoiWorkspaceNotice() {
+  const hud = document.getElementById("roiWorkspaceNoticeHud");
+  if (hud) hud.classList.add("hidden");
+  if (roiNoticeTimeout) {
+    clearTimeout(roiNoticeTimeout);
+    roiNoticeTimeout = null;
+  }
+}
+
+function updateRoiWorkspaceBadge(name) {
+  // Pill removed per user preference; function kept for clean no-op compatibility
+}
+
+function hideRoiWorkspaceBadge() {
+  // Pill removed per user preference; function kept for clean no-op compatibility
+}
+
+function isPointInsidePolygonCoords(px, py, polyCoords) {
+  let inside = false;
+  for (let i = 0, j = polyCoords.length - 1; i < polyCoords.length; j = i++) {
+    const xi = polyCoords[i].x, yi = polyCoords[i].y;
+    const xj = polyCoords[j].x, yj = polyCoords[j].y;
+    const intersect = ((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function isFeatureInsideActiveRoi(rawPoints) {
+  if (!isTerrainClippedToRoi || !rawPoints || rawPoints.length === 0) return true;
+  if (!map || !map.extent) return true;
+
+  const e = map.extent;
+  const eMinX = Math.min(e.minX, e.maxX);
+  const eMaxX = Math.max(e.minX, e.maxX);
+  const eMinY = Math.min(e.minY, e.maxY);
+  const eMaxY = Math.max(e.minY, e.maxY);
+
+  // Precision tolerance (5cm)
+  const eps = 0.05;
+
+  const pts = [];
+  for (const p of rawPoints) {
+    const px = p.coord ? p.coord.x : p.x;
+    const py = p.coord ? p.coord.y : p.y;
+    if (isNaN(px) || isNaN(py)) continue;
+    pts.push({ x: px, y: py });
+  }
+  if (pts.length === 0) return true;
+
+  // 1. STRICT: ALL points MUST be inside the active terrain bounding box!
+  // Even if a single point extends outside, the feature is partially or fully out of bounds.
+  for (const pt of pts) {
+    if (pt.x < eMinX - eps || pt.x > eMaxX + eps || pt.y < eMinY - eps || pt.y > eMaxY + eps) {
+      return false; // Point is in the void outside the clipped terrain!
+    }
+  }
+
+  // 2. If active ROI is a custom Polygon ROI, ALL points MUST also be inside the polygon!
+  if (typeof roiPolyPoints !== "undefined" && roiPolyPoints && roiPolyPoints.length >= 3 && map.clippingPlanes && map.clippingPlanes.length > 0) {
+    const roiCoords = roiPolyPoints.map(p => ({ x: p.coord ? p.coord.x : p.x, y: p.coord ? p.coord.y : p.y }));
+    for (const pt of pts) {
+      if (!isPointInsidePolygonCoords(pt.x, pt.y, roiCoords)) {
+        return false; // Point is outside the polygon ROI!
+      }
+    }
+  }
+
+  return true;
+}
 let isGridOverlayActive = false;
 let isHeatmapOverlayActive = false;
 let isContourOverlayActive = false;
@@ -505,6 +637,10 @@ window.addEventListener("DOMContentLoaded", () => {
   const customDialogIconSuccess = document.getElementById("customDialogIconSuccess");
 
   let currentDialogResolve = null;
+  let activeInfoTool = null;
+  let activeToolSaveData = null;
+  let isProfilesEditMode = false;
+  let isVolumesEditMode = false;
 
   function closeCustomDialog(result = null) {
     if (!customDialogModal) return;
@@ -829,7 +965,7 @@ window.addEventListener("DOMContentLoaded", () => {
         // 2. Core Polygon Purple line on top (no fill)
         const polyEl = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
         polyEl.setAttribute("points", ptsAttr);
-        polyEl.setAttribute("fill", "none");
+        polyEl.setAttribute("fill", isFocused ? "rgba(94, 25, 234, 0.25)" : "rgba(94, 25, 234, 0.15)");
         polyEl.setAttribute("stroke", isFocused ? "#5e19ea" : "#7c3aed");
         polyEl.setAttribute("stroke-width", isFocused ? "2.4" : "1.8");
         polyEl.setAttribute("stroke-linejoin", "round");
@@ -1012,7 +1148,6 @@ window.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll(".toggle-folder-view-reports").forEach(cb => cb.checked = isChecked);
 
     if (isChecked) {
-      restoreFullMapIfClipped();
       document.querySelectorAll("#reportsList .saved-report-item, #featuresListLines .saved-report-item").forEach(item => {
         item.classList.add("selected-item");
       });
@@ -1045,7 +1180,6 @@ window.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll(".toggle-folder-view-volumes").forEach(cb => cb.checked = isChecked);
 
     if (isChecked) {
-      restoreFullMapIfClipped();
       document.querySelectorAll("#volumesList .saved-report-item, #featuresListPolygons .saved-report-item").forEach(item => {
         item.classList.add("selected-item");
       });
@@ -1791,51 +1925,19 @@ window.addEventListener("DOMContentLoaded", () => {
   const btnUniversalSave = document.getElementById("btnUniversalSave");
   const btnUniversalNewFolder = document.getElementById("btnUniversalNewFolder");
 
-  // ── Scoped Dynamic Folder Stores (Path Profiles & Volumes) ──
-  const knownProfileFolders = new Set();
-  const knownVolumeFolders = new Set();
-
-  function loadStoredFolders() {
-    try {
-      const storedProfiles = localStorage.getItem("polygon_profile_folders");
-      if (storedProfiles !== null) {
-        const parsed = JSON.parse(storedProfiles);
-        if (Array.isArray(parsed)) {
-          knownProfileFolders.clear();
-          parsed.forEach(f => {
-            if (f && typeof f === "string" && f.trim() !== "") knownProfileFolders.add(f.trim());
-          });
-        }
-      }
-
-      const storedVolumes = localStorage.getItem("polygon_volume_folders");
-      if (storedVolumes !== null) {
-        const parsed = JSON.parse(storedVolumes);
-        if (Array.isArray(parsed)) {
-          knownVolumeFolders.clear();
-          parsed.forEach(f => {
-            if (f && typeof f === "string" && f.trim() !== "") knownVolumeFolders.add(f.trim());
-          });
-        }
-      }
-    } catch(e) {
-      console.error("Error loading stored folders", e);
-    }
-  }
-
-  function saveStoredFolders() {
-    try {
-      localStorage.setItem("polygon_profile_folders", JSON.stringify(Array.from(knownProfileFolders)));
-      localStorage.setItem("polygon_volume_folders", JSON.stringify(Array.from(knownVolumeFolders)));
-    } catch(e) {}
-  }
+  universalSaveName?.addEventListener("input", () => {
+    if (universalSaveName.value.trim()) universalSaveName.classList.remove("input-invalid");
+  });
+  universalSaveFolder?.addEventListener("change", () => {
+    if (universalSaveFolder.value?.trim()) universalSaveFolder.classList.remove("input-invalid");
+  });
 
   function addKnownProfileFolder(folderName, autoSync = true, selectTarget = null) {
     if (!folderName || typeof folderName !== "string") return;
     const trimmed = folderName.trim();
     if (trimmed === "") return;
+    sessionCreatedProfileFolders.add(trimmed);
     knownProfileFolders.add(trimmed);
-    saveStoredFolders();
     if (autoSync) syncFolderDropdowns("PROFILE", selectTarget || trimmed);
   }
 
@@ -1843,8 +1945,8 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!folderName || typeof folderName !== "string") return;
     const trimmed = folderName.trim();
     if (trimmed === "") return;
+    sessionCreatedVolumeFolders.add(trimmed);
     knownVolumeFolders.add(trimmed);
-    saveStoredFolders();
     if (autoSync) syncFolderDropdowns("VOLUME", selectTarget || trimmed);
   }
 
@@ -1858,43 +1960,66 @@ window.addEventListener("DOMContentLoaded", () => {
     const select = document.getElementById("universalSaveFolder");
     const volSelect = document.getElementById("volSaveFolder");
 
-    const volumeList = Array.from(knownVolumeFolders).sort();
+    const folderSet = (targetTool === "PROFILE") ? knownProfileFolders : knownVolumeFolders;
+    const sortedFolders = Array.from(folderSet).sort();
 
     if (select) {
-      const folderSet = (targetTool === "PROFILE") ? knownProfileFolders : knownVolumeFolders;
-      const currentVal = selectedFolder || select.value || "General";
-      
+      const currentVal = selectedFolder || (select.value !== "" ? select.value : null);
       select.innerHTML = "";
-      Array.from(folderSet).sort().forEach(folder => {
-        const option = document.createElement("option");
-        option.value = folder;
-        option.textContent = folder;
-        select.appendChild(option);
-      });
+      
+      if (sortedFolders.length === 0) {
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.disabled = true;
+        placeholder.selected = true;
+        placeholder.textContent = "No folders — click + to create";
+        select.appendChild(placeholder);
+      } else {
+        sortedFolders.forEach(folder => {
+          const option = document.createElement("option");
+          option.value = folder;
+          option.textContent = folder;
+          select.appendChild(option);
+        });
 
-      if (folderSet.has(currentVal)) {
-        select.value = currentVal;
-      } else if (select.options.length > 0) {
-        select.selectedIndex = 0;
+        if (currentVal && folderSet.has(currentVal)) {
+          select.value = currentVal;
+        } else if (select.options.length > 0) {
+          select.selectedIndex = 0;
+        }
       }
     }
 
     if (volSelect) {
-      const currentVal = selectedFolder || volSelect.value || "General";
+      const volumeList = Array.from(knownVolumeFolders).sort();
+      const currentVal = selectedFolder || (volSelect.value !== "" ? volSelect.value : null);
       volSelect.innerHTML = "";
-      volumeList.forEach(folder => {
-        const option = document.createElement("option");
-        option.value = folder;
-        option.textContent = folder;
-        volSelect.appendChild(option);
-      });
-      if (knownVolumeFolders.has(currentVal)) {
-        volSelect.value = currentVal;
+      
+      if (volumeList.length === 0) {
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.disabled = true;
+        placeholder.selected = true;
+        placeholder.textContent = "No folders — click + to create";
+        volSelect.appendChild(placeholder);
+      } else {
+        volumeList.forEach(folder => {
+          const option = document.createElement("option");
+          option.value = folder;
+          option.textContent = folder;
+          volSelect.appendChild(option);
+        });
+        if (currentVal && knownVolumeFolders.has(currentVal)) {
+          volSelect.value = currentVal;
+        } else if (volSelect.options.length > 0) {
+          volSelect.selectedIndex = 0;
+        }
       }
     }
   }
 
-  loadStoredFolders();
+  window.syncFolderDropdowns = syncFolderDropdowns;
+
   setTimeout(() => syncFolderDropdowns("PROFILE"), 100);
 
   const infoViewProfile = document.getElementById("infoViewProfile");
@@ -1911,9 +2036,6 @@ window.addEventListener("DOMContentLoaded", () => {
   const saveModalMetricsPreview = document.getElementById("saveModalMetricsPreview");
   const saveModalTitle = document.getElementById("saveModalTitle");
 
-  let activeInfoTool = null;
-  let activeToolSaveData = null;
-
   function openUniversalSaveModal() {
     if (!universalSaveModal) return;
     universalSaveModal.classList.remove("hidden");
@@ -1921,6 +2043,9 @@ window.addEventListener("DOMContentLoaded", () => {
       universalSaveName.classList.remove("input-invalid");
       universalSaveName.value = "";
       setTimeout(() => universalSaveName.focus(), 60);
+    }
+    if (universalSaveFolder) {
+      universalSaveFolder.classList.remove("input-invalid");
     }
 
     if (activeInfoTool === "PROFILE") {
@@ -1961,7 +2086,7 @@ window.addEventListener("DOMContentLoaded", () => {
     if (folderGroup) {
       if (activeInfoTool === "BOX_ROI" || activeInfoTool === "POLY_ROI") {
         folderGroup.style.display = "none";
-        if (universalSaveFolder) universalSaveFolder.value = "General";
+        if (universalSaveFolder) universalSaveFolder.value = "";
       } else {
         folderGroup.style.display = "block";
       }
@@ -2174,7 +2299,17 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     if (universalSaveName) universalSaveName.classList.remove("input-invalid");
-    const folderVal = universalSaveFolder ? universalSaveFolder.value : "General";
+
+    const folderVal = universalSaveFolder ? universalSaveFolder.value?.trim() : "";
+    if ((activeInfoTool === "PROFILE" || activeInfoTool === "VOLUME") && !folderVal) {
+      if (universalSaveFolder) {
+        universalSaveFolder.classList.add("input-invalid");
+        universalSaveFolder.focus();
+      }
+      await showCustomAlert("Please select or create a folder before saving (click + to create).", "Folder Required", "warning");
+      return;
+    }
+    if (universalSaveFolder) universalSaveFolder.classList.remove("input-invalid");
     const apiUrl = "https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url";
 
     const originalText = btnUniversalSave.textContent;
@@ -2357,7 +2492,7 @@ window.addEventListener("DOMContentLoaded", () => {
         };
 
         const safeName = nameVal.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-        const fileName = `${folderVal}/${safeName}_${Date.now()}.json`;
+        const fileName = `${safeName}_${Date.now()}.json`;
 
         const res = await fetch(apiUrl, {
           method: "POST",
@@ -2386,7 +2521,10 @@ window.addEventListener("DOMContentLoaded", () => {
         if (activeToolSaveData) saveFeatureItem(activeInfoTool?.toLowerCase(), nameVal, folderVal, activeToolSaveData);
       }
 
-      await showCustomAlert(`Saved "${nameVal}" to folder '${folderVal}'!`, "Saved Successfully", "success");
+      const savedMsg = (activeInfoTool === "PROFILE" || activeInfoTool === "VOLUME")
+        ? `Saved "${nameVal}" to folder '${folderVal}'!`
+        : `Saved "${nameVal}" successfully!`;
+      await showCustomAlert(savedMsg, "Saved Successfully", "success");
       closeUniversalSaveModal();
       showUnifiedInfoPanel(activeInfoTool, "SAVED ITEM", null, true);
 
@@ -2399,12 +2537,17 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  universalSaveFolder?.addEventListener("change", () => {
+    if (universalSaveFolder) universalSaveFolder.classList.remove("input-invalid");
+  });
+
   btnUniversalNewFolder?.addEventListener("click", async () => {
     const isProfile = activeInfoTool === "PROFILE";
     const typeLabel = isProfile ? "Path Profile" : "Volume";
     const newFolder = await showCustomPrompt(`Enter new folder name for ${typeLabel}:`, "", "New Folder");
     if (newFolder && newFolder.trim() !== "") {
       const trimmed = newFolder.trim();
+      if (universalSaveFolder) universalSaveFolder.classList.remove("input-invalid");
       if (isProfile) {
         addKnownProfileFolder(trimmed, true, trimmed);
         fetchSavedReports();
@@ -2869,6 +3012,7 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     loadProject(clipProject, clipExtent);
+    updateRoiWorkspaceBadge("Box ROI");
 
     roiState = "IDLE";
     document.body.classList.remove("roi-selecting");
@@ -3457,6 +3601,7 @@ window.addEventListener("DOMContentLoaded", () => {
         
         map.clippingPlanes = planes;
         isTerrainClippedToRoi = true;
+        updateRoiWorkspaceBadge("Polygon ROI");
         
         updateRoiPolySvg();
         requestAnimationFrame(() => {
@@ -3567,6 +3712,8 @@ window.addEventListener("DOMContentLoaded", () => {
       if (volumePolygonSvg) {
         volumePolygonSvg.style.display = "block";
         volumePolygonSvg.setAttribute("points", pointsAttr.trim());
+        volumePolygonSvg.setAttribute("fill", "rgba(94, 25, 234, 0.20)");
+        volumePolygonSvg.style.fill = "rgba(94, 25, 234, 0.20)";
       }
       if (volumeVerticesSvg) volumeVerticesSvg.style.display = "block";
       if (volumeSvg) volumeSvg.style.display = "block";
@@ -3689,16 +3836,16 @@ window.addEventListener("DOMContentLoaded", () => {
   // ── Multi-Polygon KML State ──
   let multiKmlPolygons = [];
   let activeKmlPolyIndex = 0;
-  const multiVolumeSelectorContainer = document.getElementById("multiVolumeSelectorContainer");
-  const multiVolumeCountTitle = document.getElementById("multiVolumeCountTitle");
-  const multiVolumeActiveBadge = document.getElementById("multiVolumeActiveBadge");
-  const multiVolumeTabs = document.getElementById("multiVolumeTabs");
 
   function resetMultiVolumeState() {
     multiKmlPolygons = [];
     activeKmlPolyIndex = 0;
-    if (multiVolumeSelectorContainer) multiVolumeSelectorContainer.classList.add("hidden");
-    if (multiVolumeTabs) multiVolumeTabs.innerHTML = "";
+    const accordionContainer = document.getElementById("multiVolumeAccordionContainer");
+    const singleContainer = document.getElementById("singleVolumeMetricsContainer");
+    const cardsList = document.getElementById("multiVolumeCardsList");
+    if (accordionContainer) accordionContainer.classList.add("hidden");
+    if (singleContainer) singleContainer.classList.remove("hidden");
+    if (cardsList) cardsList.innerHTML = "";
     const secondaryGroup = document.getElementById("volumeSecondaryPolygonsGroup");
     if (secondaryGroup) secondaryGroup.innerHTML = "";
     const saveScopeGroup = document.getElementById("multiVolumeSaveScopeGroup");
@@ -3712,15 +3859,28 @@ window.addEventListener("DOMContentLoaded", () => {
     if (volumeKmlUpload) volumeKmlUpload.value = "";
   }
 
+  function updateBatchSaveButtonState() {
+    if (!multiKmlPolygons) return;
+    const selectedCount = multiKmlPolygons.filter(p => p.selected).length;
+    const btnText = document.getElementById("btnMultiVolumeBatchSaveText");
+    const btn = document.getElementById("btnMultiVolumeBatchSave");
+    if (btnText) btnText.textContent = `Save Selected Areas (${selectedCount})`;
+    if (btn) {
+      btn.disabled = (selectedCount === 0);
+      btn.style.opacity = selectedCount === 0 ? "0.5" : "1";
+      btn.style.cursor = selectedCount === 0 ? "not-allowed" : "pointer";
+    }
+  }
+
   function selectKmlPolygon(idx, flyTo = true) {
     if (!multiKmlPolygons || !multiKmlPolygons[idx]) return;
     activeKmlPolyIndex = idx;
     const poly = multiKmlPolygons[idx];
 
-    // Set main volumePoints to active polygon's points
+    // Set main volumePoints to active polygon points for rendering
     volumePoints = poly.volumePoints;
 
-    // Update mini-metrics in Unified Info Panel
+    // Update single-metrics elements if present
     const areaEl = document.getElementById("volMiniArea");
     const perimEl = document.getElementById("volMiniPerim");
     const cutEl = document.getElementById("volMiniCut");
@@ -3736,31 +3896,21 @@ window.addEventListener("DOMContentLoaded", () => {
       netEl.style.color = poly.metrics.netVolumeNum >= 0 ? "#10b981" : "#ef4444";
     }
 
-    // Update pill tabs active state
-    document.querySelectorAll(".multi-poly-tab").forEach(tab => {
-      const tabIdx = parseInt(tab.getAttribute("data-idx"), 10);
-      if (tabIdx === idx) {
-        tab.classList.add("active");
-        tab.style.background = "linear-gradient(135deg, #5e19ea, #8b5cf6)";
-        tab.style.color = "#ffffff";
-        tab.style.borderColor = "#5e19ea";
-        tab.style.boxShadow = "0 2px 8px rgba(94, 25, 234, 0.35)";
-      } else {
-        tab.classList.remove("active");
-        tab.style.background = "#ffffff";
-        tab.style.color = "#1e293b";
-        tab.style.borderColor = "rgba(94, 25, 234, 0.2)";
-        tab.style.boxShadow = "none";
-      }
+    // Update Accordion Cards state
+    document.querySelectorAll(".multi-vol-card").forEach(c => {
+      const cIdx = parseInt(c.getAttribute("data-idx"), 10);
+      const isCurrent = (cIdx === idx);
+      c.style.borderColor = isCurrent ? "#5e19ea" : "rgba(94, 25, 234, 0.15)";
+      c.style.boxShadow = isCurrent ? "0 4px 12px rgba(94, 25, 234, 0.12)" : "0 1px 3px rgba(0,0,0,0.04)";
+      const dot = c.querySelector(".multi-vol-active-dot");
+      if (dot) dot.style.display = isCurrent ? "inline-block" : "none";
+      const body = c.querySelector(".multi-vol-card-body");
+      if (body) body.style.display = isCurrent ? "flex" : "none";
+      const chev = c.querySelector(".multi-vol-chevron");
+      if (chev) chev.style.transform = isCurrent ? "rotate(0deg)" : "rotate(-90deg)";
+      const header = c.querySelector(".multi-vol-card-header");
+      if (header) header.style.background = isCurrent ? "rgba(94, 25, 234, 0.05)" : "#ffffff";
     });
-
-    if (multiVolumeActiveBadge) {
-      multiVolumeActiveBadge.textContent = `Area ${idx + 1} of ${multiKmlPolygons.length}`;
-    }
-    const activeSaveBadge = document.getElementById("activePolySaveNameBadge");
-    if (activeSaveBadge) {
-      activeSaveBadge.textContent = poly.name || `Area ${idx + 1}`;
-    }
 
     if (flyTo && typeof setCameraTopDown === 'function') {
       setCameraTopDown(poly.center.cx, poly.center.cy, poly.center.span * 1.3);
@@ -3772,6 +3922,217 @@ window.addEventListener("DOMContentLoaded", () => {
       updateVolumeSvg();
     });
   }
+
+  function buildMultiVolumeAccordion() {
+    const accordionContainer = document.getElementById("multiVolumeAccordionContainer");
+    const singleContainer = document.getElementById("singleVolumeMetricsContainer");
+    const cardsList = document.getElementById("multiVolumeCardsList");
+    const countTitle = document.getElementById("multiVolumeCountTitle");
+
+    if (accordionContainer) accordionContainer.classList.remove("hidden");
+    if (singleContainer) singleContainer.classList.add("hidden");
+    if (countTitle && multiKmlPolygons) {
+      countTitle.textContent = `${multiKmlPolygons.length} Areas Detected`;
+    }
+
+    syncFolderDropdowns("VOLUME");
+
+    if (!cardsList || !multiKmlPolygons) return;
+    cardsList.innerHTML = "";
+
+    multiKmlPolygons.forEach((poly, idx) => {
+      if (typeof poly.selected !== "boolean") poly.selected = true;
+      if (!poly.name) poly.name = `Area ${idx + 1}`;
+
+      const isExpanded = (idx === activeKmlPolyIndex);
+      const card = document.createElement("div");
+      card.className = "multi-vol-card";
+      card.setAttribute("data-idx", idx);
+      card.style.cssText = `
+        background: #ffffff;
+        border: 1.5px solid ${isExpanded ? '#5e19ea' : 'rgba(94, 25, 234, 0.15)'};
+        border-radius: 8px;
+        overflow: hidden;
+        transition: all 0.2s ease;
+        box-shadow: ${isExpanded ? '0 4px 12px rgba(94, 25, 234, 0.12)' : '0 1px 3px rgba(0,0,0,0.04)'};
+      `;
+
+      const netColor = (poly.metrics?.netVolumeNum >= 0) ? '#10b981' : '#ef4444';
+      const netDisplay = poly.metrics?.netVolume || '0 m³';
+
+      card.innerHTML = `
+        <div class="multi-vol-card-header" style="
+          padding: 8px 10px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          cursor: pointer;
+          user-select: none;
+          background: ${isExpanded ? 'rgba(94, 25, 234, 0.05)' : '#ffffff'};
+          transition: background 0.2s ease;
+        ">
+          <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
+            <input type="checkbox" class="multi-vol-cb" data-idx="${idx}" ${poly.selected ? 'checked' : ''} style="accent-color: #5e19ea; width: 15px; height: 15px; cursor: pointer; flex-shrink: 0;" />
+            <span class="multi-vol-active-dot" style="display: ${isExpanded ? 'inline-block' : 'none'}; width: 7px; height: 7px; border-radius: 50%; background: #5e19ea; flex-shrink: 0; box-shadow: 0 0 6px #5e19ea;"></span>
+            <span class="multi-vol-title-text" style="font-size: 12px; font-weight: 600; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">#${idx + 1} ${poly.name}</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+            <span class="multi-vol-net-pill" style="font-size: 11px; font-weight: 700; color: ${netColor}; background: rgba(94, 25, 234, 0.06); padding: 2px 6px; border-radius: 10px;">${netDisplay}</span>
+            <svg class="multi-vol-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.5" style="transition: transform 0.2s ease; transform: rotate(${isExpanded ? '0deg' : '-90deg'});"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+        </div>
+
+        <div class="multi-vol-card-body" style="
+          display: ${isExpanded ? 'flex' : 'none'};
+          flex-direction: column;
+          gap: 8px;
+          padding: 10px;
+          border-top: 1px solid rgba(94, 25, 234, 0.08);
+          background: #fcfbfe;
+        ">
+          <div>
+            <label style="display: block; font-size: 10.5px; font-weight: 600; color: #64748b; margin-bottom: 4px;">Area Name</label>
+            <input type="text" class="multi-vol-name-input input" data-idx="${idx}" value="${poly.name}" placeholder="Area Name" style="width: 100%; box-sizing: border-box; padding: 6px 9px; font-size: 12px; border-radius: 6px; border: 1px solid #cbd5e1; background: #ffffff;" />
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 4px; font-size: 11.5px;">
+            <div style="display: flex; justify-content: space-between;"><span style="color: #64748b;">Area (2D):</span><strong style="color: #1e293b;">${poly.metrics?.area2D || '0 m²'}</strong></div>
+            <div style="display: flex; justify-content: space-between;"><span style="color: #64748b;">Perimeter:</span><strong style="color: #1e293b;">${poly.metrics?.perimeter || '0 m'}</strong></div>
+            <div style="display: flex; justify-content: space-between; border-top: 1px solid rgba(0,0,0,0.06); padding-top: 4px;"><span style="color: #10b981; font-weight: 600;">Cut:</span><strong style="color: #10b981;">${poly.metrics?.cutVolume || '0 m³'}</strong></div>
+            <div style="display: flex; justify-content: space-between;"><span style="color: #ef4444; font-weight: 600;">Fill:</span><strong style="color: #ef4444;">${poly.metrics?.fillVolume || '0 m³'}</strong></div>
+            <div style="display: flex; justify-content: space-between; border-top: 1px dashed rgba(94, 25, 234, 0.25); padding-top: 4px;"><span style="color: #5e19ea; font-weight: 700;">Net Volume:</span><strong style="color: #5e19ea; font-weight: 800;">${poly.metrics?.netVolume || '0 m³'}</strong></div>
+          </div>
+        </div>
+      `;
+
+      const header = card.querySelector(".multi-vol-card-header");
+      const cb = card.querySelector(".multi-vol-cb");
+      const nameInput = card.querySelector(".multi-vol-name-input");
+
+      cb.addEventListener("click", (e) => {
+        e.stopPropagation();
+        poly.selected = cb.checked;
+        updateBatchSaveButtonState();
+      });
+
+      nameInput.addEventListener("input", (e) => {
+        const val = e.target.value.trim();
+        poly.name = val || `Area ${idx + 1}`;
+        const titleEl = card.querySelector(".multi-vol-title-text");
+        if (titleEl) titleEl.textContent = `#${idx + 1} ${poly.name}`;
+      });
+
+      header.addEventListener("click", () => {
+        selectKmlPolygon(idx, true);
+      });
+
+      cardsList.appendChild(card);
+    });
+
+    updateBatchSaveButtonState();
+  }
+
+  // Multi-Volume Batch Actions Binding
+  document.getElementById("btnMultiVolSelectAll")?.addEventListener("click", () => {
+    if (!multiKmlPolygons) return;
+    multiKmlPolygons.forEach(p => p.selected = true);
+    document.querySelectorAll(".multi-vol-cb").forEach(cb => cb.checked = true);
+    updateBatchSaveButtonState();
+  });
+
+  document.getElementById("btnMultiVolDeselectAll")?.addEventListener("click", () => {
+    if (!multiKmlPolygons) return;
+    multiKmlPolygons.forEach(p => p.selected = false);
+    document.querySelectorAll(".multi-vol-cb").forEach(cb => cb.checked = false);
+    updateBatchSaveButtonState();
+  });
+
+  document.getElementById("btnMultiVolumeNewFolder")?.addEventListener("click", async () => {
+    const name = await showCustomPrompt("Enter new folder name for volumes:", "", "New Folder");
+    if (!name || !name.trim()) return;
+    const clean = name.trim();
+    knownVolumeFolders.add(clean);
+    sessionCreatedVolumeFolders.add(clean);
+    syncFolderDropdowns("VOLUME");
+    const multiTarget = document.getElementById("multiVolumeTargetFolder");
+    if (multiTarget) multiTarget.value = clean;
+  });
+
+  document.getElementById("btnMultiVolumeBatchSave")?.addEventListener("click", async () => {
+    if (!multiKmlPolygons || multiKmlPolygons.length === 0) return;
+    const selected = multiKmlPolygons.filter(p => p.selected);
+    if (selected.length === 0) {
+      await showCustomAlert("Please select at least one area to save.", "None Selected", "warning");
+      return;
+    }
+    const multiTarget = document.getElementById("multiVolumeTargetFolder");
+    const folderVal = multiTarget?.value?.trim();
+    if (!folderVal) {
+      await showCustomAlert("Please assign or create a folder before saving.", "Folder Required", "warning");
+      return;
+    }
+
+    const btn = document.getElementById("btnMultiVolumeBatchSave");
+    const btnText = document.getElementById("btnMultiVolumeBatchSaveText");
+    if (btn) btn.disabled = true;
+    if (btnText) btnText.textContent = `Saving ${selected.length} areas...`;
+
+    try {
+      const apiUrl = "https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url";
+      for (let i = 0; i < selected.length; i++) {
+        const poly = selected[i];
+        const cleanName = poly.name.replace(/[^a-zA-Z0-9_-]/g, "_").toLowerCase();
+        const fileName = `${folderVal}/${cleanName}_${Date.now()}_${i + 1}.json`;
+
+        const polyData = {
+          name: poly.name,
+          title: poly.name,
+          folder: folderVal,
+          isOfficial: !window.isDumpDraw,
+          timestamp: new Date().toISOString(),
+          area2D: poly.metrics?.area2D || "0 m²",
+          perimeter: poly.metrics?.perimeter || "0 m",
+          cutVolume: poly.metrics?.cutVolume || "0 m³",
+          fillVolume: poly.metrics?.fillVolume || "0 m³",
+          netVolume: poly.metrics?.netVolume || "0 m³",
+          points: poly.volumePoints.map(p => ({
+            x: p.coord ? p.coord.x : p.point.x,
+            y: p.coord ? p.coord.y : p.point.y,
+            z: p.coord ? p.coord.z : p.point.z
+          }))
+        };
+
+        const volRes = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projectId: activeProject.folderName,
+            surveyId: activeProject.surveyId,
+            type: "volumes",
+            fileName
+          })
+        });
+        if (!volRes.ok) throw new Error(`Failed to get upload URL for "${poly.name}"`);
+        const { uploadUrl } = await volRes.json();
+
+        const putRes = await fetch(uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(polyData, null, 2)
+        });
+        if (!putRes.ok) throw new Error(`Failed to upload "${poly.name}"`);
+      }
+
+      await showCustomAlert(`Successfully saved ${selected.length} volume area(s) to folder "${folderVal}"!`, "Saved Successfully", "success");
+      await fetchSavedVolumes();
+    } catch (err) {
+      console.error("Batch save error:", err);
+      await showCustomAlert("Error saving areas: " + err.message, "Save Failed", "error");
+    } finally {
+      if (btn) btn.disabled = false;
+      updateBatchSaveButtonState();
+    }
+  });
+
 
   btnDrawVolume?.addEventListener("click", () => {
     resetRoiState();
@@ -4121,29 +4482,11 @@ window.addEventListener("DOMContentLoaded", () => {
             volumeKmlBadge.classList.remove("hidden");
           }
           if (volumeHint) {
-            volumeHint.textContent = `KML loaded (${multiKmlPolygons.length} areas). Click any area tab in the Info Panel to inspect.`;
+            volumeHint.textContent = `KML loaded (${multiKmlPolygons.length} areas). Expand any area in the Info Panel to inspect & name.`;
           }
 
-          // Build Tabs in Info Panel
-          if (multiVolumeTabs) {
-            multiVolumeTabs.innerHTML = "";
-            multiKmlPolygons.forEach((poly, idx) => {
-              const tabBtn = document.createElement("button");
-              tabBtn.className = `multi-poly-tab ${idx === 0 ? 'active' : ''}`;
-              tabBtn.setAttribute("data-idx", idx);
-              tabBtn.style.cssText = "display: flex; align-items: center; gap: 5px; padding: 5px 11px; font-size: 11px; font-weight: 600; border-radius: 20px; border: 1px solid rgba(94, 25, 234, 0.2); background: #ffffff; color: #1e293b; cursor: pointer; white-space: nowrap; transition: all 0.2s ease; flex-shrink: 0;";
-              tabBtn.innerHTML = `<span>#${idx + 1} ${poly.name}</span>`;
-              tabBtn.addEventListener("click", () => selectKmlPolygon(idx, true));
-              multiVolumeTabs.appendChild(tabBtn);
-            });
-          }
-
-          if (multiVolumeCountTitle) {
-            multiVolumeCountTitle.textContent = `${multiKmlPolygons.length} Areas Detected`;
-          }
-          if (multiVolumeSelectorContainer) {
-            multiVolumeSelectorContainer.classList.remove("hidden");
-          }
+          // Build Vertical Accordion in Info Panel
+          buildMultiVolumeAccordion();
 
           // Frame all polygons together in camera
           let overallMinX = Infinity, overallMaxX = -Infinity, overallMinY = Infinity, overallMaxY = -Infinity;
@@ -4262,6 +4605,7 @@ window.addEventListener("DOMContentLoaded", () => {
       updateRoiPolySvg();
       calculateRoiPolyMetrics();
       applyRoiPolyClipping();
+        updateRoiWorkspaceBadge(roiDisplayName || "Polygon ROI");
       if (roiMiniContainer) roiMiniContainer.classList.remove("hidden");
     }
   });
@@ -5619,6 +5963,10 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   async function fetchSavedReports() {
+    const reportsList = document.getElementById("reportsList");
+    const reportsListLoading = document.getElementById("reportsListLoading");
+    const featuresListLines = document.getElementById("featuresListLines");
+
     if (reportsListLoading) reportsListLoading.style.display = 'block';
     if (reportsListLoading) reportsListLoading.textContent = "Loading profiles...";
     if (featuresListLines) featuresListLines.innerHTML = '<i style="color: var(--muted); padding: 4px;">Loading profiles...</i>';
@@ -5651,7 +5999,7 @@ window.addEventListener("DOMContentLoaded", () => {
           const jRaw = j.fileName.split('/').pop().replace('.json', '');
           return j.fileName === `${pdfFile.fileName.replace('.pdf', '')}.json` || jRaw === rawPdfBase;
         });
-        const fallbackFolder = pdfFile.fileName.includes('/') ? pdfFile.fileName.split('/')[0] : "General";
+        const fallbackFolder = pdfFile.fileName.includes('/') ? pdfFile.fileName.split('/')[0] : "";
         let metadata = { isOfficial: false, folder: fallbackFolder };
         if (jsonFile) {
           try {
@@ -5664,7 +6012,7 @@ window.addEventListener("DOMContentLoaded", () => {
             }
           } catch(e) {}
         }
-        if (!metadata.folder) metadata.folder = fallbackFolder;
+        if (!metadata.folder) metadata.folder = fallbackFolder || "General";
         return { pdfFile, jsonFile, metadata };
       });
       
@@ -5675,29 +6023,27 @@ window.addEventListener("DOMContentLoaded", () => {
       if (reportsList) reportsList.innerHTML = '';
       if (featuresListLines) featuresListLines.innerHTML = '';
 
-      // Group profiles by folder (and ensure known folders exist)
+      // Group profiles by folder strictly from S3 items + session-created folders
       const profileFolders = {};
-      knownProfileFolders.forEach(f => {
-        profileFolders[f] = [];
-      });
 
       items.forEach(itemData => {
-        const folderName = itemData.metadata.folder || (itemData.pdfFile.fileName.includes('/') ? itemData.pdfFile.fileName.split('/')[0] : "General");
+        const rawFolder = itemData.metadata?.folder || (itemData.pdfFile.fileName.includes('/') ? itemData.pdfFile.fileName.split('/')[0] : "");
+        const folderName = (rawFolder && rawFolder.trim()) ? rawFolder.trim() : "General";
         itemData.metadata.folder = folderName;
-        addKnownProfileFolder(folderName, false);
         if (!profileFolders[folderName]) profileFolders[folderName] = [];
         profileFolders[folderName].push(itemData);
       });
 
-      // Clean up empty legacy default folders
-      const legacyDefaults = ["Haul Roads", "Pit Profiles", "Face", "Stockpiles", "Over burden"];
-      legacyDefaults.forEach(f => {
-        if (profileFolders[f] && profileFolders[f].length === 0) {
-          delete profileFolders[f];
-          knownProfileFolders.delete(f);
+      sessionCreatedProfileFolders.forEach(f => {
+        if (f && typeof f === "string" && f.trim() !== "") {
+          const trimmed = f.trim();
+          if (!profileFolders[trimmed]) profileFolders[trimmed] = [];
         }
       });
-      saveStoredFolders();
+
+      knownProfileFolders.clear();
+      Object.keys(profileFolders).forEach(f => knownProfileFolders.add(f));
+      syncFolderDropdowns("PROFILE");
 
       const renderProfileFolder = (folderName, folderItems, targetContainer) => {
         const folderGroup = document.createElement("div");
@@ -5730,7 +6076,6 @@ window.addEventListener("DOMContentLoaded", () => {
           e.stopPropagation();
           const isChecked = e.target.checked;
           if (isChecked) {
-            restoreFullMapIfClipped();
             for (const { pdfFile, jsonFile, metadata } of folderItems) {
               const uniqueId = (jsonFile && jsonFile.fileName) ? jsonFile.fileName : pdfFile.fileName;
               const rawName = metadata?.name || metadata?.title || pdfFile.fileName.split('/').pop().replace('.pdf', '').replace(/_/g, ' ');
@@ -5770,15 +6115,16 @@ window.addEventListener("DOMContentLoaded", () => {
           const newName = await showCustomPrompt(`Enter new name for folder "${folderName}":`, folderName, "Rename Folder");
           if (!newName || newName.trim() === "" || newName.trim() === folderName) return;
           const cleanName = newName.trim();
+          sessionCreatedProfileFolders.delete(folderName);
+          sessionCreatedProfileFolders.add(cleanName);
           knownProfileFolders.delete(folderName);
           knownProfileFolders.add(cleanName);
-          saveStoredFolders();
 
           for (const { jsonFile, metadata } of folderItems) {
             if (jsonFile && metadata) {
               try {
                 metadata.folder = cleanName;
-                const jsonFileName = jsonFile.fileName.split('/').pop();
+                const jsonFileName = jsonFile.fileName;
                 const jsonBlob = new Blob([JSON.stringify(metadata, null, 2)], { type: "application/json" });
                 const jsonRes = await fetch("https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url", {
                   method: "POST",
@@ -5796,8 +6142,8 @@ window.addEventListener("DOMContentLoaded", () => {
               }
             }
           }
-          fetchSavedReports();
-          syncFolderDropdowns("PROFILE");
+          await fetchSavedReports();
+          syncFolderDropdowns("PROFILE", cleanName);
         });
 
         const delBtn = fHeader.querySelector(".btn-delete-folder-trigger");
@@ -5808,9 +6154,9 @@ window.addEventListener("DOMContentLoaded", () => {
           if (folderItems.length === 0) {
             const confirmed = await showCustomConfirm(`Delete empty subfolder "${folderName}"?`, "Delete Folder", true);
             if (confirmed) {
+              sessionCreatedProfileFolders.delete(folderName);
               knownProfileFolders.delete(folderName);
-              saveStoredFolders();
-              fetchSavedReports();
+              await fetchSavedReports();
               syncFolderDropdowns("PROFILE");
             }
             return;
@@ -5827,14 +6173,14 @@ window.addEventListener("DOMContentLoaded", () => {
                 return Promise.all([p1, p2]);
               });
               await Promise.all(deletePromises);
+              sessionCreatedProfileFolders.delete(folderName);
               knownProfileFolders.delete(folderName);
-              saveStoredFolders();
-              fetchSavedReports();
+              await fetchSavedReports();
               syncFolderDropdowns("PROFILE");
             } catch (err) {
               console.error("Error deleting folder items", err);
               await showCustomAlert("Failed to delete all items in folder: " + err.message, "Error", "error");
-              fetchSavedReports();
+              await fetchSavedReports();
             }
           }
         });
@@ -5899,7 +6245,7 @@ window.addEventListener("DOMContentLoaded", () => {
                 meta.name = cleanName;
                 meta.title = cleanName;
                 if (!meta.folder && metadata?.folder) meta.folder = metadata.folder;
-                if (!meta.folder) meta.folder = folderName || "General";
+                if (!meta.folder && folderName) meta.folder = folderName;
 
                 const jsonFileName = jsonFile?.fileName || pdfFile.fileName.replace(/\.pdf$/, '.json');
                 const res = await fetch(`https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`, {
@@ -5969,7 +6315,20 @@ window.addEventListener("DOMContentLoaded", () => {
             });
             
             const loadPathProfile = async () => {
-              restoreFullMapIfClipped();
+              if (isTerrainClippedToRoi && m && (m.startPoint || m.startCoord) && (m.endPoint || m.endCoord)) {
+                const p1 = m.startCoord || m.startPoint;
+                const p2 = m.endCoord || m.endPoint;
+                if (!isFeatureInsideActiveRoi([p1, p2])) {
+                  showRoiWorkspaceNotice(`"${rawName}" is outside the active ROI view.`, () => {
+                    restoreFullMapIfClipped();
+                    setTimeout(() => {
+                      loadPathProfile();
+                    }, 400);
+                  });
+                  return;
+                }
+              }
+              hideRoiWorkspaceNotice();
               setActiveSavedItem(item);
               if (!jsonFile) return;
               try {
@@ -5979,7 +6338,7 @@ window.addEventListener("DOMContentLoaded", () => {
                 const text = await res.text();
                 const m = JSON.parse(text);
                 if (m) {
-                  m.folder = folderName || m.folder || "General";
+                  m.folder = folderName || m.folder || "";
                 }
 
                 window.currentViewingFeature = {
@@ -5988,7 +6347,7 @@ window.addEventListener("DOMContentLoaded", () => {
                   pdfFile,
                   jsonFile,
                   metadata: m,
-                  folder: folderName || m?.folder || "General"
+                  folder: folderName || m?.folder || ""
                 };
                 if (typeof updateInfoPanelRenameTrigger === 'function') {
                   updateInfoPanelRenameTrigger(rawName);
@@ -6117,15 +6476,15 @@ window.addEventListener("DOMContentLoaded", () => {
         targetContainer.appendChild(folderGroup);
       };
 
-      let hasItems = false;
-      Object.keys(profileFolders).sort().forEach(folderName => {
+      const folderKeys = Object.keys(profileFolders).sort();
+      folderKeys.forEach(folderName => {
         if (reportsList) renderProfileFolder(folderName, profileFolders[folderName], reportsList);
         if (featuresListLines) renderProfileFolder(folderName, profileFolders[folderName], featuresListLines);
-        if (profileFolders[folderName].length > 0) hasItems = true;
       });
 
-      if (!hasItems && reportsList) {
-        reportsList.innerHTML = '<i style="color: var(--muted); padding: 4px;">No saved path profiles yet.</i>';
+      if (folderKeys.length === 0) {
+        if (reportsList) reportsList.innerHTML = '<i style="color: var(--muted); padding: 4px;">No saved profiles yet.</i>';
+        if (featuresListLines) featuresListLines.innerHTML = '<i style="color: var(--muted); padding: 4px;">No saved profiles yet.</i>';
       }
       
       // Restore UI state if re-fetched during manage mode
@@ -6138,9 +6497,9 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // --- Streamlined Path Profiles Edit Mode Logic ---
-  let isProfilesEditMode = false;
+  window.fetchSavedReports = fetchSavedReports;
 
+  // --- Streamlined Path Profiles Edit Mode Logic ---
   function toggleProfilesEditMode(enable = !isProfilesEditMode) {
     isProfilesEditMode = enable;
     const btnManageProfilesFolder = document.getElementById("btnManageProfilesFolder");
@@ -6298,6 +6657,7 @@ window.addEventListener("DOMContentLoaded", () => {
       const newFolder = input.value.trim();
       if (newFolder) {
         addKnownFolder(newFolder, true, newFolder);
+        fetchSavedVolumes();
       }
       cleanup();
     });
@@ -6305,9 +6665,13 @@ window.addEventListener("DOMContentLoaded", () => {
 
   btnConfirmVolSave?.addEventListener("click", async () => {
     const name = volSaveName.value.trim();
-    const folder = volSaveFolder.value;
+    const folder = volSaveFolder.value?.trim();
     if (!name) {
       await showCustomAlert("Please enter a volume name.", "Name Required", "warning");
+      return;
+    }
+    if (!folder) {
+      await showCustomAlert("Please select or create a folder before saving.", "Folder Required", "warning");
       return;
     }
     btnConfirmVolSave.disabled = true;
@@ -6415,7 +6779,7 @@ window.addEventListener("DOMContentLoaded", () => {
       
       const jsonStr = JSON.stringify(data, null, 2);
       const safeName = name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-      const fileName = `General/${safeName}_${Date.now()}.json`;
+      const fileName = `${safeName}_${Date.now()}.json`;
       
       const response = await fetch(`https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`, {
         method: "POST",
@@ -6482,6 +6846,7 @@ window.addEventListener("DOMContentLoaded", () => {
         const clipExtent = new Extent(giroCrs, minX, maxX, minY, maxY);
         const clipProject = getActiveProjectConfig();
         isTerrainClippedToRoi = true;
+        updateRoiWorkspaceBadge(roiDisplayName || "Box ROI");
 
         if (resetROI) resetROI.disabled = false;
         if (roiHint) roiHint.textContent = `Viewing Box ROI: ${roiDisplayName}. Click 'Reset' to restore full map.`;
@@ -6585,6 +6950,8 @@ window.addEventListener("DOMContentLoaded", () => {
   };
 
   function restoreFullMapIfClipped() {
+    hideRoiWorkspaceBadge();
+    hideRoiWorkspaceNotice();
     const hasClipping = isTerrainClippedToRoi || (map && map.clippingPlanes && map.clippingPlanes.length > 0) || (typeof roiPolyPoints !== "undefined" && roiPolyPoints.length > 0) || measureMode === "ROI_POLY" || measureState === "FINISHED_ROI_POLY";
     if (hasClipping) {
       isTerrainClippedToRoi = false;
@@ -6710,6 +7077,7 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   async function fetchSavedRois() {
+    const featuresListRois = document.getElementById("featuresListRois");
     const leftRoisList = document.getElementById("leftRoisList");
     if (featuresListRois) featuresListRois.innerHTML = '<i style="color: var(--muted); padding: 4px;">Loading...</i>';
     if (leftRoisList) leftRoisList.innerHTML = '<i style="color: var(--muted); padding: 4px;">Loading...</i>';
@@ -6850,6 +7218,8 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  window.fetchSavedRois = fetchSavedRois;
+
   async function fetchSavedVolumes() {
     const volumesList = document.getElementById("volumesList");
     const featuresListPolygons = document.getElementById("featuresListPolygons");
@@ -6876,11 +7246,8 @@ window.addEventListener("DOMContentLoaded", () => {
 
       if (volumesListLoading) volumesListLoading.style.display = 'none';
 
-      // Group by folder (and ensure known folders exist)
+      // Group by folder strictly from S3 items + session-created folders
       const volumeFolders = {};
-      knownVolumeFolders.forEach(f => {
-        volumeFolders[f] = [];
-      });
 
       const allVolumeItems = [];
       for (let file of jsonFiles) {
@@ -6890,10 +7257,9 @@ window.addEventListener("DOMContentLoaded", () => {
           const res = await fetch(_url + _cacheBuster, { cache: 'no-store' });
           if (!res.ok) continue;
           const metadata = await res.json();
-          const fallbackFolder = file.fileName.includes('/') ? file.fileName.split('/')[0] : "General";
-          const folderName = metadata.folder || fallbackFolder;
+          const fallbackFolder = file.fileName.includes('/') ? file.fileName.split('/')[0] : "";
+          const folderName = (metadata.folder && metadata.folder.trim()) ? metadata.folder.trim() : (fallbackFolder || "General");
           metadata.folder = folderName;
-          addKnownVolumeFolder(folderName, false);
           
           if (!volumeFolders[folderName]) volumeFolders[folderName] = [];
           const itemObj = { file, metadata };
@@ -6905,15 +7271,18 @@ window.addEventListener("DOMContentLoaded", () => {
       }
       window._cachedAllVolumeItems = allVolumeItems;
 
-      // Clean up empty legacy default folders
-      const legacyDefaults = ["Haul Roads", "Pit Profiles", "Face", "Stockpiles", "Over burden"];
-      legacyDefaults.forEach(f => {
-        if (volumeFolders[f] && volumeFolders[f].length === 0) {
-          delete volumeFolders[f];
-          knownVolumeFolders.delete(f);
+      // Include empty folders created in current active session
+      sessionCreatedVolumeFolders.forEach(f => {
+        if (f && typeof f === "string" && f.trim() !== "") {
+          const trimmed = f.trim();
+          if (!volumeFolders[trimmed]) volumeFolders[trimmed] = [];
         }
       });
-      saveStoredFolders();
+
+      // Update knownVolumeFolders strictly from active survey items + session-created folders
+      knownVolumeFolders.clear();
+      Object.keys(volumeFolders).forEach(f => knownVolumeFolders.add(f));
+      syncFolderDropdowns("VOLUME");
 
       const renderFolder = (folderName, folderItems, targetContainer) => {
         const folderGroup = document.createElement("div");
@@ -6946,7 +7315,6 @@ window.addEventListener("DOMContentLoaded", () => {
           e.stopPropagation();
           const isChecked = e.target.checked;
           if (isChecked) {
-            restoreFullMapIfClipped();
             for (const { file, metadata } of folderItems) {
               const uniqueId = file.fileName || metadata?.name || "Volume";
               const volName = metadata?.name || file.fileName.split('/').pop().replace('.json', '');
@@ -6975,25 +7343,34 @@ window.addEventListener("DOMContentLoaded", () => {
           const newName = await showCustomPrompt(`Enter new name for folder "${folderName}":`, folderName, "Rename Folder");
           if (!newName || newName.trim() === "" || newName.trim() === folderName) return;
           const cleanName = newName.trim();
+          
+          renameBtn.disabled = true;
+          sessionCreatedVolumeFolders.delete(folderName);
+          sessionCreatedVolumeFolders.add(cleanName);
           knownVolumeFolders.delete(folderName);
           knownVolumeFolders.add(cleanName);
-          saveStoredFolders();
 
           for (const { file, metadata } of folderItems) {
             if (file && metadata) {
               try {
                 metadata.folder = cleanName;
-                const jsonFileName = file.fileName.split('/').pop();
+                const baseFileName = file.fileName.split('/').pop();
+                const newFileName = `${cleanName}/${baseFileName}`;
                 const jsonBlob = new Blob([JSON.stringify(metadata, null, 2)], { type: "application/json" });
                 const jsonRes = await fetch("https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "volumes", fileName: jsonFileName })
+                  body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "volumes", fileName: newFileName })
                 });
                 if (jsonRes.ok) {
                   const { uploadUrl } = await jsonRes.json();
                   if (uploadUrl) {
-                    await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: jsonBlob });
+                    const putRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: jsonBlob });
+                    if (putRes.ok && file.fileName !== newFileName) {
+                      await deleteFile("volumes", file.fileName).catch(delErr => {
+                        console.warn("Could not delete old volume file after rename:", file.fileName, delErr);
+                      });
+                    }
                   }
                 }
               } catch (err) {
@@ -7001,8 +7378,8 @@ window.addEventListener("DOMContentLoaded", () => {
               }
             }
           }
-          fetchSavedVolumes();
-          syncFolderDropdowns("VOLUME");
+          await fetchSavedVolumes();
+          syncFolderDropdowns("VOLUME", cleanName);
         });
 
         const delBtn = fHeader.querySelector(".btn-delete-folder-trigger");
@@ -7013,9 +7390,9 @@ window.addEventListener("DOMContentLoaded", () => {
           if (folderItems.length === 0) {
             const confirmed = await showCustomConfirm(`Delete empty subfolder "${folderName}"?`, "Delete Folder", true);
             if (confirmed) {
+              sessionCreatedVolumeFolders.delete(folderName);
               knownVolumeFolders.delete(folderName);
-              saveStoredFolders();
-              fetchSavedVolumes();
+              await fetchSavedVolumes();
               syncFolderDropdowns("VOLUME");
             }
             return;
@@ -7030,14 +7407,14 @@ window.addEventListener("DOMContentLoaded", () => {
                 return deleteFile("volumes", file.fileName).catch(() => {});
               });
               await Promise.all(deletePromises);
+              sessionCreatedVolumeFolders.delete(folderName);
               knownVolumeFolders.delete(folderName);
-              saveStoredFolders();
-              fetchSavedVolumes();
+              await fetchSavedVolumes();
               syncFolderDropdowns("VOLUME");
             } catch (err) {
               console.error("Error deleting volume folder items", err);
               await showCustomAlert("Failed to delete all items in volume folder: " + err.message, "Error", "error");
-              fetchSavedVolumes();
+              await fetchSavedVolumes();
             }
           }
         });
@@ -7099,7 +7476,7 @@ window.addEventListener("DOMContentLoaded", () => {
                 meta.name = cleanName;
                 meta.title = cleanName;
                 if (!meta.folder && metadata?.folder) meta.folder = metadata.folder;
-                if (!meta.folder) meta.folder = folderName || "General";
+                if (!meta.folder && folderName) meta.folder = folderName;
 
                 const res = await fetch(`https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`, {
                   method: "POST",
@@ -7162,7 +7539,24 @@ window.addEventListener("DOMContentLoaded", () => {
             });
 
           const loadVolumeAction = async () => {
-            restoreFullMapIfClipped();
+            if (isTerrainClippedToRoi) {
+              const pts = metadata?.points;
+              if (pts && pts.length >= 3 && !isFeatureInsideActiveRoi(pts)) {
+                // Clear any currently displayed volume polygon from map so old volume doesn't linger
+                volumePoints = [];
+                updateVolumeSvg();
+                if (volumeMiniContainer) volumeMiniContainer.classList.add("hidden");
+
+                showRoiWorkspaceNotice(`"${niceName}" is outside the active ROI view.`, () => {
+                  restoreFullMapIfClipped();
+                  setTimeout(() => {
+                    loadVolumeAction();
+                  }, 400);
+                });
+                return; // Keep ROI workspace intact! No app reload!
+              }
+            }
+            hideRoiWorkspaceNotice();
             setActiveSavedItem(item);
             
             try {
@@ -7171,7 +7565,7 @@ window.addEventListener("DOMContentLoaded", () => {
               measureState = "FINISHED_VOLUME";
 
               if (metadata) {
-                metadata.folder = folderName || metadata.folder || "General";
+                metadata.folder = folderName || metadata.folder || "";
               }
 
               window.currentViewingFeature = {
@@ -7179,7 +7573,7 @@ window.addEventListener("DOMContentLoaded", () => {
                 name: niceName,
                 file,
                 metadata,
-                folder: folderName || metadata?.folder || "General"
+                folder: folderName || metadata?.folder || ""
               };
               if (typeof updateInfoPanelRenameTrigger === 'function') {
                 updateInfoPanelRenameTrigger(niceName);
@@ -7277,15 +7671,14 @@ window.addEventListener("DOMContentLoaded", () => {
         targetContainer.appendChild(folderGroup);
       };
 
-      let hasVolumes = false;
-      Object.keys(volumeFolders).sort().forEach(folderName => {
+      const volFolderKeys = Object.keys(volumeFolders).sort();
+      volFolderKeys.forEach(folderName => {
         if (volumesList) renderFolder(folderName, volumeFolders[folderName], volumesList);
         if (featuresListPolygons) renderFolder(folderName, volumeFolders[folderName], featuresListPolygons);
-        hasVolumes = true;
       });
-      if (!hasVolumes) {
+      if (volFolderKeys.length === 0) {
         if (volumesList) volumesList.innerHTML = '<i style="color: var(--muted); padding: 4px;">No saved volumes yet.</i>';
-        if (featuresListPolygons) featuresListPolygons.innerHTML = '<i style="color: var(--muted); padding: 4px;">No volumes drawn yet.</i>';
+        if (featuresListPolygons) featuresListPolygons.innerHTML = '<i style="color: var(--muted); padding: 4px;">No saved volumes yet.</i>';
       }
 
       // Restore UI state if re-fetched during manage mode
@@ -7297,6 +7690,8 @@ window.addEventListener("DOMContentLoaded", () => {
       if (featuresListPolygons) featuresListPolygons.innerHTML = '<i style="color: #ef4444; padding: 4px;">Error loading volumes.</i>';
     }
   }
+
+  window.fetchSavedVolumes = fetchSavedVolumes;
 
   // Left Panel Features Accordions
   const toggleAccordion = (headerId, listId, carrotId) => {
@@ -7337,8 +7732,6 @@ window.addEventListener("DOMContentLoaded", () => {
   // -------------------------------------------------------------------------
   // Streamlined Volumes Edit Mode Logic
   // -------------------------------------------------------------------------
-  let isVolumesEditMode = false;
-
   function toggleVolumesEditMode(enable = !isVolumesEditMode) {
     isVolumesEditMode = enable;
     const btnManageVolumesFolder = document.getElementById("btnManageVolumesFolder");
@@ -7498,7 +7891,7 @@ window.addEventListener("DOMContentLoaded", () => {
         const jsonFileName = jsonFile?.fileName || (pdfFile ? pdfFile.fileName.replace(/\.pdf$/, '.json') : null);
         if (!jsonFileName) throw new Error("Missing profile JSON filename");
 
-        const currentFolder = window.currentViewingFeature.folder || window.currentViewingFeature.metadata?.folder || (pdfFile?.fileName?.includes('/') ? pdfFile.fileName.split('/')[0] : "General");
+        const currentFolder = window.currentViewingFeature.folder || window.currentViewingFeature.metadata?.folder || (pdfFile?.fileName?.includes('/') ? pdfFile.fileName.split('/')[0] : "");
         let meta = Object.assign({}, metadata || {});
         if (jsonFile && jsonFile.url) {
           try {
@@ -7513,7 +7906,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
         meta.name = newName;
         meta.title = newName;
-        meta.folder = currentFolder;
+        if (currentFolder) meta.folder = currentFolder;
 
         const uploadApiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`;
         const res = await fetch(uploadApiUrl, {
@@ -7532,7 +7925,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
         window.currentViewingFeature.name = newName;
         window.currentViewingFeature.metadata = meta;
-        window.currentViewingFeature.folder = currentFolder;
+        if (currentFolder) window.currentViewingFeature.folder = currentFolder;
         if (unifiedInfoTitle) unifiedInfoTitle.textContent = `SAVED PATH PROFILE: ${newName.toUpperCase()}`;
         updateInfoPanelRenameTrigger(newName);
         await fetchSavedReports();
@@ -7540,7 +7933,7 @@ window.addEventListener("DOMContentLoaded", () => {
         const fileName = file?.fileName;
         if (!fileName) throw new Error("Missing volume filename");
 
-        const currentFolder = window.currentViewingFeature.folder || window.currentViewingFeature.metadata?.folder || (file?.fileName?.includes('/') ? file.fileName.split('/')[0] : "General");
+        const currentFolder = window.currentViewingFeature.folder || window.currentViewingFeature.metadata?.folder || (file?.fileName?.includes('/') ? file.fileName.split('/')[0] : "");
         let meta = Object.assign({}, metadata || {});
         if (file && file.url) {
           try {
@@ -7555,7 +7948,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
         meta.name = newName;
         meta.title = newName;
-        meta.folder = currentFolder;
+        if (currentFolder) meta.folder = currentFolder;
 
         const uploadApiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`;
         const res = await fetch(uploadApiUrl, {

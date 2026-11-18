@@ -12,6 +12,28 @@ import Extent from "@giro3d/giro3d/core/geographic/Extent.js";
 import GeoTIFFSource from "@giro3d/giro3d/sources/GeoTIFFSource.js";
 import ElevationLayer from "@giro3d/giro3d/core/layer/ElevationLayer.js";
 import ColorLayer from "@giro3d/giro3d/core/layer/ColorLayer.js";
+import StaticImageSource from "@giro3d/giro3d/sources/StaticImageSource.js";
+import { fromUrl } from "geotiff";
+import LayeredMaterial from "@giro3d/giro3d/renderer/LayeredMaterial.js";
+
+// Patch Giro3D terrain shader to cleanly discard white / off-white padding border on drone orthophotos
+const origOnBeforeCompile = LayeredMaterial.prototype.onBeforeCompile;
+LayeredMaterial.prototype.onBeforeCompile = function(parameters) {
+  if (origOnBeforeCompile) origOnBeforeCompile.call(this, parameters);
+  if (parameters.fragmentShader && parameters.fragmentShader.includes("gl_FragColor.a *= maskOpacity;")) {
+    parameters.fragmentShader = parameters.fragmentShader.replace(
+      "gl_FragColor.a *= maskOpacity;",
+      "gl_FragColor.a *= maskOpacity;\n    if (gl_FragColor.r > 0.96 && gl_FragColor.g > 0.96 && gl_FragColor.b > 0.96) { discard; }"
+    );
+  }
+};
+
+const origCacheKey = LayeredMaterial.prototype.customProgramCacheKey;
+LayeredMaterial.prototype.customProgramCacheKey = function() {
+  const base = origCacheKey ? origCacheKey.call(this) : (this.defines.VISIBLE_COLOR_LAYER_COUNT ?? 0).toString();
+  return base + "_clip_white";
+};
+
 import CoordinateSystem from "@giro3d/giro3d/core/geographic/CoordinateSystem.js";
 import ColorMap, { ColorMapMode } from "@giro3d/giro3d/core/ColorMap.js";
 import Coordinates from "@giro3d/giro3d/core/geographic/Coordinates.js";
@@ -87,6 +109,40 @@ const knownVolumeFolders = new Set();
 const sessionCreatedProfileFolders = new Set();
 const sessionCreatedVolumeFolders = new Set();
 
+// ── Client / Stakeholder Context Routing (e.g. &client=ibm) ──
+const _urlSearchParams = new URLSearchParams(window.location.search);
+const isIBM = _urlSearchParams.get("client") === "ibm" || _urlSearchParams.get("mode") === "ibm";
+function getReportsFolder() {
+  return isIBM ? "ibm-reports" : "reports";
+}
+window.isIBM = isIBM;
+window.getReportsFolder = getReportsFolder;
+
+// Strict Role Gating for IBM Suite
+function applyIbmRoleGating() {
+  const btnSidebarIbm = document.getElementById("btnSidebarIbm");
+  const panelIbm = document.getElementById("panel-ibm");
+  if (isIBM) {
+    btnSidebarIbm?.classList.remove("hidden");
+  } else {
+    btnSidebarIbm?.classList.add("hidden");
+    panelIbm?.classList.add("hidden");
+  }
+}
+applyIbmRoleGating();
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", applyIbmRoleGating);
+}
+
+// ── IBM Multi-Temporal Audit State ──
+let isIbmProfileComparison = false;
+let ibmComparisonPastSurveyKey = null;
+let currentProfileComparisonData = null;
+let cachedDiffHeatmapData = null;
+let diffLayer = null;
+let diffSource = null;
+let diffCanvas = null;
+
 /** Update the on-screen status text (if a `.status` element exists). */
 function updateStatus(text) {
   const el = document.querySelector(".status");
@@ -160,6 +216,7 @@ async function loadProject(project, extentOverride = null) {
         if (typeof window.fetchSavedReports === "function") window.fetchSavedReports();
         if (typeof window.fetchSavedVolumes === "function") window.fetchSavedVolumes();
         if (typeof window.fetchSavedRois === "function") window.fetchSavedRois();
+        if (typeof populateIbmSurveys === "function") populateIbmSurveys();
       }
     }
 
@@ -231,6 +288,7 @@ async function loadProject(project, extentOverride = null) {
       source: project.orthoSource,
       opacity: 1,
       preloadImages: true,
+      noDataOptions: { replaceNoData: false },
     });
     
     try {
@@ -270,6 +328,10 @@ async function loadProject(project, extentOverride = null) {
     }
     if (isGridOverlayActive) {
       document.getElementById("btnEnableElevations")?.click();
+    }
+
+    if (typeof window.populateIbmSurveys === "function") {
+      window.populateIbmSurveys();
     }
   } catch (err) {
     console.error("Error loading project:", err);
@@ -522,9 +584,10 @@ instance.view.camera.far = 1e6;
 const controls = new MapControls(instance.view.camera, instance.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
-controls.minDistance = 50;
+controls.minDistance = 20;
 controls.maxDistance = 150000;
 controls.maxPolarAngle = Math.PI / 2;
+controls.zoomToCursor = true;
 
 const flyoutPanel = document.getElementById('flyoutPanel');
   const toggleFlyoutPanel = document.getElementById('toggleFlyoutPanel');
@@ -638,6 +701,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   let currentDialogResolve = null;
   let activeInfoTool = null;
+  let volumeSaveMode = "SINGLE"; // "SINGLE" | "BATCH"
   let activeToolSaveData = null;
   let isProfilesEditMode = false;
   let isVolumesEditMode = false;
@@ -917,6 +981,38 @@ window.addEventListener("DOMContentLoaded", () => {
               if (typeof miniChart !== 'undefined' && miniChart) {
                 miniChart.data.labels = _savedDistances;
                 miniChart.data.datasets[0].data = _savedElevations;
+                if (m.chartData.comparisonData) {
+                  const comp = m.chartData.comparisonData;
+                  if (miniChart.data.datasets.length < 2) {
+                    miniChart.data.datasets.push({
+                      label: comp.label || `Past Survey`,
+                      data: comp.elevations || [],
+                      borderColor: '#ea580c',
+                      borderDash: [5, 4],
+                      fill: false,
+                      tension: 0.2,
+                      borderWidth: 2,
+                      pointRadius: 0
+                    });
+                  } else {
+                    miniChart.data.datasets[1].label = comp.label || `Past Survey`;
+                    miniChart.data.datasets[1].data = comp.elevations || [];
+                  }
+                  const compMetrics = document.getElementById("profileComparisonMetrics");
+                  const compName = document.getElementById("profileComparisonSurveyName");
+                  const maxCutEl = document.getElementById("profileMaxCut");
+                  const maxFillEl = document.getElementById("profileMaxFill");
+                  if (compMetrics) compMetrics.classList.remove("hidden");
+                  if (compName) compName.textContent = comp.label || comp.surveyKey || "Past Survey";
+                  if (maxCutEl) maxCutEl.textContent = `${(comp.maxCut || 0).toFixed(2)} m`;
+                  if (maxFillEl) maxFillEl.textContent = `${(comp.maxFill || 0).toFixed(2)} m`;
+                } else {
+                  if (miniChart.data.datasets.length > 1) {
+                    miniChart.data.datasets.splice(1, 1);
+                  }
+                  const compMetrics = document.getElementById("profileComparisonMetrics");
+                  if (compMetrics) compMetrics.classList.add("hidden");
+                }
                 miniChart.resize();
                 miniChart.update('none');
               }
@@ -2016,6 +2112,34 @@ window.addEventListener("DOMContentLoaded", () => {
         }
       }
     }
+
+    const multiTarget = document.getElementById("multiVolumeTargetFolder");
+    if (multiTarget) {
+      const volumeList = Array.from(knownVolumeFolders).sort();
+      const currentVal = selectedFolder || (multiTarget.value !== "" ? multiTarget.value : null);
+      multiTarget.innerHTML = "";
+      
+      if (volumeList.length === 0) {
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.disabled = true;
+        placeholder.selected = true;
+        placeholder.textContent = "No folders — click + to create";
+        multiTarget.appendChild(placeholder);
+      } else {
+        volumeList.forEach(folder => {
+          const option = document.createElement("option");
+          option.value = folder;
+          option.textContent = folder;
+          multiTarget.appendChild(option);
+        });
+        if (currentVal && knownVolumeFolders.has(currentVal)) {
+          multiTarget.value = currentVal;
+        } else if (multiTarget.options.length > 0) {
+          multiTarget.selectedIndex = 0;
+        }
+      }
+    }
   }
 
   window.syncFolderDropdowns = syncFolderDropdowns;
@@ -2039,10 +2163,12 @@ window.addEventListener("DOMContentLoaded", () => {
   function openUniversalSaveModal() {
     if (!universalSaveModal) return;
     universalSaveModal.classList.remove("hidden");
+    const nameGroup = universalSaveName ? universalSaveName.parentElement : null;
+    if (nameGroup) nameGroup.style.display = "block";
+
     if (universalSaveName) {
       universalSaveName.classList.remove("input-invalid");
       universalSaveName.value = "";
-      setTimeout(() => universalSaveName.focus(), 60);
     }
     if (universalSaveFolder) {
       universalSaveFolder.classList.remove("input-invalid");
@@ -2052,34 +2178,44 @@ window.addEventListener("DOMContentLoaded", () => {
       if (saveModalTypeBadge) saveModalTypeBadge.textContent = "📈 Path Profile";
       const dist3D = document.getElementById("profile3D")?.textContent || "0.00 m";
       if (saveModalMetricsPreview) saveModalMetricsPreview.textContent = `3D: ${dist3D}`;
-      const scopeGroup = document.getElementById("multiVolumeSaveScopeGroup");
-      if (scopeGroup) scopeGroup.classList.add("hidden");
+      setTimeout(() => universalSaveName?.focus(), 60);
     } else if (activeInfoTool === "VOLUME") {
-      const scopeGroup = document.getElementById("multiVolumeSaveScopeGroup");
-      if (typeof multiKmlPolygons !== 'undefined' && multiKmlPolygons && multiKmlPolygons.length > 1) {
-        if (scopeGroup) scopeGroup.classList.remove("hidden");
-        const activeBadge = document.getElementById("activePolySaveNameBadge");
-        if (activeBadge) activeBadge.textContent = multiKmlPolygons[activeKmlPolyIndex]?.name || `Area ${activeKmlPolyIndex + 1}`;
-        if (saveModalTypeBadge) saveModalTypeBadge.textContent = `🧊 Multi-Volume (${multiKmlPolygons.length} Areas)`;
-        const totalNet = multiKmlPolygons.reduce((acc, p) => acc + (p.metrics.netVolumeNum || 0), 0);
+      if (volumeSaveMode === "BATCH" && typeof multiKmlPolygons !== 'undefined' && multiKmlPolygons) {
+        const selected = multiKmlPolygons.filter(p => p.selected);
+        if (saveModalTypeBadge) saveModalTypeBadge.textContent = `🧊 Multi-Volume (${selected.length} Areas)`;
+        const totalNet = selected.reduce((acc, p) => acc + (p.metrics?.netVolumeNum || 0), 0);
         const sign = totalNet >= 0 ? "+" : "";
         if (saveModalMetricsPreview) saveModalMetricsPreview.textContent = `Total Net: ${sign}${totalNet.toLocaleString(undefined, {maximumFractionDigits: 1})} m³`;
+        if (universalSaveName) universalSaveName.value = "Selected Areas";
+        // Option 1: Areas already have their configured names in the card list -> hide the name field
+        if (nameGroup) nameGroup.style.display = "none";
       } else {
-        if (scopeGroup) scopeGroup.classList.add("hidden");
-        if (saveModalTypeBadge) saveModalTypeBadge.textContent = "🧊 Volume Area";
-        const cut = document.getElementById("volMiniCut")?.textContent || "0 m³";
-        const fill = document.getElementById("volMiniFill")?.textContent || "0 m³";
-        const net = document.getElementById("volMiniNet")?.textContent || "0 m³";
-        if (saveModalMetricsPreview) saveModalMetricsPreview.textContent = `Cut: ${cut} | Fill: ${fill} | Net: ${net}`;
+        const poly = (typeof multiKmlPolygons !== 'undefined' && multiKmlPolygons && multiKmlPolygons[activeKmlPolyIndex])
+          ? multiKmlPolygons[activeKmlPolyIndex]
+          : null;
+        const polyName = poly?.name || "Volume Area";
+        if (saveModalTypeBadge) saveModalTypeBadge.textContent = `🧊 Volume: ${polyName}`;
+        const net = poly?.metrics?.netVolume || document.getElementById("volMiniNet")?.textContent || "0 m³";
+        if (saveModalMetricsPreview) saveModalMetricsPreview.textContent = `Net: ${net}`;
+        if (universalSaveName) universalSaveName.value = polyName;
+
+        // Option 1: Area already has its name entered in the card -> hide the redundant name field
+        if (poly && nameGroup) {
+          nameGroup.style.display = "none";
+        } else {
+          setTimeout(() => universalSaveName?.focus(), 60);
+        }
       }
     } else if (activeInfoTool === "BOX_ROI" || activeInfoTool === "POLY_ROI") {
       if (saveModalTypeBadge) saveModalTypeBadge.textContent = "✂️ ROI Boundary";
       const area = (document.getElementById("boxRoiArea") || document.getElementById("polyRoiArea"))?.textContent || "0 m²";
       if (saveModalMetricsPreview) saveModalMetricsPreview.textContent = `Area: ${area}`;
+      setTimeout(() => universalSaveName?.focus(), 60);
     } else if (activeInfoTool === "POINT") {
       if (saveModalTypeBadge) saveModalTypeBadge.textContent = "📍 Point Pin";
       const elev = document.getElementById("pointMiniElev")?.textContent || "-";
       if (saveModalMetricsPreview) saveModalMetricsPreview.textContent = `Elev: ${elev}`;
+      setTimeout(() => universalSaveName?.focus(), 60);
     }
 
     const folderGroup = document.getElementById("universalSaveFolderGroup");
@@ -2288,7 +2424,18 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Compulsory Name Validation & Universal Save Handler
   btnUniversalSave?.addEventListener("click", async () => {
-    const nameVal = universalSaveName ? universalSaveName.value.trim() : "";
+    let nameVal = universalSaveName ? universalSaveName.value.trim() : "";
+
+    // For multi-polygon volume saving, populate nameVal automatically from the card if name field was hidden
+    if (activeInfoTool === "VOLUME" && typeof multiKmlPolygons !== 'undefined' && multiKmlPolygons) {
+      if (volumeSaveMode === "BATCH") {
+        nameVal = nameVal || "Multi-Volume";
+      } else {
+        const poly = multiKmlPolygons[activeKmlPolyIndex];
+        nameVal = poly?.name || nameVal || "Volume Area";
+      }
+    }
+
     if (!nameVal) {
       if (universalSaveName) {
         universalSaveName.classList.add("input-invalid");
@@ -2337,6 +2484,13 @@ window.addEventListener("DOMContentLoaded", () => {
           chartData: {
             distances: miniChart?.data.labels || [],
             elevations: miniChart?.data.datasets[0].data || [],
+            comparisonData: (miniChart?.data?.datasets?.length > 1) ? {
+              surveyKey: ibmComparisonPastSurveyKey,
+              label: miniChart.data.datasets[1].label,
+              elevations: miniChart.data.datasets[1].data,
+              maxCut: parseFloat(document.getElementById("profileMaxCut")?.textContent) || 0,
+              maxFill: parseFloat(document.getElementById("profileMaxFill")?.textContent) || 0,
+            } : null,
             currentProfileData: currentProfileData,
             totalDist: parseFloat(document.getElementById("profileHoriz")?.textContent) || 0,
             elevChange: parseFloat(document.getElementById("profileVert")?.textContent) || 0,
@@ -2348,7 +2502,7 @@ window.addEventListener("DOMContentLoaded", () => {
         // Upload PDF
         const pdfRes = await fetch(apiUrl, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "reports", fileName: `${safeReportName}.pdf` })
+          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "reports", fileName: `${safeReportName}.pdf`, folder: getReportsFolder() })
         });
         if (!pdfRes.ok) throw new Error("Failed to get PDF upload URL");
         const { uploadUrl: pdfUploadUrl } = await pdfRes.json();
@@ -2358,7 +2512,7 @@ window.addEventListener("DOMContentLoaded", () => {
         // Upload JSON
         const jsonRes = await fetch(apiUrl, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "reports", fileName: `${safeReportName}.json` })
+          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "reports", fileName: `${safeReportName}.json`, folder: getReportsFolder() })
         });
         if (!jsonRes.ok) throw new Error("Failed to get data upload URL");
         const { uploadUrl: jsonUploadUrl } = await jsonRes.json();
@@ -2368,77 +2522,86 @@ window.addEventListener("DOMContentLoaded", () => {
         fetchSavedReports();
 
       } else if (activeInfoTool === "VOLUME") {
-        if (typeof multiKmlPolygons !== 'undefined' && multiKmlPolygons && multiKmlPolygons.length > 1) {
-          const scope = document.querySelector('input[name="volumeSaveScope"]:checked')?.value || "ALL";
+        if (volumeSaveMode === "BATCH" && typeof multiKmlPolygons !== 'undefined' && multiKmlPolygons) {
+          const selected = multiKmlPolygons.filter(p => p.selected);
+          const count = selected.length;
+          for (let i = 0; i < count; i++) {
+            btnUniversalSave.textContent = `Saving (${i + 1}/${count})...`;
+            const poly = selected[i];
+            const cleanName = poly.name.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
+            const fileName = `${folderVal}/${cleanName}_${Date.now() + i}.json`;
 
-          if (scope === "ALL") {
-            const count = multiKmlPolygons.length;
-            for (let i = 0; i < count; i++) {
-              btnUniversalSave.textContent = `Saving (${i + 1}/${count})...`;
-              const poly = multiKmlPolygons[i];
-              const itemNum = i + 1;
-              const polyName = `${nameVal}_${itemNum}`;
-              const safeName = polyName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-              const fileName = `${folderVal}/${safeName}_${Date.now() + i}.json`;
+            const polyData = {
+              name: poly.name,
+              title: poly.name,
+              folder: folderVal,
+              isOfficial: !window.isDumpDraw,
+              timestamp: new Date().toISOString(),
+              area2D: poly.metrics?.area2D || "0 m²",
+              perimeter: poly.metrics?.perimeter || "0 m",
+              cutVolume: poly.metrics?.cutVolume || "0 m³",
+              fillVolume: poly.metrics?.fillVolume || "0 m³",
+              netVolume: poly.metrics?.netVolume || "0 m³",
+              points: poly.volumePoints.map(p => ({
+                x: p.coord ? p.coord.x : p.point.x,
+                y: p.coord ? p.coord.y : p.point.y,
+                z: p.coord ? p.coord.z : p.point.z
+              }))
+            };
 
-              const polyData = {
-                name: polyName,
-                folder: folderVal,
-                isOfficial: !window.isDumpDraw,
-                timestamp: new Date().toISOString(),
-                area2D: poly.metrics.area2D,
-                perimeter: poly.metrics.perimeter,
-                cutVolume: poly.metrics.cutVolume,
-                fillVolume: poly.metrics.fillVolume,
-                netVolume: poly.metrics.netVolume,
-                points: poly.volumePoints.map(p => ({ x: p.coord.x, y: p.coord.y, z: p.coord.z }))
-              };
+            const volRes = await fetch(apiUrl, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "volumes", fileName, folder: getReportsFolder() })
+            });
+            if (!volRes.ok) throw new Error(`Failed to get upload URL for "${poly.name}"`);
+            const { uploadUrl } = await volRes.json();
 
-              const volRes = await fetch(apiUrl, {
-                method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "volumes", fileName })
-              });
-              if (!volRes.ok) throw new Error(`Failed to get upload URL for polygon ${itemNum}`);
-              const { uploadUrl } = await volRes.json();
-
-              const putRes = await fetch(uploadUrl, {
-                method: "PUT", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(polyData, null, 2)
-              });
-              if (!putRes.ok) throw new Error(`Failed to upload polygon ${itemNum}`);
-            }
-
-            closeUniversalSaveModal();
-            await showCustomAlert(`Successfully saved all ${count} volume polygons!`, "Saved", "success");
-            fetchSavedVolumes();
-            return;
+            const putRes = await fetch(uploadUrl, {
+              method: "PUT", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(polyData, null, 2)
+            });
+            if (!putRes.ok) throw new Error(`Failed to upload "${poly.name}"`);
           }
+
+          closeUniversalSaveModal();
+          await showCustomAlert(`Successfully saved ${count} areas to folder "${folderVal}"!`, "Saved Successfully", "success");
+          fetchSavedVolumes();
+          isMultiSaveMode = false;
+          renderMultiVolumeUIState();
+          return;
         }
 
         // Standard Single Volume Save (or Single Active Polygon Save)
-        const activePoints = (typeof multiKmlPolygons !== 'undefined' && multiKmlPolygons && multiKmlPolygons[activeKmlPolyIndex])
-          ? multiKmlPolygons[activeKmlPolyIndex].volumePoints
-          : volumePoints;
+        const poly = (typeof multiKmlPolygons !== 'undefined' && multiKmlPolygons && multiKmlPolygons[activeKmlPolyIndex])
+          ? multiKmlPolygons[activeKmlPolyIndex]
+          : null;
+        const activePoints = poly ? poly.volumePoints : volumePoints;
+        const finalName = poly?.name || nameVal;
 
         const data = {
-          name: nameVal,
+          name: finalName,
+          title: finalName,
           folder: folderVal,
           isOfficial: !window.isDumpDraw,
           timestamp: new Date().toISOString(),
-          area2D: document.getElementById("volMiniArea")?.textContent || "0",
-          perimeter: document.getElementById("volMiniPerim")?.textContent || "0",
-          cutVolume: document.getElementById("volMiniCut")?.textContent || "0",
-          fillVolume: document.getElementById("volMiniFill")?.textContent || "0",
-          netVolume: document.getElementById("volMiniNet")?.textContent || "0",
-          points: activePoints.map(p => ({ x: p.coord.x, y: p.coord.y, z: p.coord.z }))
+          area2D: poly ? (poly.metrics?.area2D || "0 m²") : (document.getElementById("volMiniArea")?.textContent || "0 m²"),
+          perimeter: poly ? (poly.metrics?.perimeter || "0 m") : (document.getElementById("volMiniPerim")?.textContent || "0 m"),
+          cutVolume: poly ? (poly.metrics?.cutVolume || "0 m³") : (document.getElementById("volMiniCut")?.textContent || "0 m³"),
+          fillVolume: poly ? (poly.metrics?.fillVolume || "0 m³") : (document.getElementById("volMiniFill")?.textContent || "0 m³"),
+          netVolume: poly ? (poly.metrics?.netVolume || "0 m³") : (document.getElementById("volMiniNet")?.textContent || "0 m³"),
+          points: activePoints.map(p => ({
+            x: p.coord ? p.coord.x : p.point.x,
+            y: p.coord ? p.coord.y : p.point.y,
+            z: p.coord ? p.coord.z : p.point.z
+          }))
         };
 
-        const safeName = nameVal.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        const safeName = finalName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
         const fileName = `${folderVal}/${safeName}_${Date.now()}.json`;
 
         const volRes = await fetch(apiUrl, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "volumes", fileName })
+          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "volumes", fileName, folder: getReportsFolder() })
         });
         if (!volRes.ok) throw new Error("Failed to get volume upload URL");
         const { uploadUrl } = await volRes.json();
@@ -2446,7 +2609,10 @@ window.addEventListener("DOMContentLoaded", () => {
         const putRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data, null, 2) });
         if (!putRes.ok) throw new Error("Failed to upload volume data");
 
+        closeUniversalSaveModal();
+        await showCustomAlert(`Successfully saved "${finalName}" to folder "${folderVal}"!`, "Saved Successfully", "success");
         fetchSavedVolumes();
+        return;
 
       } else if (activeInfoTool === "BOX_ROI" || activeInfoTool === "POLY_ROI") {
         let points = [];
@@ -2497,7 +2663,7 @@ window.addEventListener("DOMContentLoaded", () => {
         const res = await fetch(apiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "rois", fileName })
+          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "rois", fileName, folder: getReportsFolder() })
         });
         if (!res.ok) throw new Error("Failed to get ROI upload URL");
         const { uploadUrl } = await res.json();
@@ -2550,10 +2716,12 @@ window.addEventListener("DOMContentLoaded", () => {
       if (universalSaveFolder) universalSaveFolder.classList.remove("input-invalid");
       if (isProfile) {
         addKnownProfileFolder(trimmed, true, trimmed);
-        fetchSavedReports();
+        await fetchSavedReports();
+        syncFolderDropdowns("PROFILE", trimmed);
       } else {
         addKnownVolumeFolder(trimmed, true, trimmed);
-        fetchSavedVolumes();
+        await fetchSavedVolumes();
+        syncFolderDropdowns("VOLUME", trimmed);
       }
     }
   });
@@ -3154,11 +3322,24 @@ window.addEventListener("DOMContentLoaded", () => {
     if (measureSvgLineHalo) measureSvgLineHalo.style.display = "none";
     if (measureSvgLine) measureSvgLine.style.display = "none";
     if (elevationMiniContainer) elevationMiniContainer.classList.add("hidden");
+    const compMetrics = document.getElementById("profileComparisonMetrics");
+    if (compMetrics) compMetrics.classList.add("hidden");
+    currentProfileComparisonData = null;
+    if (typeof miniChart !== "undefined" && miniChart && miniChart.data && miniChart.data.datasets && miniChart.data.datasets.length > 1) {
+      miniChart.data.datasets.splice(1, 1);
+      try { miniChart.update('none'); } catch(e) {}
+    }
+    if (typeof fullChart !== "undefined" && fullChart && fullChart.data && fullChart.data.datasets && fullChart.data.datasets.length > 1) {
+      fullChart.data.datasets.splice(1, 1);
+      if (fullChart.options && fullChart.options.plugins) fullChart.options.plugins.legend = { display: false };
+      try { fullChart.update('none'); } catch(e) {}
+    }
     measureStartPoint = null;
     measureEndPoint = null;
     measureStartCoord = null;
     measureEndCoord = null;
     currentProfilePoints3D = [];
+    if (typeof clearProfilePinnedPoint === 'function') clearProfilePinnedPoint();
   }
 
   // Project a world-space point to screen pixel coordinates with near-frustum clipping to eliminate jumps
@@ -3189,15 +3370,33 @@ window.addEventListener("DOMContentLoaded", () => {
     return { x, y, z: ndc.z, isBehind: false };
   }
 
+  let cameraFlightAnimId = null;
+
   // Helper to position camera looking straight down (tilt = 0) scaled to feature span in visible canvas
-  function setCameraTopDown(targetX, targetY, span = 300) {
+  function setCameraTopDown(targetX, targetY, span = 300, animate = true) {
     if (!instance || !instance.view || !instance.view.camera || !controls) return;
+    if (cameraFlightAnimId) {
+      cancelAnimationFrame(cameraFlightAnimId);
+      cameraFlightAnimId = null;
+    }
+
     const camera = instance.view.camera;
     const fovRad = (camera.fov || 45) * (Math.PI / 180);
     const winH = window.innerHeight || 1080;
     const leftOffset = getVisibleViewportOffset();
-    const altitudeDist = Math.max(span * 1.5, 150);
-    const altitude = (activeProject?.zOffset || 0) + altitudeDist;
+
+    // Scale altitude based on span (allow smaller areas to zoom in close, min 40m)
+    const altitudeDist = Math.max(span * 1.8, 40);
+
+    // Sample real terrain elevation if available, otherwise project zOffset
+    let surfaceZ = activeProject?.zOffset || 0;
+    if (map && typeof map.getElevationFast === 'function') {
+      const sample = map.getElevationFast(targetX, targetY);
+      if (sample && sample.elevation !== undefined && !isNaN(sample.elevation)) {
+        surfaceZ = sample.elevation;
+      }
+    }
+    const altitude = surfaceZ + altitudeDist;
 
     const visibleWorldH = 2 * altitudeDist * Math.tan(fovRad / 2);
     const worldPerPixel = visibleWorldH / winH;
@@ -3205,11 +3404,57 @@ window.addEventListener("DOMContentLoaded", () => {
 
     const adjustedTargetX = targetX - shiftWorldX;
 
-    camera.position.set(adjustedTargetX, targetY, altitude);
-    controls.target.set(adjustedTargetX, targetY, activeProject?.zOffset || 0);
-    controls.update();
-    if (camera) camera.updateMatrixWorld(true);
-    instance.notifyChange(camera);
+    if (!animate) {
+      camera.position.set(adjustedTargetX, targetY, altitude);
+      controls.target.set(adjustedTargetX, targetY, surfaceZ);
+      controls.update();
+      if (camera) camera.updateMatrixWorld(true);
+      instance.notifyChange(camera);
+      instance.notifyChange();
+      if (typeof updateVolumeSvg === 'function') updateVolumeSvg();
+      if (typeof syncSlidersFromCamera === 'function') syncSlidersFromCamera();
+      return;
+    }
+
+    // Smooth easeInOutCubic flight animation
+    const startCamPos = camera.position.clone();
+    const startTarget = controls.target.clone();
+    const endCamPos = new Vector3(adjustedTargetX, targetY, altitude);
+    const endTarget = new Vector3(adjustedTargetX, targetY, surfaceZ);
+    const durationMs = 500;
+    const startTime = performance.now();
+
+    function stepFlight(now) {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / durationMs, 1);
+      // EaseInOutCubic: smooth acceleration and deceleration
+      const t = progress < 0.5 ? 4 * progress * progress * progress : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+
+      camera.position.lerpVectors(startCamPos, endCamPos, t);
+      controls.target.lerpVectors(startTarget, endTarget, t);
+      controls.update();
+      if (camera) camera.updateMatrixWorld(true);
+      instance.notifyChange(camera);
+      instance.notifyChange();
+      if (typeof updateVolumeSvg === 'function') updateVolumeSvg();
+      if (typeof syncSlidersFromCamera === 'function') syncSlidersFromCamera();
+
+      if (progress < 1) {
+        cameraFlightAnimId = requestAnimationFrame(stepFlight);
+      } else {
+        cameraFlightAnimId = null;
+        camera.position.copy(endCamPos);
+        controls.target.copy(endTarget);
+        controls.update();
+        if (camera) camera.updateMatrixWorld(true);
+        instance.notifyChange(camera);
+        instance.notifyChange();
+        if (typeof updateVolumeSvg === 'function') updateVolumeSvg();
+        if (typeof syncSlidersFromCamera === 'function') syncSlidersFromCamera();
+      }
+    }
+
+    cameraFlightAnimId = requestAnimationFrame(stepFlight);
   }
 
   /**
@@ -3371,28 +3616,36 @@ window.addEventListener("DOMContentLoaded", () => {
     updateProfileHoverSvg();
   }
 
-  // --- Interactive 3D Terrain Cursor for 2D Graph Hover ---
+  // --- Interactive 3D Terrain Cursor & Pinned Station for 2D Graph ---
   let currentProfileHover3DPoint = null;
+  let currentProfilePinnedIndex = null;
+  let currentProfilePinned3DPoint = null;
+
+  function getProfile3DPointAtIndex(index) {
+    if (index == null || isNaN(index) || !currentProfileData || currentProfileData.length === 0) {
+      return null;
+    }
+    const count = currentProfileData.length;
+    const safeIdx = Math.max(0, Math.min(count - 1, index));
+    const pt = currentProfileData[safeIdx];
+    if (!pt) return null;
+
+    const startZ = (measureStartPoint && typeof measureStartPoint.z === 'number') ? measureStartPoint.z : (measureStartCoord?.z || 0);
+    const endZ = (measureEndPoint && typeof measureEndPoint.z === 'number') ? measureEndPoint.z : (measureEndCoord?.z || 0);
+    const startLocal = measureStartPoint || { x: (measureStartCoord?.x || 0) - (instance?.reference?.x || 0), y: (measureStartCoord?.y || 0) - (instance?.reference?.y || 0), z: startZ };
+    const endLocal = measureEndPoint || { x: (measureEndCoord?.x || 0) - (instance?.reference?.x || 0), y: (measureEndCoord?.y || 0) - (instance?.reference?.y || 0), z: endZ };
+
+    const t = count > 1 ? safeIdx / (count - 1) : 0;
+    const xLocal = startLocal.x + t * (endLocal.x - startLocal.x);
+    const yLocal = startLocal.y + t * (endLocal.y - startLocal.y);
+    const z = (pt.elev != null && !isNaN(pt.elev)) ? pt.elev : (startZ + t * (endZ - startZ));
+
+    return new Vector3(xLocal, yLocal, z + 0.45);
+  }
 
   function showProfile3DHoverPoint(index) {
     if (index == null || isNaN(index)) return;
-    if (!currentProfilePoints3D || currentProfilePoints3D.length === 0) {
-      if (measureStartPoint && measureEndPoint) {
-        const total = (miniChart && miniChart.data && miniChart.data.labels && miniChart.data.labels.length > 1)
-          ? miniChart.data.labels.length
-          : (currentProfileData?.length || 2);
-        const t = total > 1 ? index / (total - 1) : 0;
-        const x = measureStartPoint.x + t * (measureEndPoint.x - measureStartPoint.x);
-        const y = measureStartPoint.y + t * (measureEndPoint.y - measureStartPoint.y);
-        const z = (measureStartPoint.z || 0) + t * ((measureEndPoint.z || 0) - (measureStartPoint.z || 0));
-        currentProfileHover3DPoint = new Vector3(x, y, z + 0.35);
-      } else {
-        return;
-      }
-    } else {
-      const safeIndex = Math.max(0, Math.min(currentProfilePoints3D.length - 1, index));
-      currentProfileHover3DPoint = currentProfilePoints3D[safeIndex];
-    }
+    currentProfileHover3DPoint = getProfile3DPointAtIndex(index);
     updateProfileHoverSvg();
   }
 
@@ -3400,6 +3653,66 @@ window.addEventListener("DOMContentLoaded", () => {
     currentProfileHover3DPoint = null;
     updateProfileHoverSvg();
   }
+
+  function pinProfile3DPoint(index) {
+    if (index == null || isNaN(index) || !currentProfileData || currentProfileData.length === 0) {
+      clearProfilePinnedPoint();
+      return;
+    }
+    const count = currentProfileData.length;
+    const safeIdx = Math.max(0, Math.min(count - 1, index));
+    currentProfilePinnedIndex = safeIdx;
+    currentProfilePinned3DPoint = getProfile3DPointAtIndex(safeIdx);
+
+    const pt = currentProfileData[safeIdx];
+    const stationEl = document.getElementById("pinnedStationDist");
+    const currentElevEl = document.getElementById("pinnedCurrentElev");
+    const compRow = document.getElementById("pinnedComparisonRow");
+    const pastLabel = document.getElementById("pinnedPastSurveyLabel");
+    const pastElevEl = document.getElementById("pinnedPastElev");
+    const diffEl = document.getElementById("pinnedDiffVal");
+
+    if (stationEl) stationEl.textContent = `${(pt.dist || 0).toFixed(1)} m`;
+    if (currentElevEl) currentElevEl.textContent = `${(pt.elev || 0).toFixed(2)} m`;
+
+    if (currentProfileComparisonData && currentProfileComparisonData.pastElevs && currentProfileComparisonData.pastElevs[safeIdx] != null) {
+      const pastElev = currentProfileComparisonData.pastElevs[safeIdx];
+      const diff = pt.elev - pastElev;
+      if (compRow) compRow.classList.remove("hidden");
+      if (pastLabel) pastLabel.textContent = `${currentProfileComparisonData.label || 'Past'}:`;
+      if (pastElevEl) pastElevEl.textContent = `${pastElev.toFixed(2)} m`;
+      if (diffEl) {
+        const sign = diff >= 0 ? "+" : "";
+        const tag = diff < 0 ? "Cut ⛏️" : "Fill 🏗️";
+        diffEl.textContent = `${sign}${diff.toFixed(2)} m (${tag})`;
+        diffEl.style.color = diff < 0 ? "#ef4444" : "#a855f7";
+      }
+    } else {
+      if (compRow) compRow.classList.add("hidden");
+    }
+
+    updateProfilePinnedSvg();
+
+    // Re-render charts to draw vertical pinned guideline & glowing halo
+    if (miniChart) miniChart.update('none');
+    if (fullChart) fullChart.update('none');
+  }
+
+  function clearProfilePinnedPoint() {
+    currentProfilePinnedIndex = null;
+    currentProfilePinned3DPoint = null;
+    const hud = document.getElementById("profilePinnedHud");
+    const pinnedGroup = document.getElementById("measurePinnedGroup");
+    if (hud) hud.classList.add("hidden");
+    if (pinnedGroup) pinnedGroup.style.display = "none";
+    if (miniChart) miniChart.update('none');
+    if (fullChart) fullChart.update('none');
+  }
+
+  document.getElementById("btnClosePinnedHud")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    clearProfilePinnedPoint();
+  });
 
   function updateProfileHoverSvg() {
     const hoverGroup = document.getElementById("measureHoverGroup");
@@ -3428,6 +3741,48 @@ window.addEventListener("DOMContentLoaded", () => {
     if (measureSvg) measureSvg.style.display = "block";
   }
 
+  function updateProfilePinnedSvg() {
+    const pinnedGroup = document.getElementById("measurePinnedGroup");
+    const hud = document.getElementById("profilePinnedHud");
+    const pulseCircle = document.getElementById("measureSvgPinnedPulse");
+    const haloCircle = document.getElementById("measureSvgPinnedHalo");
+    const coreCircle = document.getElementById("measureSvgPinned");
+
+    if (!currentProfilePinned3DPoint) {
+      if (pinnedGroup) pinnedGroup.style.display = "none";
+      if (hud) hud.classList.add("hidden");
+      return;
+    }
+
+    const screenP = projectToScreen(currentProfilePinned3DPoint);
+    if (screenP.isBehind || screenP.z > 1) {
+      if (pinnedGroup) pinnedGroup.style.display = "none";
+      if (hud) hud.classList.add("hidden");
+      return;
+    }
+
+    if (pulseCircle) {
+      pulseCircle.setAttribute("cx", screenP.x.toFixed(1));
+      pulseCircle.setAttribute("cy", screenP.y.toFixed(1));
+    }
+    if (haloCircle) {
+      haloCircle.setAttribute("cx", screenP.x.toFixed(1));
+      haloCircle.setAttribute("cy", screenP.y.toFixed(1));
+    }
+    if (coreCircle) {
+      coreCircle.setAttribute("cx", screenP.x.toFixed(1));
+      coreCircle.setAttribute("cy", screenP.y.toFixed(1));
+    }
+    if (pinnedGroup) pinnedGroup.style.display = "block";
+    if (measureSvg) measureSvg.style.display = "block";
+
+    if (hud) {
+      hud.classList.remove("hidden");
+      hud.style.left = `${screenP.x.toFixed(1)}px`;
+      hud.style.top = `${screenP.y.toFixed(1)}px`;
+    }
+  }
+
   function updatePointSvg() {
     if ((measureMode === "POINT" || measureState === "FINISHED_POINT") && pointDrawPoint && pointSvg) {
       const p = projectToScreen(pointDrawPoint);
@@ -3444,6 +3799,7 @@ window.addEventListener("DOMContentLoaded", () => {
   }
   controls.addEventListener("change", updateMeasureSvg);
   controls.addEventListener("change", updateProfileHoverSvg);
+  controls.addEventListener("change", updateProfilePinnedSvg);
 
   // Redraw polygon ROI boundary
   function updateRoiPolySvg() {
@@ -3668,7 +4024,11 @@ window.addEventListener("DOMContentLoaded", () => {
               polyEl.style.cursor = "pointer";
               polyEl.style.pointerEvents = "auto";
               polyEl.addEventListener("click", () => {
-                if (typeof selectKmlPolygon === 'function') selectKmlPolygon(pIdx, true);
+                if (typeof toggleKmlPolygonAccordion === 'function') {
+                  toggleKmlPolygonAccordion(pIdx, true);
+                } else if (typeof selectKmlPolygon === 'function') {
+                  selectKmlPolygon(pIdx, true);
+                }
               });
               secondaryGroup.appendChild(polyEl);
             }
@@ -3784,9 +4144,22 @@ window.addEventListener("DOMContentLoaded", () => {
   btnProfile?.addEventListener("click", () => {
     resetRoiState();
     if (typeof clearAllLeftPanelState === "function") clearAllLeftPanelState(true);
+
+    const pastSurvey = ibmProfilePastSurveySelect?.value;
+    if (pastSurvey) {
+      isIbmProfileComparison = true;
+      ibmComparisonPastSurveyKey = pastSurvey;
+      if (btnIbmClearProfile) btnIbmClearProfile.classList.remove("hidden");
+    } else {
+      isIbmProfileComparison = false;
+      ibmComparisonPastSurveyKey = null;
+    }
+
     measureState = "SELECTING";
     measureMode = "PROFILE";
-    setLiveGuidance("📏", "Click on the map to place start point, then drag or tap end point.");
+    setLiveGuidance("📏", pastSurvey
+      ? `Path Profile Comparison against ${pastSurvey}: Click to place start point, then drag or tap end point.`
+      : "Click on the map to place start point, then drag or tap end point.");
     measureHasFirstTap = false;
     controls.enabled = false;
     document.body.classList.add("roi-selecting");
@@ -3836,10 +4209,14 @@ window.addEventListener("DOMContentLoaded", () => {
   // ── Multi-Polygon KML State ──
   let multiKmlPolygons = [];
   let activeKmlPolyIndex = 0;
+  let expandedKmlPolyIndex = -1; // -1 means all cards minimized/collapsed
+  let isMultiSaveMode = false;   // false = clean view (no checkboxes); true = multi-select mode
 
   function resetMultiVolumeState() {
     multiKmlPolygons = [];
     activeKmlPolyIndex = 0;
+    expandedKmlPolyIndex = -1;
+    isMultiSaveMode = false;
     const accordionContainer = document.getElementById("multiVolumeAccordionContainer");
     const singleContainer = document.getElementById("singleVolumeMetricsContainer");
     const cardsList = document.getElementById("multiVolumeCardsList");
@@ -3848,8 +4225,6 @@ window.addEventListener("DOMContentLoaded", () => {
     if (cardsList) cardsList.innerHTML = "";
     const secondaryGroup = document.getElementById("volumeSecondaryPolygonsGroup");
     if (secondaryGroup) secondaryGroup.innerHTML = "";
-    const saveScopeGroup = document.getElementById("multiVolumeSaveScopeGroup");
-    if (saveScopeGroup) saveScopeGroup.classList.add("hidden");
   }
 
   function resetVolumeKmlBadge() {
@@ -3859,16 +4234,92 @@ window.addEventListener("DOMContentLoaded", () => {
     if (volumeKmlUpload) volumeKmlUpload.value = "";
   }
 
-  function updateBatchSaveButtonState() {
-    if (!multiKmlPolygons) return;
-    const selectedCount = multiKmlPolygons.filter(p => p.selected).length;
-    const btnText = document.getElementById("btnMultiVolumeBatchSaveText");
-    const btn = document.getElementById("btnMultiVolumeBatchSave");
-    if (btnText) btnText.textContent = `Save Selected Areas (${selectedCount})`;
-    if (btn) {
-      btn.disabled = (selectedCount === 0);
-      btn.style.opacity = selectedCount === 0 ? "0.5" : "1";
-      btn.style.cursor = selectedCount === 0 ? "not-allowed" : "pointer";
+  function renderMultiVolumeUIState() {
+    const hintBanner = document.getElementById("multiVolSelectHintBanner");
+    const selectActions = document.getElementById("multiVolSelectActions");
+    const normalActions = document.getElementById("multiVolNormalActions");
+    const batchActiveActions = document.getElementById("multiVolBatchActiveActions");
+    const selectedBadge = document.getElementById("multiVolSelectedBadge");
+    const batchBtnText = document.getElementById("btnMultiVolumeBatchSaveText");
+    const batchBtn = document.getElementById("btnMultiVolumeBatchSave");
+
+    const selectedCount = multiKmlPolygons ? multiKmlPolygons.filter(p => p.selected).length : 0;
+
+    if (isMultiSaveMode) {
+      if (hintBanner) hintBanner.classList.remove("hidden");
+      if (selectActions) selectActions.classList.remove("hidden");
+      if (normalActions) normalActions.classList.add("hidden");
+      if (batchActiveActions) batchActiveActions.classList.remove("hidden");
+      if (selectedBadge) selectedBadge.textContent = `${selectedCount} selected`;
+      if (batchBtnText) batchBtnText.textContent = `Save Selected (${selectedCount})`;
+      if (batchBtn) {
+        batchBtn.disabled = (selectedCount === 0);
+        batchBtn.style.opacity = selectedCount === 0 ? "0.5" : "1";
+        batchBtn.style.cursor = selectedCount === 0 ? "not-allowed" : "pointer";
+      }
+    } else {
+      if (hintBanner) hintBanner.classList.add("hidden");
+      if (selectActions) selectActions.classList.add("hidden");
+      if (normalActions) normalActions.classList.remove("hidden");
+      if (batchActiveActions) batchActiveActions.classList.add("hidden");
+    }
+
+    // Update each card's visual state
+    document.querySelectorAll(".multi-vol-card").forEach(c => {
+      const cIdx = parseInt(c.getAttribute("data-idx"), 10);
+      const isExpanded = (cIdx === expandedKmlPolyIndex);
+      const isActive = (cIdx === activeKmlPolyIndex);
+
+      c.style.borderColor = isActive ? "#5e19ea" : "rgba(94, 25, 234, 0.12)";
+      c.style.boxShadow = isActive ? "0 3px 10px rgba(94, 25, 234, 0.12)" : "0 1px 3px rgba(0,0,0,0.03)";
+
+      const header = c.querySelector(".multi-vol-card-header");
+      if (header) {
+        header.style.background = isExpanded ? "rgba(94, 25, 234, 0.05)" : (isActive ? "rgba(94, 25, 234, 0.02)" : "#ffffff");
+      }
+
+      const cbWrapper = c.querySelector(".multi-vol-cb-wrapper");
+      if (cbWrapper) {
+        cbWrapper.style.display = isMultiSaveMode ? "flex" : "none";
+      }
+
+      const dot = c.querySelector(".multi-vol-active-dot");
+      if (dot) {
+        dot.style.display = (!isMultiSaveMode && isActive) ? "inline-block" : "none";
+      }
+
+      const body = c.querySelector(".multi-vol-card-body");
+      if (body) {
+        body.style.display = isExpanded ? "flex" : "none";
+      }
+
+      const chev = c.querySelector(".multi-vol-chevron");
+      if (chev) {
+        chev.style.transform = isExpanded ? "rotate(0deg)" : "rotate(-90deg)";
+      }
+    });
+  }
+
+  function toggleKmlPolygonAccordion(idx, forceFly = false) {
+    if (!multiKmlPolygons || !multiKmlPolygons[idx]) return;
+
+    if (expandedKmlPolyIndex === idx && !forceFly) {
+      // User clicked an ALREADY open card header without clicking focus -> COLLAPSE IT!
+      expandedKmlPolyIndex = -1;
+    } else {
+      // User clicked a collapsed card OR clicked focus -> EXPAND IT & FLY!
+      expandedKmlPolyIndex = idx;
+      selectKmlPolygon(idx, true);
+    }
+    renderMultiVolumeUIState();
+
+    if (expandedKmlPolyIndex === idx) {
+      setTimeout(() => {
+        const activeCard = document.querySelector(`.multi-vol-card[data-idx="${idx}"]`);
+        if (activeCard) {
+          activeCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      }, 60);
     }
   }
 
@@ -3896,24 +4347,8 @@ window.addEventListener("DOMContentLoaded", () => {
       netEl.style.color = poly.metrics.netVolumeNum >= 0 ? "#10b981" : "#ef4444";
     }
 
-    // Update Accordion Cards state
-    document.querySelectorAll(".multi-vol-card").forEach(c => {
-      const cIdx = parseInt(c.getAttribute("data-idx"), 10);
-      const isCurrent = (cIdx === idx);
-      c.style.borderColor = isCurrent ? "#5e19ea" : "rgba(94, 25, 234, 0.15)";
-      c.style.boxShadow = isCurrent ? "0 4px 12px rgba(94, 25, 234, 0.12)" : "0 1px 3px rgba(0,0,0,0.04)";
-      const dot = c.querySelector(".multi-vol-active-dot");
-      if (dot) dot.style.display = isCurrent ? "inline-block" : "none";
-      const body = c.querySelector(".multi-vol-card-body");
-      if (body) body.style.display = isCurrent ? "flex" : "none";
-      const chev = c.querySelector(".multi-vol-chevron");
-      if (chev) chev.style.transform = isCurrent ? "rotate(0deg)" : "rotate(-90deg)";
-      const header = c.querySelector(".multi-vol-card-header");
-      if (header) header.style.background = isCurrent ? "rgba(94, 25, 234, 0.05)" : "#ffffff";
-    });
-
     if (flyTo && typeof setCameraTopDown === 'function') {
-      setCameraTopDown(poly.center.cx, poly.center.cy, poly.center.span * 1.3);
+      setCameraTopDown(poly.center.cx, poly.center.cy, poly.center.span * 1.3, true);
     }
 
     updateVolumeSvg();
@@ -3935,6 +4370,9 @@ window.addEventListener("DOMContentLoaded", () => {
       countTitle.textContent = `${multiKmlPolygons.length} Areas Detected`;
     }
 
+    isMultiSaveMode = false;
+    expandedKmlPolyIndex = 0; // Default first card open on initial load
+
     syncFolderDropdowns("VOLUME");
 
     if (!cardsList || !multiKmlPolygons) return;
@@ -3944,17 +4382,16 @@ window.addEventListener("DOMContentLoaded", () => {
       if (typeof poly.selected !== "boolean") poly.selected = true;
       if (!poly.name) poly.name = `Area ${idx + 1}`;
 
-      const isExpanded = (idx === activeKmlPolyIndex);
       const card = document.createElement("div");
       card.className = "multi-vol-card";
       card.setAttribute("data-idx", idx);
       card.style.cssText = `
         background: #ffffff;
-        border: 1.5px solid ${isExpanded ? '#5e19ea' : 'rgba(94, 25, 234, 0.15)'};
+        border: 1.5px solid rgba(94, 25, 234, 0.12);
         border-radius: 8px;
         overflow: hidden;
         transition: all 0.2s ease;
-        box-shadow: ${isExpanded ? '0 4px 12px rgba(94, 25, 234, 0.12)' : '0 1px 3px rgba(0,0,0,0.04)'};
+        box-shadow: 0 1px 3px rgba(0,0,0,0.03);
       `;
 
       const netColor = (poly.metrics?.netVolumeNum >= 0) ? '#10b981' : '#ef4444';
@@ -3968,38 +4405,40 @@ window.addEventListener("DOMContentLoaded", () => {
           justify-content: space-between;
           cursor: pointer;
           user-select: none;
-          background: ${isExpanded ? 'rgba(94, 25, 234, 0.05)' : '#ffffff'};
           transition: background 0.2s ease;
         ">
-          <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
-            <input type="checkbox" class="multi-vol-cb" data-idx="${idx}" ${poly.selected ? 'checked' : ''} style="accent-color: #5e19ea; width: 15px; height: 15px; cursor: pointer; flex-shrink: 0;" />
-            <span class="multi-vol-active-dot" style="display: ${isExpanded ? 'inline-block' : 'none'}; width: 7px; height: 7px; border-radius: 50%; background: #5e19ea; flex-shrink: 0; box-shadow: 0 0 6px #5e19ea;"></span>
+          <div style="display: flex; align-items: center; gap: 7px; min-width: 0; flex: 1;">
+            <div class="multi-vol-cb-wrapper" style="display: none; align-items: center; flex-shrink: 0;">
+              <input type="checkbox" class="multi-vol-cb" data-idx="${idx}" ${poly.selected ? 'checked' : ''} style="accent-color: #5e19ea; width: 15px; height: 15px; cursor: pointer;" />
+            </div>
+            <span class="multi-vol-active-dot" style="display: none; width: 6px; height: 6px; border-radius: 50%; background: #5e19ea; flex-shrink: 0; box-shadow: 0 0 6px #5e19ea;"></span>
             <span class="multi-vol-title-text" style="font-size: 12px; font-weight: 600; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">#${idx + 1} ${poly.name}</span>
           </div>
+
           <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-            <span class="multi-vol-net-pill" style="font-size: 11px; font-weight: 700; color: ${netColor}; background: rgba(94, 25, 234, 0.06); padding: 2px 6px; border-radius: 10px;">${netDisplay}</span>
-            <svg class="multi-vol-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.5" style="transition: transform 0.2s ease; transform: rotate(${isExpanded ? '0deg' : '-90deg'});"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            <span class="multi-vol-net-pill" style="font-size: 11px; font-weight: 700; color: ${netColor}; background: rgba(94, 25, 234, 0.06); padding: 2px 6px; border-radius: 6px;">${netDisplay}</span>
+            <svg class="multi-vol-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.5" style="transition: transform 0.2s ease; transform: rotate(-90deg);"><polyline points="6 9 12 15 18 9"></polyline></svg>
           </div>
         </div>
 
         <div class="multi-vol-card-body" style="
-          display: ${isExpanded ? 'flex' : 'none'};
+          display: none;
           flex-direction: column;
-          gap: 8px;
-          padding: 10px;
+          gap: 7px;
+          padding: 10px 10px 14px 10px;
           border-top: 1px solid rgba(94, 25, 234, 0.08);
-          background: #fcfbfe;
+          background: #fbfaff;
         ">
           <div>
-            <label style="display: block; font-size: 10.5px; font-weight: 600; color: #64748b; margin-bottom: 4px;">Area Name</label>
-            <input type="text" class="multi-vol-name-input input" data-idx="${idx}" value="${poly.name}" placeholder="Area Name" style="width: 100%; box-sizing: border-box; padding: 6px 9px; font-size: 12px; border-radius: 6px; border: 1px solid #cbd5e1; background: #ffffff;" />
+            <label style="display: block; font-size: 10px; font-weight: 600; color: #64748b; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.3px;">Area Name</label>
+            <input type="text" class="multi-vol-name-input input" data-idx="${idx}" value="${poly.name}" placeholder="Area Name" style="width: 100%; box-sizing: border-box; padding: 5px 8px; font-size: 12px; border-radius: 6px; border: 1px solid #cbd5e1; background: #ffffff;" />
           </div>
           <div style="display: flex; flex-direction: column; gap: 4px; font-size: 11.5px;">
             <div style="display: flex; justify-content: space-between;"><span style="color: #64748b;">Area (2D):</span><strong style="color: #1e293b;">${poly.metrics?.area2D || '0 m²'}</strong></div>
             <div style="display: flex; justify-content: space-between;"><span style="color: #64748b;">Perimeter:</span><strong style="color: #1e293b;">${poly.metrics?.perimeter || '0 m'}</strong></div>
             <div style="display: flex; justify-content: space-between; border-top: 1px solid rgba(0,0,0,0.06); padding-top: 4px;"><span style="color: #10b981; font-weight: 600;">Cut:</span><strong style="color: #10b981;">${poly.metrics?.cutVolume || '0 m³'}</strong></div>
             <div style="display: flex; justify-content: space-between;"><span style="color: #ef4444; font-weight: 600;">Fill:</span><strong style="color: #ef4444;">${poly.metrics?.fillVolume || '0 m³'}</strong></div>
-            <div style="display: flex; justify-content: space-between; border-top: 1px dashed rgba(94, 25, 234, 0.25); padding-top: 4px;"><span style="color: #5e19ea; font-weight: 700;">Net Volume:</span><strong style="color: #5e19ea; font-weight: 800;">${poly.metrics?.netVolume || '0 m³'}</strong></div>
+            <div style="display: flex; justify-content: space-between; border-top: 1px dashed rgba(94, 25, 234, 0.25); padding-top: 5px; margin-top: 2px;"><span style="color: #5e19ea; font-weight: 700;">Net Volume:</span><strong style="color: #5e19ea; font-weight: 800;">${poly.metrics?.netVolume || '0 m³'}</strong></div>
           </div>
         </div>
       `;
@@ -4008,129 +4447,74 @@ window.addEventListener("DOMContentLoaded", () => {
       const cb = card.querySelector(".multi-vol-cb");
       const nameInput = card.querySelector(".multi-vol-name-input");
 
-      cb.addEventListener("click", (e) => {
+      cb?.addEventListener("click", (e) => {
         e.stopPropagation();
         poly.selected = cb.checked;
-        updateBatchSaveButtonState();
+        renderMultiVolumeUIState();
       });
 
-      nameInput.addEventListener("input", (e) => {
+      nameInput?.addEventListener("input", (e) => {
         const val = e.target.value.trim();
         poly.name = val || `Area ${idx + 1}`;
         const titleEl = card.querySelector(".multi-vol-title-text");
         if (titleEl) titleEl.textContent = `#${idx + 1} ${poly.name}`;
       });
 
-      header.addEventListener("click", () => {
-        selectKmlPolygon(idx, true);
+      header?.addEventListener("click", () => {
+        toggleKmlPolygonAccordion(idx);
       });
 
       cardsList.appendChild(card);
     });
 
-    updateBatchSaveButtonState();
+    renderMultiVolumeUIState();
   }
 
-  // Multi-Volume Batch Actions Binding
+  // Toggle Multi-Save Mode ON
+  document.getElementById("btnEnterMultiSaveMode")?.addEventListener("click", () => {
+    isMultiSaveMode = true;
+    renderMultiVolumeUIState();
+  });
+
+  // Toggle Multi-Save Mode OFF
+  document.getElementById("btnCancelMultiSaveMode")?.addEventListener("click", () => {
+    isMultiSaveMode = false;
+    renderMultiVolumeUIState();
+  });
+
+  // Select All / Deselect All
   document.getElementById("btnMultiVolSelectAll")?.addEventListener("click", () => {
     if (!multiKmlPolygons) return;
     multiKmlPolygons.forEach(p => p.selected = true);
     document.querySelectorAll(".multi-vol-cb").forEach(cb => cb.checked = true);
-    updateBatchSaveButtonState();
+    renderMultiVolumeUIState();
   });
 
   document.getElementById("btnMultiVolDeselectAll")?.addEventListener("click", () => {
     if (!multiKmlPolygons) return;
     multiKmlPolygons.forEach(p => p.selected = false);
     document.querySelectorAll(".multi-vol-cb").forEach(cb => cb.checked = false);
-    updateBatchSaveButtonState();
+    renderMultiVolumeUIState();
   });
 
-  document.getElementById("btnMultiVolumeNewFolder")?.addEventListener("click", async () => {
-    const name = await showCustomPrompt("Enter new folder name for volumes:", "", "New Folder");
-    if (!name || !name.trim()) return;
-    const clean = name.trim();
-    knownVolumeFolders.add(clean);
-    sessionCreatedVolumeFolders.add(clean);
-    syncFolderDropdowns("VOLUME");
-    const multiTarget = document.getElementById("multiVolumeTargetFolder");
-    if (multiTarget) multiTarget.value = clean;
+  // Save Single Current Area -> Opens Universal Save to Project Modal (Image 2)
+  document.getElementById("btnSaveSingleActiveArea")?.addEventListener("click", () => {
+    volumeSaveMode = "SINGLE";
+    activeInfoTool = "VOLUME";
+    openUniversalSaveModal();
   });
 
-  document.getElementById("btnMultiVolumeBatchSave")?.addEventListener("click", async () => {
+  // Batch Save Multiple Areas -> Opens Universal Save to Project Modal (Image 2)
+  document.getElementById("btnMultiVolumeBatchSave")?.addEventListener("click", () => {
     if (!multiKmlPolygons || multiKmlPolygons.length === 0) return;
     const selected = multiKmlPolygons.filter(p => p.selected);
     if (selected.length === 0) {
-      await showCustomAlert("Please select at least one area to save.", "None Selected", "warning");
+      showCustomAlert("Please select at least one area to save.", "None Selected", "warning");
       return;
     }
-    const multiTarget = document.getElementById("multiVolumeTargetFolder");
-    const folderVal = multiTarget?.value?.trim();
-    if (!folderVal) {
-      await showCustomAlert("Please assign or create a folder before saving.", "Folder Required", "warning");
-      return;
-    }
-
-    const btn = document.getElementById("btnMultiVolumeBatchSave");
-    const btnText = document.getElementById("btnMultiVolumeBatchSaveText");
-    if (btn) btn.disabled = true;
-    if (btnText) btnText.textContent = `Saving ${selected.length} areas...`;
-
-    try {
-      const apiUrl = "https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url";
-      for (let i = 0; i < selected.length; i++) {
-        const poly = selected[i];
-        const cleanName = poly.name.replace(/[^a-zA-Z0-9_-]/g, "_").toLowerCase();
-        const fileName = `${folderVal}/${cleanName}_${Date.now()}_${i + 1}.json`;
-
-        const polyData = {
-          name: poly.name,
-          title: poly.name,
-          folder: folderVal,
-          isOfficial: !window.isDumpDraw,
-          timestamp: new Date().toISOString(),
-          area2D: poly.metrics?.area2D || "0 m²",
-          perimeter: poly.metrics?.perimeter || "0 m",
-          cutVolume: poly.metrics?.cutVolume || "0 m³",
-          fillVolume: poly.metrics?.fillVolume || "0 m³",
-          netVolume: poly.metrics?.netVolume || "0 m³",
-          points: poly.volumePoints.map(p => ({
-            x: p.coord ? p.coord.x : p.point.x,
-            y: p.coord ? p.coord.y : p.point.y,
-            z: p.coord ? p.coord.z : p.point.z
-          }))
-        };
-
-        const volRes = await fetch(apiUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            projectId: activeProject.folderName,
-            surveyId: activeProject.surveyId,
-            type: "volumes",
-            fileName
-          })
-        });
-        if (!volRes.ok) throw new Error(`Failed to get upload URL for "${poly.name}"`);
-        const { uploadUrl } = await volRes.json();
-
-        const putRes = await fetch(uploadUrl, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(polyData, null, 2)
-        });
-        if (!putRes.ok) throw new Error(`Failed to upload "${poly.name}"`);
-      }
-
-      await showCustomAlert(`Successfully saved ${selected.length} volume area(s) to folder "${folderVal}"!`, "Saved Successfully", "success");
-      await fetchSavedVolumes();
-    } catch (err) {
-      console.error("Batch save error:", err);
-      await showCustomAlert("Error saving areas: " + err.message, "Save Failed", "error");
-    } finally {
-      if (btn) btn.disabled = false;
-      updateBatchSaveButtonState();
-    }
+    volumeSaveMode = "BATCH";
+    activeInfoTool = "VOLUME";
+    openUniversalSaveModal();
   });
 
 
@@ -4406,7 +4790,7 @@ window.addEventListener("DOMContentLoaded", () => {
       center: {
         cx: (minX + maxX) / 2,
         cy: (minY + maxY) / 2,
-        span: Math.max(maxX - minX, maxY - minY, 100)
+        span: Math.max(maxX - minX, maxY - minY, 15)
       },
       metrics: {
         area2DNum: area2D,
@@ -4505,7 +4889,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
           // Select Area 1 as active
           selectKmlPolygon(0, false);
-          showUnifiedInfoPanel("VOLUME", `VOLUME: ${multiKmlPolygons[0].name}`, multiKmlPolygons[0].metrics);
+          showUnifiedInfoPanel("VOLUME", "MULTI-AREA VOLUME", multiKmlPolygons[0].metrics);
         } else {
           // Single Polygon Mode
           const singlePoly = multiKmlPolygons[0];
@@ -4584,6 +4968,556 @@ window.addEventListener("DOMContentLoaded", () => {
     volumeMousePoint = null;
     updateVolumeSvg();
     calculateVolumeMetrics();
+  });
+
+  // =========================================================================
+  // IBM SECTION (Multi-Temporal Audit & Comparison Suite)
+  // =========================================================================
+
+  // Populate Survey Dropdowns
+  function populateIbmSurveys() {
+    const profileSelect = document.getElementById("ibmProfilePastSurveySelect");
+    const heatmapSelect = document.getElementById("ibmHeatmapPastSurveySelect");
+    if (!profileSelect || !heatmapSelect) return;
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const activeSurveyId = (activeProject?.surveyId || urlParams.get("survey") || "october_2026").toLowerCase();
+    const activeBaseKey = activeSurveyId.replace(/_2026$/, "");
+
+    const allSurveys = chattibhariatuConfig.surveys || {};
+
+    profileSelect.innerHTML = '<option value="">Select past survey to compare...</option>';
+    heatmapSelect.innerHTML = '<option value="">Select past survey...</option>';
+
+    const surveyOrder = ["october_2026", "september_2026", "august_2026", "july_2026", "june_2026", "may_2026"];
+    let firstPastKey = null;
+
+    surveyOrder.forEach(key => {
+      const sInfo = allSurveys[key];
+      if (!sInfo) return;
+      const keyBase = key.toLowerCase().replace(/_2026$/, "");
+      
+      // Strict rule: NEVER list the active survey in past comparison dropdowns
+      if (key.toLowerCase() === activeSurveyId || keyBase === activeBaseKey) return;
+
+      if (!firstPastKey) firstPastKey = key;
+
+      const label = sInfo.displayName || key.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase());
+
+      const opt1 = document.createElement("option");
+      opt1.value = key;
+      opt1.textContent = label;
+      profileSelect.appendChild(opt1);
+
+      const opt2 = document.createElement("option");
+      opt2.value = key;
+      opt2.textContent = label;
+      heatmapSelect.appendChild(opt2);
+    });
+
+    // Auto-select the most recent past survey (e.g. September or August 2026) so user doesn't have to manually pick it
+    if (firstPastKey) {
+      if (!profileSelect.value) profileSelect.value = firstPastKey;
+      if (!heatmapSelect.value) heatmapSelect.value = firstPastKey;
+    }
+  }
+  window.populateIbmSurveys = populateIbmSurveys;
+
+  populateIbmSurveys();
+
+  // ── Tool 1: Path Profile Comparison Handlers ──
+  const btnIbmStartProfile = document.getElementById("btnIbmStartProfile");
+  const btnIbmStartProfileText = document.getElementById("btnIbmStartProfileText");
+  const btnIbmClearProfile = document.getElementById("btnIbmClearProfile");
+  const ibmProfilePastSurveySelect = document.getElementById("ibmProfilePastSurveySelect");
+
+  btnIbmStartProfile?.addEventListener("click", async () => {
+    const selectedSurvey = ibmProfilePastSurveySelect?.value;
+    if (!selectedSurvey) {
+      await showCustomAlert("Please select a past survey from the dropdown to compare against.", "Survey Required", "warning");
+      return;
+    }
+
+    resetRoiState();
+    if (typeof clearAllLeftPanelState === "function") clearAllLeftPanelState(true);
+    
+    isIbmProfileComparison = true;
+    ibmComparisonPastSurveyKey = selectedSurvey;
+    currentProfileComparisonData = null;
+    measureState = "SELECTING";
+    measureMode = "PROFILE";
+    setLiveGuidance("📐", `Path Profile Comparison against ${selectedSurvey}: Click to place start point, then drag or tap end point.`);
+    measureHasFirstTap = false;
+    controls.enabled = false;
+    document.body.classList.add("roi-selecting");
+
+    if (btnIbmStartProfileText) btnIbmStartProfileText.textContent = "Drawing... Click 2 Points";
+    if (btnIbmClearProfile) btnIbmClearProfile.classList.remove("hidden");
+    clearMeasure();
+  });
+
+  ibmProfilePastSurveySelect?.addEventListener("change", () => {
+    const selected = ibmProfilePastSurveySelect.value;
+    if (selected) {
+      isIbmProfileComparison = true;
+      ibmComparisonPastSurveyKey = selected;
+      if (btnIbmClearProfile) btnIbmClearProfile.classList.remove("hidden");
+      if (currentProfileData && currentProfileData.length > 0) {
+        updateElevationProfile();
+      }
+    } else {
+      clearIbmProfileComparison();
+    }
+  });
+
+  function clearIbmProfileComparison() {
+    isIbmProfileComparison = false;
+    ibmComparisonPastSurveyKey = null;
+    currentProfileComparisonData = null;
+    if (ibmProfilePastSurveySelect) ibmProfilePastSurveySelect.value = "";
+    if (btnIbmStartProfileText) btnIbmStartProfileText.textContent = "Click 2 Points on Map";
+    if (btnIbmClearProfile) btnIbmClearProfile.classList.add("hidden");
+    const compMetrics = document.getElementById("profileComparisonMetrics");
+    if (compMetrics) compMetrics.classList.add("hidden");
+    if (currentProfileData && currentProfileData.length > 0) {
+      updateElevationProfile();
+    } else {
+      clearMeasure();
+    }
+    setLiveGuidance(null, null);
+  }
+
+  btnIbmClearProfile?.addEventListener("click", clearIbmProfileComparison);
+
+  // ── Tool 2: Total-Map Elevation Difference Heatmap (ΔZ) ──
+  const btnIbmComputeHeatmap = document.getElementById("btnIbmComputeHeatmap");
+  const btnIbmClearHeatmap = document.getElementById("btnIbmClearHeatmap");
+  const ibmHeatmapPastSurveySelect = document.getElementById("ibmHeatmapPastSurveySelect");
+  const ibmHeatmapLoadingIndicator = document.getElementById("ibmHeatmapLoadingIndicator");
+  const ibmHeatmapLoadingText = document.getElementById("ibmHeatmapLoadingText");
+  const ibmHeatmapFiltersContainer = document.getElementById("ibmHeatmapFiltersContainer");
+  const ibmHeatmapDiffSummaryBadge = document.getElementById("ibmHeatmapDiffSummaryBadge");
+  const ibmHeatmapMinInput = document.getElementById("ibmHeatmapMinInput");
+  const ibmHeatmapMaxInput = document.getElementById("ibmHeatmapMaxInput");
+  const btnIbmApplyCustomFilter = document.getElementById("btnIbmApplyCustomFilter");
+
+  function renderDifferenceHeatmapCanvas(filterType = "all", customMin = null, customMax = null) {
+    if (!cachedDiffHeatmapData || !diffCanvas) return;
+
+    const { width, height, diffs, validMask } = cachedDiffHeatmapData;
+    const ctx = diffCanvas.getContext("2d");
+    const imgData = ctx.createImageData(width, height);
+    const data = imgData.data;
+
+    let totalVisible = 0;
+    let totalCut = 0;
+    let totalFill = 0;
+
+    const minDiff = (customMin !== null && !isNaN(customMin)) ? customMin : 1.0;
+    const maxDiff = (customMax !== null && !isNaN(customMax)) ? customMax : 100.0;
+
+    for (let i = 0; i < diffs.length; i++) {
+      const pIdx = i * 4;
+      if (validMask[i] === 0) {
+        data[pIdx + 3] = 0;
+        continue;
+      }
+
+      const dZ = diffs[i];
+      const absDZ = Math.abs(dZ);
+
+      let isMatch = false;
+      if (filterType === "all") isMatch = absDZ >= minDiff && absDZ <= maxDiff;
+      else if (filterType === "1-2m") isMatch = absDZ >= 1.0 && absDZ < 2.0;
+      else if (filterType === "2-5m") isMatch = absDZ >= 2.0 && absDZ < 5.0;
+      else if (filterType === "5m+") isMatch = absDZ >= 5.0 && absDZ <= maxDiff;
+      else if (filterType === "cut") isMatch = dZ <= -minDiff && dZ >= -maxDiff;
+      else if (filterType === "fill") isMatch = dZ >= minDiff && dZ <= maxDiff;
+      else if (filterType === "custom") isMatch = absDZ >= minDiff && absDZ <= maxDiff;
+
+      if (!isMatch) {
+        data[pIdx + 3] = 0; // 100% Transparent
+        continue;
+      }
+
+      totalVisible++;
+
+      if (dZ < 0) {
+        totalCut++;
+        // Continuous Cut Color Ramp: Amber (1m) -> Orange (2.5m) -> Crimson Red (5m) -> Burgundy (15m+)
+
+        let r, g, b;
+        if (absDZ <= 2.0) {
+          // 1m to 2m: Amber-Yellow rgb(234, 179, 8) to Warm Orange rgb(249, 115, 22)
+          const t = Math.max(0, Math.min(1, (absDZ - 1.0) / 1.0));
+          r = Math.round(234 + t * (249 - 234));
+          g = Math.round(179 + t * (115 - 179));
+          b = Math.round(8 + t * (22 - 8));
+        } else if (absDZ <= 5.0) {
+          // 2m to 5m: Orange rgb(249, 115, 22) to Crimson Red rgb(239, 68, 68)
+          const t = (absDZ - 2.0) / 3.0;
+          r = Math.round(249 + t * (239 - 249));
+          g = Math.round(115 + t * (68 - 115));
+          b = Math.round(22 + t * (68 - 22));
+        } else {
+          // 5m to 15m+: Crimson Red rgb(239, 68, 68) to Deep Burgundy rgb(159, 18, 57)
+          const t = Math.min(1.0, (absDZ - 5.0) / 10.0);
+          r = Math.round(239 + t * (159 - 239));
+          g = Math.round(68 + t * (18 - 68));
+          b = Math.round(68 + t * (57 - 68));
+        }
+        data[pIdx] = r;
+        data[pIdx + 1] = g;
+        data[pIdx + 2] = b;
+        data[pIdx + 3] = 255; // 100% solid opacity
+      } else {
+        totalFill++;
+        // Continuous Fill Color Ramp: Mint (1m) -> Emerald -> Cyan (3m) -> Blue -> Purple (10m+)
+        let r, g, b;
+        if (absDZ <= 2.0) {
+          // 1m to 2m: Mint/Lime rgb(34, 197, 94) to Emerald rgb(16, 185, 129)
+          const t = Math.max(0, Math.min(1, (absDZ - 1.0) / 1.0));
+          r = Math.round(34 + t * (16 - 34));
+          g = Math.round(197 + t * (185 - 197));
+          b = Math.round(94 + t * (129 - 94));
+        } else if (absDZ <= 5.0) {
+          // 2m to 5m: Emerald rgb(16, 185, 129) to Cyan rgb(6, 182, 212) to Blue rgb(59, 130, 246)
+          const t = (absDZ - 2.0) / 3.0;
+          r = Math.round(16 + t * (59 - 16));
+          g = Math.round(185 + t * (130 - 185));
+          b = Math.round(129 + t * (246 - 129));
+        } else {
+          // 5m to 15m+: Blue rgb(59, 130, 246) to Vivid Violet/Purple rgb(168, 85, 247)
+          const t = Math.min(1.0, (absDZ - 5.0) / 10.0);
+          r = Math.round(59 + t * (168 - 59));
+          g = Math.round(130 + t * (85 - 130));
+          b = Math.round(246 + t * (247 - 246));
+        }
+        data[pIdx] = r;
+        data[pIdx + 1] = g;
+        data[pIdx + 2] = b;
+        data[pIdx + 3] = 255; // 100% solid opacity
+      }
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+
+    if (ibmHeatmapDiffSummaryBadge) {
+      if (filterType === "all") ibmHeatmapDiffSummaryBadge.textContent = `${totalVisible.toLocaleString()} px`;
+      else if (filterType === "cut") ibmHeatmapDiffSummaryBadge.textContent = `Cut: ${totalCut.toLocaleString()} px`;
+      else if (filterType === "fill") ibmHeatmapDiffSummaryBadge.textContent = `Fill: ${totalFill.toLocaleString()} px`;
+      else if (filterType === "custom") ibmHeatmapDiffSummaryBadge.textContent = `${minDiff}m - ${maxDiff}m (${totalVisible.toLocaleString()} px)`;
+      else ibmHeatmapDiffSummaryBadge.textContent = `${filterType.toUpperCase()}`;
+    }
+  }
+
+  async function refreshDiffLayerOnMap() {
+    if (!cachedDiffHeatmapData || !diffCanvas || !map) return;
+    const extent = cachedDiffHeatmapData.extent;
+    if (diffLayer) {
+      try { map.removeLayer(diffLayer); } catch(e) {}
+      diffLayer = null;
+    }
+    diffSource = new StaticImageSource({
+      source: diffCanvas,
+      extent: extent,
+      flipY: false,
+    });
+    const opacitySlider = document.getElementById("ibmHeatmapOpacitySlider");
+    const currentOpacity = opacitySlider ? (parseFloat(opacitySlider.value) / 100) : 1.0;
+    diffLayer = new ColorLayer({
+      name: "ElevationDifferenceHeatmap",
+      extent: extent,
+      source: diffSource,
+      opacity: currentOpacity,
+    });
+    await map.addLayer(diffLayer);
+    instance.notifyChange(diffLayer);
+
+    const floatingHud = document.getElementById("heatmapFloatingHud");
+    if (floatingHud) floatingHud.classList.remove("hidden");
+  }
+
+  async function computeDifferenceHeatmap(pastSurveyKey) {
+    try {
+      if (ibmHeatmapLoadingIndicator) ibmHeatmapLoadingIndicator.classList.remove("hidden");
+      if (ibmHeatmapLoadingText) ibmHeatmapLoadingText.textContent = "Connecting to S3 DTM Cloud-Optimized GeoTIFFs...";
+      if (btnIbmComputeHeatmap) btnIbmComputeHeatmap.disabled = true;
+
+      const currentElevationUrl = activeProject?.elevationUrl;
+      const pastSurveyInfo = chattibhariatuConfig.surveys[pastSurveyKey];
+      if (!pastSurveyInfo || !pastSurveyInfo.elevationUrl) {
+        throw new Error("Selected past survey does not have valid elevation data.");
+      }
+      const pastElevationUrl = pastSurveyInfo.elevationUrl;
+
+      const fullCurrentUrl = currentElevationUrl.startsWith("http")
+        ? currentElevationUrl
+        : `https://polygon-giro3d.s3.ap-south-2.amazonaws.com/${currentElevationUrl.replace(/^\.\//, '')}`;
+      const fullPastUrl = pastElevationUrl.startsWith("http")
+        ? pastElevationUrl
+        : `https://polygon-giro3d.s3.ap-south-2.amazonaws.com/${pastElevationUrl.replace(/^\.\//, '')}`;
+
+      if (ibmHeatmapLoadingText) ibmHeatmapLoadingText.textContent = "Reading COG overview levels...";
+
+      const [currentTiff, pastTiff] = await Promise.all([
+        fromUrl(fullCurrentUrl),
+        fromUrl(fullPastUrl)
+      ]);
+
+      const [current0, past0] = await Promise.all([
+        currentTiff.getImage(0),
+        pastTiff.getImage(0)
+      ]);
+
+      const currentBbox = current0.getBoundingBox();
+      const pastBbox = past0.getBoundingBox();
+
+      const currentCount = await currentTiff.getImageCount();
+      const pastCount = await pastTiff.getImageCount();
+
+      const currentLevel = Math.min(6, currentCount - 1);
+      const pastLevel = Math.min(6, pastCount - 1);
+
+      if (ibmHeatmapLoadingText) ibmHeatmapLoadingText.textContent = `Streaming DTM rasters (L${currentLevel} & L${pastLevel})...`;
+
+      let currentImg, pastImg, currentRaster, pastRaster;
+
+      try {
+        [currentImg, pastImg] = await Promise.all([
+          currentTiff.getImage(currentLevel),
+          pastTiff.getImage(pastLevel)
+        ]);
+
+        const [r1, r2] = await Promise.all([
+          currentImg.readRasters(),
+          pastImg.readRasters()
+        ]);
+        currentRaster = r1[0];
+        pastRaster = r2[0];
+      } catch (fetchErr) {
+        console.warn("Retrying with lightweight overview Level 6...", fetchErr);
+        if (ibmHeatmapLoadingText) ibmHeatmapLoadingText.textContent = "Retrying with lightweight overview...";
+        const fallbackLevel1 = Math.min(6, currentCount - 1);
+        const fallbackLevel2 = Math.min(6, pastCount - 1);
+        [currentImg, pastImg] = await Promise.all([
+          currentTiff.getImage(fallbackLevel1),
+          pastTiff.getImage(fallbackLevel2)
+        ]);
+        const [r1, r2] = await Promise.all([
+          currentImg.readRasters(),
+          pastImg.readRasters()
+        ]);
+        currentRaster = r1[0];
+        pastRaster = r2[0];
+      }
+
+      const W1 = currentImg.getWidth();
+      const H1 = currentImg.getHeight();
+      const W2 = pastImg.getWidth();
+      const H2 = pastImg.getHeight();
+
+      if (ibmHeatmapLoadingText) ibmHeatmapLoadingText.textContent = "Computing sub-meter ΔZ elevation difference grid...";
+
+      const totalPixels = W1 * H1;
+      const diffs = new Float32Array(totalPixels);
+      const validMask = new Uint8Array(totalPixels);
+
+      const minX1 = currentBbox[0];
+      const minY1 = currentBbox[1];
+      const maxX1 = currentBbox[2];
+      const maxY1 = currentBbox[3];
+      const spanX1 = maxX1 - minX1;
+      const spanY1 = maxY1 - minY1;
+
+      const minX2 = pastBbox[0];
+      const minY2 = pastBbox[1];
+      const maxX2 = pastBbox[2];
+      const maxY2 = pastBbox[3];
+      const spanX2 = maxX2 - minX2;
+      const spanY2 = maxY2 - minY2;
+
+      for (let r = 0; r < H1; r++) {
+        const rowOffset = r * W1;
+        const Y = maxY1 - (r + 0.5) * (spanY1 / H1);
+
+        if (Y < minY2 || Y > maxY2) continue;
+
+        // Bilinear row coordinates for past survey
+        const normY = (maxY2 - Y) / spanY2 * (H2 - 1);
+        if (normY < 0 || normY > H2 - 1) continue;
+        const r0 = Math.floor(normY);
+        const r1 = Math.min(H2 - 1, r0 + 1);
+        const fy = normY - r0;
+        const pastRowOffset0 = r0 * W2;
+        const pastRowOffset1 = r1 * W2;
+
+        for (let c = 0; c < W1; c++) {
+          const idx = rowOffset + c;
+          const z1 = currentRaster[idx];
+          if (z1 == null || isNaN(z1) || z1 < 300 || z1 > 1500) continue;
+
+          const X = minX1 + (c + 0.5) * (spanX1 / W1);
+          if (X < minX2 || X > maxX2) continue;
+
+          // Bilinear column coordinates for past survey
+          const normX = (X - minX2) / spanX2 * (W2 - 1);
+          if (normX < 0 || normX > W2 - 1) continue;
+          const c0 = Math.floor(normX);
+          const c1 = Math.min(W2 - 1, c0 + 1);
+          const fx = normX - c0;
+
+          const z00 = pastRaster[pastRowOffset0 + c0];
+          const z01 = pastRaster[pastRowOffset0 + c1];
+          const z10 = pastRaster[pastRowOffset1 + c0];
+          const z11 = pastRaster[pastRowOffset1 + c1];
+
+          // Validate elevation bounds (nodata is -32767)
+          const v00 = (z00 != null && !isNaN(z00) && z00 >= 300 && z00 <= 1500);
+          const v01 = (z01 != null && !isNaN(z01) && z01 >= 300 && z01 <= 1500);
+          const v10 = (z10 != null && !isNaN(z10) && z10 >= 300 && z10 <= 1500);
+          const v11 = (z11 != null && !isNaN(z11) && z11 >= 300 && z11 <= 1500);
+
+          let z2;
+          if (v00 && v01 && v10 && v11) {
+            z2 = (1 - fx) * (1 - fy) * z00 + fx * (1 - fy) * z01 + (1 - fx) * fy * z10 + fx * fy * z11;
+          } else if (v00) {
+            z2 = z00;
+          } else {
+            continue;
+          }
+
+          diffs[idx] = z1 - z2;
+          validMask[idx] = 1;
+        }
+      }
+
+      const extent = new Extent(giroCrs, currentBbox[0], currentBbox[2], currentBbox[1], currentBbox[3]);
+
+      cachedDiffHeatmapData = {
+        width: W1,
+        height: H1,
+        bbox: currentBbox,
+        extent,
+        diffs,
+        validMask,
+        pastSurveyKey
+      };
+
+      if (!diffCanvas) {
+        diffCanvas = document.createElement("canvas");
+      }
+      diffCanvas.width = W1;
+      diffCanvas.height = H1;
+
+      if (ibmHeatmapMinInput) ibmHeatmapMinInput.value = "1.0";
+      if (ibmHeatmapMaxInput) ibmHeatmapMaxInput.value = "50.0";
+
+      renderDifferenceHeatmapCanvas("all", 1.0, 50.0);
+      await refreshDiffLayerOnMap();
+
+      if (ibmHeatmapFiltersContainer) ibmHeatmapFiltersContainer.classList.remove("hidden");
+      if (btnIbmClearHeatmap) btnIbmClearHeatmap.classList.remove("hidden");
+
+      document.querySelectorAll(".ibm-filter-pill").forEach(p => {
+        p.classList.toggle("active", p.getAttribute("data-filter") === "all");
+      });
+
+    } catch (err) {
+      console.error("Error computing difference heatmap:", err);
+      await showCustomAlert(`Failed to compute heatmap: ${err.message}`, "Heatmap Calculation Error", "error");
+    } finally {
+      if (ibmHeatmapLoadingIndicator) ibmHeatmapLoadingIndicator.classList.add("hidden");
+      if (btnIbmComputeHeatmap) btnIbmComputeHeatmap.disabled = false;
+    }
+  }
+
+  btnIbmComputeHeatmap?.addEventListener("click", async () => {
+    const selectedSurvey = ibmHeatmapPastSurveySelect?.value;
+    if (!selectedSurvey) {
+      await showCustomAlert("Please select a base past survey from the dropdown.", "Past Survey Required", "warning");
+      return;
+    }
+    await computeDifferenceHeatmap(selectedSurvey);
+  });
+
+  btnIbmClearHeatmap?.addEventListener("click", () => {
+    if (diffLayer && map) {
+      try { map.removeLayer(diffLayer); } catch(e) {}
+      diffLayer = null;
+      diffSource = null;
+      instance.notifyChange();
+    }
+    cachedDiffHeatmapData = null;
+    if (ibmHeatmapFiltersContainer) ibmHeatmapFiltersContainer.classList.add("hidden");
+    if (btnIbmClearHeatmap) btnIbmClearHeatmap.classList.add("hidden");
+    const floatingHud = document.getElementById("heatmapFloatingHud");
+    if (floatingHud) floatingHud.classList.add("hidden");
+  });
+
+  // Heatmap Opacity Slider Listener
+  const ibmHeatmapOpacitySlider = document.getElementById("ibmHeatmapOpacitySlider");
+  const ibmHeatmapOpacityValue = document.getElementById("ibmHeatmapOpacityValue");
+  ibmHeatmapOpacitySlider?.addEventListener("input", (e) => {
+    const val = parseInt(e.target.value, 10);
+    if (ibmHeatmapOpacityValue) ibmHeatmapOpacityValue.textContent = `${val}%`;
+    if (diffLayer) {
+      diffLayer.opacity = val / 100;
+      instance.notifyChange(diffLayer);
+    }
+  });
+
+  // Custom Min/Max Difference Filter
+  btnIbmApplyCustomFilter?.addEventListener("click", async () => {
+    if (!cachedDiffHeatmapData) return;
+    const minVal = Math.max(0, parseFloat(ibmHeatmapMinInput?.value) || 0);
+    const maxVal = Math.max(minVal, parseFloat(ibmHeatmapMaxInput?.value) || 100);
+
+    document.querySelectorAll(".ibm-filter-pill").forEach(p => p.classList.remove("active"));
+    renderDifferenceHeatmapCanvas("custom", minVal, maxVal);
+    await refreshDiffLayerOnMap();
+  });
+
+  [ibmHeatmapMinInput, ibmHeatmapMaxInput].forEach(inp => {
+    inp?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        btnIbmApplyCustomFilter?.click();
+      }
+    });
+  });
+
+  // Quick Preset Pills
+  document.querySelectorAll(".ibm-filter-pill").forEach(pill => {
+    pill.addEventListener("click", async () => {
+      document.querySelectorAll(".ibm-filter-pill").forEach(p => p.classList.remove("active"));
+      pill.classList.add("active");
+      const filter = pill.getAttribute("data-filter") || "all";
+
+      if (filter === "all") {
+        if (ibmHeatmapMinInput) ibmHeatmapMinInput.value = "1.0";
+        if (ibmHeatmapMaxInput) ibmHeatmapMaxInput.value = "50.0";
+      } else if (filter === "1-2m") {
+        if (ibmHeatmapMinInput) ibmHeatmapMinInput.value = "1.0";
+        if (ibmHeatmapMaxInput) ibmHeatmapMaxInput.value = "2.0";
+      } else if (filter === "2-5m") {
+        if (ibmHeatmapMinInput) ibmHeatmapMinInput.value = "2.0";
+        if (ibmHeatmapMaxInput) ibmHeatmapMaxInput.value = "5.0";
+      } else if (filter === "5m+") {
+        if (ibmHeatmapMinInput) ibmHeatmapMinInput.value = "5.0";
+        if (ibmHeatmapMaxInput) ibmHeatmapMaxInput.value = "50.0";
+      } else if (filter === "cut") {
+        if (ibmHeatmapMinInput) ibmHeatmapMinInput.value = "1.0";
+        if (ibmHeatmapMaxInput) ibmHeatmapMaxInput.value = "50.0";
+      } else if (filter === "fill") {
+        if (ibmHeatmapMinInput) ibmHeatmapMinInput.value = "1.0";
+        if (ibmHeatmapMaxInput) ibmHeatmapMaxInput.value = "50.0";
+      }
+
+      const minVal = parseFloat(ibmHeatmapMinInput?.value) || 1.0;
+      const maxVal = parseFloat(ibmHeatmapMaxInput?.value) || 50.0;
+      renderDifferenceHeatmapCanvas(filter, minVal, maxVal);
+      await refreshDiffLayerOnMap();
+    });
   });
 
   canvas.addEventListener("dblclick", (e) => {
@@ -4724,7 +5658,7 @@ window.addEventListener("DOMContentLoaded", () => {
           profileHoriz.textContent = horizontal.toFixed(2);
           profileVert.textContent = vertical.toFixed(2);
           profile3D.textContent = distance3D.toFixed(2);
-          updateElevationProfile();
+          updateElevationProfile(true); // Preview mode during dragging
         }
         } // End if (measureStartPoint)
       }
@@ -4749,6 +5683,8 @@ window.addEventListener("DOMContentLoaded", () => {
         } else if (measureMode === "PROFILE") {
           btnProfile.classList.remove("active");
           btnProfile.textContent = "Draw Path Profile";
+          const ibmStartText = document.getElementById("btnIbmStartProfileText");
+          if (ibmStartText && isIbmProfileComparison) ibmStartText.textContent = "Click 2 Points on Map";
           profileHint.textContent = "Path Profile complete. Rotate the map to see the line stick! Click 'Clear' to remove.";
           updateElevationProfile();
         }
@@ -4769,6 +5705,8 @@ window.addEventListener("DOMContentLoaded", () => {
           } else if (measureMode === "PROFILE") {
             btnProfile.classList.remove("active");
             btnProfile.textContent = "Draw Path Profile";
+            const ibmStartText = document.getElementById("btnIbmStartProfileText");
+            if (ibmStartText && isIbmProfileComparison) ibmStartText.textContent = "Click 2 Points on Map";
             profileHint.textContent = "Path Profile complete. Rotate the map to see the line stick! Click 'Clear' to remove.";
             updateElevationProfile();
           }
@@ -4776,6 +5714,55 @@ window.addEventListener("DOMContentLoaded", () => {
       }
     }
   });
+
+  // -------------------------------------------------------------------------
+  // Wheel Zoom During Drawing Mode (Map locked in 2D, smooth zoom-to-cursor)
+  // -------------------------------------------------------------------------
+  canvas.addEventListener("wheel", (e) => {
+    // Only intercept when controls are disabled (e.g. during drawing/point picking)
+    if (controls && !controls.enabled) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (typeof controls._customWheelEvent === "function" && typeof controls._handleMouseWheel === "function") {
+        controls._handleMouseWheel(controls._customWheelEvent(e));
+      } else {
+        const zoomFactor = e.deltaY < 0 ? 0.88 : 1.14;
+        const camera = instance.view?.camera;
+        if (camera && controls.target) {
+          const offset = camera.position.clone().sub(controls.target);
+          offset.multiplyScalar(zoomFactor);
+          const dist = offset.length();
+          if (dist >= (controls.minDistance || 20) && dist <= (controls.maxDistance || 150000)) {
+            camera.position.copy(controls.target).add(offset);
+            controls.update();
+          }
+        }
+      }
+
+      if (instance.view?.camera) instance.view.camera.updateMatrixWorld(true);
+      instance.notifyChange(instance.view?.camera);
+      instance.notifyChange();
+
+      // Update in-progress mouse rubberband point if hovering over terrain
+      if (measureState === "SELECTING" && map) {
+        const rect = canvas.getBoundingClientRect();
+        const mouse = new Vector2(e.clientX - rect.left, e.clientY - rect.top);
+        const picked = map.pick(mouse);
+        if (picked && picked.length > 0) {
+          if (measureMode === "VOLUME") volumeMousePoint = picked[0].point.clone();
+          if (measureMode === "ROI_POLY") roiPolyMousePoint = picked[0].point.clone();
+        }
+      }
+
+      if (typeof updateVolumeSvg === "function") updateVolumeSvg();
+      if (typeof updateRoiPolySvg === "function") updateRoiPolySvg();
+      if (typeof updateRoiSvg === "function") updateRoiSvg();
+      if (typeof updateMeasureSvg === "function") updateMeasureSvg();
+      if (typeof updatePointSvg === "function") updatePointSvg();
+      if (typeof syncSlidersFromCamera === "function") syncSlidersFromCamera();
+    }
+  }, { passive: false });
 
   // -------------------------------------------------------------------------
   // Elevation Profile Graph
@@ -4805,6 +5792,44 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   };
 
+  const pinnedIndicatorPlugin = {
+    id: 'pinnedProfileStationLine',
+    afterDatasetsDraw: (chart) => {
+      if (currentProfilePinnedIndex == null) return;
+      const meta = chart.getDatasetMeta(0);
+      if (!meta || !meta.data || !meta.data[currentProfilePinnedIndex]) return;
+      const point = meta.data[currentProfilePinnedIndex];
+      const ctx = chart.ctx;
+      ctx.save();
+
+      // 1. Draw vertical dashed purple guideline
+      ctx.beginPath();
+      ctx.setLineDash([4, 3]);
+      ctx.strokeStyle = '#7c3aed';
+      ctx.lineWidth = 1.6;
+      ctx.moveTo(point.x, chart.chartArea.top);
+      ctx.lineTo(point.x, chart.chartArea.bottom);
+      ctx.stroke();
+
+      // 2. Outer glowing halo
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 8.5, 0, 2 * Math.PI);
+      ctx.fillStyle = 'rgba(124, 58, 237, 0.28)';
+      ctx.fill();
+
+      // 3. Pinned core dot
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 5.5, 0, 2 * Math.PI);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = '#7c3aed';
+      ctx.stroke();
+      ctx.restore();
+    }
+  };
+
   function initCharts() {
     const miniCanvas = document.getElementById("elevationMiniChart");
     const fullCanvas = document.getElementById("elevationFullChart");
@@ -4825,14 +5850,14 @@ window.addEventListener("DOMContentLoaded", () => {
               borderWidth: 2,
               pointRadius: (ctx) => {
                 const index = ctx.dataIndex;
-                const count = ctx.dataset.data.length;
+                const count = ctx.dataset?.data?.length || 0;
                 if (count <= 1) return 4;
                 if (index === 0 || index === count - 1) return 5.5; // Emerald Green & Coral Red markers
                 return 0;
               },
               pointBackgroundColor: (ctx) => {
                 const index = ctx.dataIndex;
-                const count = ctx.dataset.data.length;
+                const count = ctx.dataset?.data?.length || 0;
                 if (index === 0) return '#10b981'; // Emerald Green Start
                 if (index === count - 1) return '#ef4444'; // Coral Red End
                 return '#5e19ea';
@@ -4856,6 +5881,11 @@ window.addEventListener("DOMContentLoaded", () => {
                 grace: '5%'
               }
             },
+            onClick: (event, activeElements) => {
+              if (activeElements && activeElements.length > 0) {
+                pinProfile3DPoint(activeElements[0].index);
+              }
+            },
             onHover: (event, activeElements) => {
               if (activeElements && activeElements.length > 0) {
                 showProfile3DHoverPoint(activeElements[0].index);
@@ -4863,7 +5893,8 @@ window.addEventListener("DOMContentLoaded", () => {
                 hideProfile3DHoverPoint();
               }
             }
-          }
+          },
+          plugins: [pinnedIndicatorPlugin]
         });
 
         miniCanvas.addEventListener("mouseleave", hideProfile3DHoverPoint);
@@ -4883,18 +5914,18 @@ window.addEventListener("DOMContentLoaded", () => {
               borderColor: '#5e19ea', // Polygon Purple
               backgroundColor: 'rgba(94, 25, 234, 0.12)',
               fill: true,
-              tension: 0.15,
-              borderWidth: 2.5,
+              tension: 0.25,
+              borderWidth: 2.2,
               pointRadius: (ctx) => {
                 const index = ctx.dataIndex;
-                const count = ctx.dataset.data.length;
+                const count = ctx.dataset?.data?.length || 0;
                 if (count <= 1) return 6;
-                if (index === 0 || index === count - 1) return 7; // Prominent Start & End dots
-                return 2.5;
+                if (index === 0 || index === count - 1) return 6.5; // Start (Emerald) & End (Coral Red)
+                return 0; // Sleek smooth curve, no cluttered intermediate dots
               },
               pointBackgroundColor: (ctx) => {
                 const index = ctx.dataIndex;
-                const count = ctx.dataset.data.length;
+                const count = ctx.dataset?.data?.length || 0;
                 if (index === 0) return '#10b981'; // Emerald Green Start
                 if (index === count - 1) return '#ef4444'; // Coral Red End
                 return '#5e19ea';
@@ -4902,22 +5933,22 @@ window.addEventListener("DOMContentLoaded", () => {
               pointBorderColor: '#ffffff',
               pointBorderWidth: (ctx) => {
                 const index = ctx.dataIndex;
-                const count = ctx.dataset.data.length;
+                const count = ctx.dataset?.data?.length || 0;
                 if (index === 0 || index === count - 1) return 2.2;
-                return 1.2;
+                return 0;
               },
               pointHoverRadius: (ctx) => {
                 const index = ctx.dataIndex;
-                const count = ctx.dataset.data.length;
+                const count = ctx.dataset?.data?.length || 0;
                 if (index === 0 || index === count - 1) return 9;
-                return 6;
+                return 6; // Dynamic hover dot when cursor moves across graph
               },
               pointHoverBackgroundColor: (ctx) => {
                 const index = ctx.dataIndex;
-                const count = ctx.dataset.data.length;
+                const count = ctx.dataset?.data?.length || 0;
                 if (index === 0) return '#059669';
                 if (index === count - 1) return '#dc2626';
-                return '#4c1d95';
+                return '#5e19ea';
               }
             }]
           },
@@ -4939,7 +5970,7 @@ window.addEventListener("DOMContentLoaded", () => {
                   title: (items) => {
                     if (!items || items.length === 0) return '';
                     const idx = items[0].dataIndex;
-                    const total = items[0].dataset.data.length;
+                    const total = items[0].dataset?.data?.length || 0;
                     if (idx === 0) return `🟢 START POINT (0.0 m)`;
                     if (idx === total - 1) return `🔴 END POINT (${items[0].label} m)`;
                     return `Distance: ${items[0].label} m`;
@@ -4951,7 +5982,17 @@ window.addEventListener("DOMContentLoaded", () => {
             scales: {
               x: { 
                 title: { display: true, text: 'Distance (m)', color: '#334155', font: { weight: '600' } },
-                ticks: { color: '#64748b' },
+                ticks: { 
+                  color: '#64748b',
+                  maxTicksLimit: 10,
+                  maxRotation: 0,
+                  minRotation: 0,
+                  autoSkip: true,
+                  callback: function(val) {
+                    const label = this.getLabelForValue(val);
+                    return label != null ? `${parseFloat(label).toFixed(0)}m` : '';
+                  }
+                },
                 grid: { color: '#e2e8f0' }
               },
               y: { 
@@ -4959,6 +6000,11 @@ window.addEventListener("DOMContentLoaded", () => {
                 ticks: { color: '#64748b' },
                 grid: { color: '#e2e8f0' },
                 grace: '5%'
+              }
+            },
+            onClick: (event, activeElements) => {
+              if (activeElements && activeElements.length > 0) {
+                pinProfile3DPoint(activeElements[0].index);
               }
             },
             onHover: (event, activeElements) => {
@@ -4969,11 +6015,80 @@ window.addEventListener("DOMContentLoaded", () => {
               }
             }
           },
-          plugins: [customBgPlugin]
+          plugins: [customBgPlugin, pinnedIndicatorPlugin]
         });
 
         fullCanvas.addEventListener("mouseleave", hideProfile3DHoverPoint);
       }
+    }
+
+    // Preserve and attach comparison dataset if present
+    if (currentProfileComparisonData) {
+      if (miniChart) {
+        if (miniChart.data.datasets.length < 2) {
+          miniChart.data.datasets.push({
+            label: `Past (${currentProfileComparisonData.label})`,
+            data: currentProfileComparisonData.pastElevs,
+            borderColor: '#ea580c',
+            borderDash: [5, 4],
+            fill: false,
+            tension: 0.25,
+            borderWidth: 2,
+            pointRadius: 0
+          });
+        } else {
+          miniChart.data.datasets[1].data = currentProfileComparisonData.pastElevs;
+          miniChart.data.datasets[1].label = `Past (${currentProfileComparisonData.label})`;
+        }
+      }
+      if (fullChart) {
+        if (fullChart.data.datasets.length < 2) {
+          fullChart.data.datasets.push({
+            label: `Past (${currentProfileComparisonData.label})`,
+            data: currentProfileComparisonData.pastElevs,
+            borderColor: '#ea580c',
+            borderDash: [6, 4],
+            fill: false,
+            tension: 0.25,
+            borderWidth: 2.2,
+            pointRadius: (ctx) => {
+              const index = ctx.dataIndex;
+              const count = ctx.dataset?.data?.length || 0;
+              if (index === 0 || index === count - 1) return 5.5;
+              return 0; // Smooth dashed curve with no intermediate dots
+            },
+            pointBackgroundColor: '#ea580c',
+            pointBorderColor: '#ffffff',
+            pointBorderWidth: 1.5,
+            pointHoverRadius: 6
+          });
+        } else {
+          fullChart.data.datasets[1].data = currentProfileComparisonData.pastElevs;
+          fullChart.data.datasets[1].label = `Past (${currentProfileComparisonData.label})`;
+          fullChart.data.datasets[1].pointRadius = (ctx) => {
+            const index = ctx.dataIndex;
+            const count = ctx.dataset?.data?.length || 0;
+            if (index === 0 || index === count - 1) return 5.5;
+            return 0;
+          };
+          fullChart.data.datasets[1].pointHoverRadius = 6;
+        }
+        if (fullChart.options && fullChart.options.plugins) {
+          fullChart.options.plugins.legend = {
+            display: true,
+            position: 'top',
+            labels: { color: '#334155', font: { size: 11, weight: '600' } }
+          };
+        }
+      }
+      const compMetrics = document.getElementById("profileComparisonMetrics");
+      const compName = document.getElementById("profileComparisonSurveyName");
+      const maxCutEl = document.getElementById("profileMaxCut");
+      const maxFillEl = document.getElementById("profileMaxFill");
+      if (compMetrics) compMetrics.classList.remove("hidden");
+      if (compName) compName.textContent = currentProfileComparisonData.label;
+      if (maxCutEl) maxCutEl.textContent = `${currentProfileComparisonData.maxCut.toFixed(2)} m`;
+      if (maxFillEl) maxFillEl.textContent = `${currentProfileComparisonData.maxFill.toFixed(2)} m`;
     }
   }
 
@@ -5094,7 +6209,124 @@ window.addEventListener("DOMContentLoaded", () => {
     return pts;
   }
 
-  function updateElevationProfile() {
+  // ── Sample Past Survey Elevations along Path Profile from GeoTIFF COG ──
+  async function sampleProfileFromGeoTIFF(url, points) {
+    if (!url || !points || points.length === 0) return null;
+    try {
+      const fullUrl = url.startsWith("http")
+        ? url
+        : `https://polygon-giro3d.s3.ap-south-2.amazonaws.com/${url.replace(/^\.\//, '')}`;
+      const tiff = await fromUrl(fullUrl);
+      const img0 = await tiff.getImage(0);
+      const origin = img0.getOrigin();
+      const res = img0.getResolution();
+      const origX = origin[0];
+      const origY = origin[1];
+      const resX = res[0];
+      const resY = Math.abs(res[1]);
+
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const pt of points) {
+        if (pt.x < minX) minX = pt.x;
+        if (pt.x > maxX) maxX = pt.x;
+        if (pt.y < minY) minY = pt.y;
+        if (pt.y > maxY) maxY = pt.y;
+      }
+
+      const imgW0 = img0.getWidth();
+      const imgH0 = img0.getHeight();
+
+      const rawMinCol = Math.floor((minX - origX) / resX) - 2;
+      const rawMaxCol = Math.ceil((maxX - origX) / resX) + 2;
+      const rawMinRow = Math.floor((origY - maxY) / resY) - 2;
+      const rawMaxRow = Math.ceil((origY - minY) / resY) + 2;
+
+      // If line is completely outside this survey raster, return fallback elevations
+      if (rawMaxCol < 0 || rawMinCol >= imgW0 || rawMaxRow < 0 || rawMinRow >= imgH0) {
+        return points.map(pt => pt.z || 0);
+      }
+
+      const minCol0 = Math.max(0, Math.min(imgW0 - 1, rawMinCol));
+      const maxCol0 = Math.max(minCol0, Math.min(imgW0 - 1, rawMaxCol));
+      const minRow0 = Math.max(0, Math.min(imgH0 - 1, rawMinRow));
+      const maxRow0 = Math.max(minRow0, Math.min(imgH0 - 1, rawMaxRow));
+
+      const winW0 = maxCol0 - minCol0 + 1;
+      const winH0 = maxRow0 - minRow0 + 1;
+
+      // Select overview level so window does not exceed 1.5M pixels for fast transfer
+      let targetImg = img0;
+      let scale = 1;
+      const imageCount = await tiff.getImageCount();
+      let targetLevel = 0;
+
+      while (targetLevel < imageCount - 1) {
+        const w = Math.ceil(winW0 / scale);
+        const h = Math.ceil(winH0 / scale);
+        if (w * h <= 1500000) break;
+        targetLevel++;
+        scale *= 2;
+      }
+
+      if (targetLevel > 0) {
+        targetImg = await tiff.getImage(targetLevel);
+        scale = img0.getWidth() / targetImg.getWidth();
+      }
+
+      const targetW = targetImg.getWidth();
+      const targetH = targetImg.getHeight();
+
+      const winMinCol = Math.max(0, Math.min(targetW - 1, Math.floor(minCol0 / scale)));
+      const winMaxCol = Math.max(winMinCol, Math.min(targetW - 1, Math.ceil(maxCol0 / scale)));
+      const winMinRow = Math.max(0, Math.min(targetH - 1, Math.floor(minRow0 / scale)));
+      const winMaxRow = Math.max(winMinRow, Math.min(targetH - 1, Math.ceil(maxRow0 / scale)));
+      const winW = winMaxCol - winMinCol + 1;
+      const winH = winMaxRow - winMinRow + 1;
+
+      const rasters = await targetImg.readRasters({
+        window: [winMinCol, winMinRow, winMaxCol + 1, winMaxRow + 1]
+      });
+      const rasterData = rasters[0];
+
+      const sampledElevations = [];
+      for (const pt of points) {
+        const cImg = Math.floor((pt.x - origX) / (resX * scale));
+        const rImg = Math.floor((origY - pt.y) / (resY * scale));
+        const cWin = cImg - winMinCol;
+        const rWin = rImg - winMinRow;
+
+        if (cWin >= 0 && cWin < winW && rWin >= 0 && rWin < winH) {
+          const val = rasterData[rWin * winW + cWin];
+          if (val != null && !isNaN(val) && val > 0 && val < 2500) {
+            sampledElevations.push(val);
+            continue;
+          }
+        }
+        sampledElevations.push(null);
+      }
+
+      // Interpolate any null gaps
+      for (let i = 0; i < sampledElevations.length; i++) {
+        if (sampledElevations[i] === null) {
+          const prev = i > 0 ? sampledElevations[i - 1] : null;
+          let next = null;
+          for (let j = i + 1; j < sampledElevations.length; j++) {
+            if (sampledElevations[j] !== null) { next = sampledElevations[j]; break; }
+          }
+          sampledElevations[i] = prev ?? next ?? points[i].z ?? 0;
+        }
+      }
+
+      return sampledElevations;
+    } catch (err) {
+      console.error("sampleProfileFromGeoTIFF error:", err);
+      return points.map(pt => pt.z || 0);
+    }
+  }
+
+  let elevationProfileDebounceTimer = null;
+
+  function updateElevationProfile(isPreview = false) {
     if (!measureStartCoord || !measureEndCoord || !map) {
       return;
     }
@@ -5169,11 +6401,24 @@ window.addEventListener("DOMContentLoaded", () => {
 
     showUnifiedInfoPanel("PROFILE", "ELEVATION PATH PROFILE", { totalDist, elevChange, surfDist, distances, elevations, currentProfileData });
     
-    // Delay chart population to ensure container is visible and has real dimensions
-    setTimeout(() => {
+    // Quick local profile update
+    if (miniChart) {
+      miniChart.data.labels = distances;
+      miniChart.data.datasets[0].label = `Current (${activeProject?.displayName || "October 2026"})`;
+      miniChart.data.datasets[0].data = elevations;
+      miniChart.resize();
+      miniChart.update('none');
+    }
+
+    if (isPreview) return;
+
+    // Debounced Final Evaluation
+    clearTimeout(elevationProfileDebounceTimer);
+    elevationProfileDebounceTimer = setTimeout(async () => {
       initCharts();
       if (miniChart) {
         miniChart.data.labels = distances;
+        miniChart.data.datasets[0].label = `Current (${activeProject?.displayName || "October 2026"})`;
         miniChart.data.datasets[0].data = elevations;
         miniChart.resize();
         miniChart.update('none');
@@ -5181,10 +6426,150 @@ window.addEventListener("DOMContentLoaded", () => {
 
       if (elevationModal && !elevationModal.classList.contains("hidden") && fullChart) {
         fullChart.data.labels = distances;
+        fullChart.data.datasets[0].label = `Current (${activeProject?.displayName || "October 2026"})`;
         fullChart.data.datasets[0].data = elevations;
         fullChart.update();
       }
-    }, 150);
+
+      // ── IBM Multi-Temporal Profile Comparison Sampling ──
+      const targetPastKey = (isIbmProfileComparison && ibmComparisonPastSurveyKey)
+        || (ibmProfilePastSurveySelect?.value || null);
+
+      if (targetPastKey) {
+        const pastSurvey = chattibhariatuConfig.surveys[targetPastKey];
+        if (pastSurvey && pastSurvey.elevationUrl) {
+          setLiveGuidance("⏳", `Comparing with ${pastSurvey.displayName || targetPastKey}...`);
+          try {
+            const rawPastElevs = await sampleProfileFromGeoTIFF(pastSurvey.elevationUrl, currentProfileData);
+            if (rawPastElevs && rawPastElevs.length > 0) {
+              let pastElevs = rawPastElevs;
+              if (pastElevs.length !== elevations.length) {
+                pastElevs = [];
+                for (let i = 0; i < elevations.length; i++) {
+                  const t = i / Math.max(1, elevations.length - 1);
+                  const pIdx = Math.min(rawPastElevs.length - 1, Math.round(t * (rawPastElevs.length - 1)));
+                  pastElevs.push(rawPastElevs[pIdx]);
+                }
+              }
+
+              let maxCut = 0;
+              let maxFill = 0;
+              for (let i = 0; i < elevations.length; i++) {
+                const cur = elevations[i];
+                const past = pastElevs[i];
+                if (cur != null && past != null) {
+                  const diff = cur - past;
+                  if (diff < -maxCut) maxCut = -diff;
+                  if (diff > maxFill) maxFill = diff;
+                }
+              }
+
+              currentProfileComparisonData = {
+                pastElevs,
+                label: pastSurvey.displayName || targetPastKey,
+                maxCut,
+                maxFill
+              };
+
+              // Update info panel comparison stats
+              const compMetrics = document.getElementById("profileComparisonMetrics");
+              const compName = document.getElementById("profileComparisonSurveyName");
+              const maxCutEl = document.getElementById("profileMaxCut");
+              const maxFillEl = document.getElementById("profileMaxFill");
+              if (compMetrics) compMetrics.classList.remove("hidden");
+              if (compName) compName.textContent = pastSurvey.displayName || targetPastKey;
+              if (maxCutEl) maxCutEl.textContent = `${maxCut.toFixed(2)} m`;
+              if (maxFillEl) maxFillEl.textContent = `${maxFill.toFixed(2)} m`;
+
+              // Update miniChart with dual dataset
+              if (miniChart) {
+                if (miniChart.data.datasets.length < 2) {
+                  miniChart.data.datasets.push({
+                    label: `Past (${pastSurvey.displayName || targetPastKey})`,
+                    data: pastElevs,
+                    borderColor: '#ea580c',
+                    borderDash: [5, 4],
+                    fill: false,
+                    tension: 0.25,
+                    borderWidth: 2,
+                    pointRadius: 0
+                  });
+                } else {
+                  miniChart.data.datasets[1].label = `Past (${pastSurvey.displayName || targetPastKey})`;
+                  miniChart.data.datasets[1].data = pastElevs;
+                }
+                miniChart.resize();
+                miniChart.update('none');
+              }
+
+              // Update fullChart with dual dataset & legend
+              if (fullChart) {
+                if (fullChart.data.datasets.length < 2) {
+                  fullChart.data.datasets.push({
+                    label: `Past (${pastSurvey.displayName || targetPastKey})`,
+                    data: pastElevs,
+                    borderColor: '#ea580c',
+                    borderDash: [6, 4],
+                    fill: false,
+                    tension: 0.25,
+                    borderWidth: 2.2,
+                    pointRadius: (ctx) => {
+                      const index = ctx.dataIndex;
+                      const count = ctx.dataset?.data?.length || 0;
+                      if (index === 0 || index === count - 1) return 5.5;
+                      return 0; // Sleek dashed curve without cluttered dots
+                    },
+                    pointBackgroundColor: '#ea580c',
+                    pointBorderColor: '#ffffff',
+                    pointBorderWidth: 1.5,
+                    pointHoverRadius: 6
+                  });
+                } else {
+                  fullChart.data.datasets[1].label = `Past (${pastSurvey.displayName || targetPastKey})`;
+                  fullChart.data.datasets[1].data = pastElevs;
+                  fullChart.data.datasets[1].pointRadius = (ctx) => {
+                    const index = ctx.dataIndex;
+                    const count = ctx.dataset?.data?.length || 0;
+                    if (index === 0 || index === count - 1) return 5.5;
+                    return 0;
+                  };
+                  fullChart.data.datasets[1].pointHoverRadius = 6;
+                }
+                if (fullChart.options && fullChart.options.plugins) {
+                  fullChart.options.plugins.legend = {
+                    display: true,
+                    position: 'top',
+                    labels: { color: '#334155', font: { size: 11, weight: '600' } }
+                  };
+                }
+                fullChart.update();
+              }
+
+              setLiveGuidance("✅", `Profile compared against ${pastSurvey.displayName || targetPastKey}`);
+            } else {
+              setLiveGuidance(null, null);
+            }
+          } catch (compErr) {
+            console.error("Comparison sampling error:", compErr);
+            setLiveGuidance(null, null);
+          }
+        }
+      } else {
+        currentProfileComparisonData = null;
+        // Ensure non-comparison profile has single dataset
+        if (miniChart && miniChart.data.datasets.length > 1) {
+          miniChart.data.datasets.splice(1, 1);
+          miniChart.update('none');
+        }
+        if (fullChart && fullChart.data.datasets.length > 1) {
+          fullChart.data.datasets.splice(1, 1);
+          if (fullChart.options && fullChart.options.plugins) fullChart.options.plugins.legend = { display: false };
+          fullChart.update();
+        }
+        const compMetrics = document.getElementById("profileComparisonMetrics");
+        if (compMetrics) compMetrics.classList.add("hidden");
+      }
+    }, 100);
   }
 
   elevationMiniContainer?.addEventListener("click", (e) => {
@@ -5205,15 +6590,64 @@ window.addEventListener("DOMContentLoaded", () => {
           : (currentProfileData ? currentProfileData.map(d => d.elev) : []);
 
         fullChart.data.labels = distances;
+        fullChart.data.datasets[0].label = miniChart?.data?.datasets?.[0]?.label || `Current (${activeProject?.displayName || "October 2026"})`;
         fullChart.data.datasets[0].data = elevations;
+
+        if (miniChart && miniChart.data && miniChart.data.datasets && miniChart.data.datasets.length > 1) {
+          const pastDs = miniChart.data.datasets[1];
+          if (fullChart.data.datasets.length < 2) {
+            fullChart.data.datasets.push({
+              label: pastDs.label,
+              data: pastDs.data,
+              borderColor: '#ea580c',
+              borderDash: [6, 4],
+              fill: false,
+              tension: 0.25,
+              borderWidth: 2.2,
+              pointRadius: (ctx) => {
+                const index = ctx.dataIndex;
+                const count = ctx.dataset?.data?.length || 0;
+                if (index === 0 || index === count - 1) return 5.5;
+                return 0;
+              },
+              pointBackgroundColor: '#ea580c',
+              pointBorderColor: '#ffffff',
+              pointBorderWidth: 1.5,
+              pointHoverRadius: 6
+            });
+          } else {
+            fullChart.data.datasets[1].label = pastDs.label;
+            fullChart.data.datasets[1].data = pastDs.data;
+            fullChart.data.datasets[1].pointRadius = (ctx) => {
+              const index = ctx.dataIndex;
+              const count = ctx.dataset?.data?.length || 0;
+              if (index === 0 || index === count - 1) return 5.5;
+              return 0;
+            };
+            fullChart.data.datasets[1].pointHoverRadius = 6;
+          }
+          if (fullChart.options && fullChart.options.plugins) {
+            fullChart.options.plugins.legend = {
+              display: true,
+              position: 'top',
+              labels: { color: '#334155', font: { size: 11, weight: '600' } }
+            };
+          }
+        } else {
+          if (fullChart && fullChart.data.datasets.length > 1) {
+            fullChart.data.datasets.splice(1, 1);
+            if (fullChart.options && fullChart.options.plugins) fullChart.options.plugins.legend = { display: false };
+          }
+        }
+
         try {
           fullChart.resize();
           fullChart.update();
         } catch (e) {
-          console.warn("Error updating fullChart", e);
+          console.warn("fullChart resize error:", e);
         }
       }
-    }, 60);
+    }, 150);
   });
   
   const closeMiniChartBtn = document.getElementById("closeMiniChartBtn");
@@ -5400,6 +6834,13 @@ window.addEventListener("DOMContentLoaded", () => {
         chartData: {
           distances: miniChart?.data.labels || [],
           elevations: miniChart?.data.datasets[0].data || [],
+          comparisonData: (miniChart?.data?.datasets?.length > 1) ? {
+            surveyKey: ibmComparisonPastSurveyKey,
+            label: miniChart.data.datasets[1].label,
+            elevations: miniChart.data.datasets[1].data,
+            maxCut: parseFloat(document.getElementById("profileMaxCut")?.textContent) || 0,
+            maxFill: parseFloat(document.getElementById("profileMaxFill")?.textContent) || 0,
+          } : null,
           currentProfileData: currentProfileData,
           totalDist: parseFloat(document.getElementById("profileHoriz")?.textContent) || 0,
           elevChange: parseFloat(document.getElementById("profileVert")?.textContent) || 0,
@@ -5417,7 +6858,8 @@ window.addEventListener("DOMContentLoaded", () => {
         body: JSON.stringify({
           projectId: activeProject.folderName,
           surveyId: activeProject.surveyId,
-          type: "reports", fileName: `${safeReportName}.pdf`
+          type: "reports", fileName: `${safeReportName}.pdf`,
+          folder: getReportsFolder()
         })
       });
       if (!pdfApiResponse.ok) throw new Error("Failed to get PDF upload URL");
@@ -5436,7 +6878,8 @@ window.addEventListener("DOMContentLoaded", () => {
         body: JSON.stringify({
           projectId: activeProject.folderName,
           surveyId: activeProject.surveyId,
-          type: "reports", fileName: `${safeReportName}.json`
+          type: "reports", fileName: `${safeReportName}.json`,
+          folder: getReportsFolder()
         })
       });
       if (!jsonApiResponse.ok) throw new Error("Failed to get data upload URL");
@@ -5978,7 +7421,7 @@ window.addEventListener("DOMContentLoaded", () => {
       let jsonFiles = [];
 
       try {
-        const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=reports`;
+        const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=reports&folder=${encodeURIComponent(getReportsFolder())}`;
         const response = await fetch(apiUrl, { method: "GET", cache: "no-store" });
         if (response.ok) {
           const rawFiles = await response.json();
@@ -6129,7 +7572,7 @@ window.addEventListener("DOMContentLoaded", () => {
                 const jsonRes = await fetch("https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "reports", fileName: jsonFileName })
+                  body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "reports", fileName: jsonFileName, folder: getReportsFolder() })
                 });
                 if (jsonRes.ok) {
                   const { uploadUrl } = await jsonRes.json();
@@ -6251,7 +7694,7 @@ window.addEventListener("DOMContentLoaded", () => {
                 const res = await fetch(`https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "reports", fileName: jsonFileName })
+                  body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "reports", fileName: jsonFileName, folder: getReportsFolder() })
                 });
                 if (res.ok) {
                   const { uploadUrl } = await res.json();
@@ -6704,7 +8147,8 @@ window.addEventListener("DOMContentLoaded", () => {
           projectId: activeProject.folderName,
           surveyId: activeProject.surveyId,
           type: "volumes",
-          fileName: fileName
+          fileName: fileName,
+          folder: getReportsFolder()
         })
       });
 
@@ -6784,7 +8228,7 @@ window.addEventListener("DOMContentLoaded", () => {
       const response = await fetch(`https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "rois", fileName })
+        body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "rois", fileName, folder: getReportsFolder() })
       });
       if (!response.ok) throw new Error("Failed to get upload URL");
       const { uploadUrl } = await response.json();
@@ -6922,7 +8366,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const API_BASE = "https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url";
 
   async function deleteFile(type, fileName) {
-    const delUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=${encodeURIComponent(type)}&fileName=${encodeURIComponent(fileName)}`;
+    const delUrl = `${API_BASE}?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=${encodeURIComponent(type)}&fileName=${encodeURIComponent(fileName)}&folder=${encodeURIComponent(getReportsFolder())}`;
     const res = await fetch(delUrl, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
@@ -6930,7 +8374,8 @@ window.addEventListener("DOMContentLoaded", () => {
         projectId: activeProject.folderName,
         surveyId: activeProject.surveyId,
         type: type,
-        fileName: fileName
+        fileName: fileName,
+        folder: getReportsFolder()
       })
     });
     if (!res.ok) throw new Error('Delete failed: ' + res.status);
@@ -7083,7 +8528,7 @@ window.addEventListener("DOMContentLoaded", () => {
     if (leftRoisList) leftRoisList.innerHTML = '<i style="color: var(--muted); padding: 4px;">Loading...</i>';
     try {
       if (!activeProject) return;
-      const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url?projectId=${activeProject.folderName}&surveyId=${activeProject.surveyId}&type=rois`;
+      const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url?projectId=${activeProject.folderName}&surveyId=${activeProject.surveyId}&type=rois&folder=${encodeURIComponent(getReportsFolder())}`;
       const response = await fetch(apiUrl, { method: "GET", cache: "no-store" });
       if (!response.ok) throw new Error("Failed to fetch ROIs");
       const files = await response.json();
@@ -7175,7 +8620,7 @@ window.addEventListener("DOMContentLoaded", () => {
               const res = await fetch(`https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "rois", fileName: file.fileName })
+                body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "rois", fileName: file.fileName, folder: getReportsFolder() })
               });
               if (res.ok) {
                 const { uploadUrl } = await res.json();
@@ -7233,7 +8678,7 @@ window.addEventListener("DOMContentLoaded", () => {
       let jsonFiles = [];
 
       try {
-        const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=volumes`;
+        const apiUrl = `https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url?projectId=${encodeURIComponent(activeProject.folderName)}&surveyId=${encodeURIComponent(activeProject.surveyId)}&type=volumes&folder=${encodeURIComponent(getReportsFolder())}`;
         const response = await fetch(apiUrl, { method: "GET", cache: "no-store" });
         if (response.ok) {
           const rawFiles = await response.json();
@@ -7360,7 +8805,7 @@ window.addEventListener("DOMContentLoaded", () => {
                 const jsonRes = await fetch("https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "volumes", fileName: newFileName })
+                  body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "volumes", fileName: newFileName, folder: getReportsFolder() })
                 });
                 if (jsonRes.ok) {
                   const { uploadUrl } = await jsonRes.json();
@@ -7481,7 +8926,7 @@ window.addEventListener("DOMContentLoaded", () => {
                 const res = await fetch(`https://zkhfgqgrwj.execute-api.ap-south-2.amazonaws.com/upload-url`, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "volumes", fileName: file.fileName })
+                  body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "volumes", fileName: file.fileName, folder: getReportsFolder() })
                 });
                 if (res.ok) {
                   const { uploadUrl } = await res.json();
@@ -7912,7 +9357,7 @@ window.addEventListener("DOMContentLoaded", () => {
         const res = await fetch(uploadApiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "reports", fileName: jsonFileName })
+          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "reports", fileName: jsonFileName, folder: getReportsFolder() })
         });
         if (!res.ok) throw new Error("Failed to get upload URL");
         const { uploadUrl } = await res.json();
@@ -7954,7 +9399,7 @@ window.addEventListener("DOMContentLoaded", () => {
         const res = await fetch(uploadApiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "volumes", fileName })
+          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "volumes", fileName, folder: getReportsFolder() })
         });
         if (!res.ok) throw new Error("Failed to get upload URL");
         const { uploadUrl } = await res.json();
@@ -7997,7 +9442,7 @@ window.addEventListener("DOMContentLoaded", () => {
         const res = await fetch(uploadApiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "rois", fileName })
+          body: JSON.stringify({ projectId: activeProject.folderName, surveyId: activeProject.surveyId, type: "rois", fileName, folder: getReportsFolder() })
         });
         if (!res.ok) throw new Error("Failed to get upload URL");
         const { uploadUrl } = await res.json();

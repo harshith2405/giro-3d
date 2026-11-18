@@ -2435,4 +2435,84 @@ body {
   box-shadow: 0 6px 20px rgba(220, 38, 38, 0.5);
 }
 
+/* ==========================================================================
+   IBM SECTION (Multi-Temporal Audit & Comparison)
+   ========================================================================== */
+.ibm-section-card {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ibm-tool-box {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.ibm-tool-box:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.ibm-filter-pill {
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 20px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ibm-filter-pill:hover {
+  border-color: #5e19ea;
+  color: #5e19ea;
+  background: rgba(94, 25, 234, 0.04);
+  transform: translateY(-1px);
+}
+
+.ibm-filter-pill.active {
+  background: linear-gradient(135deg, #5e19ea, #7c3aed);
+  color: #ffffff;
+  border-color: #5e19ea;
+  box-shadow: 0 2px 6px rgba(94, 25, 234, 0.3);
+}
+
+.ibm-filter-pill[data-filter="cut"].active {
+  background: linear-gradient(135deg, #dc2626, #ef4444);
+  border-color: #dc2626;
+  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.35);
+}
+
+.ibm-filter-pill[data-filter="fill"].active {
+  background: linear-gradient(135deg, #0284c7, #06b6d4);
+  border-color: #0284c7;
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.35);
+}
+
+.ibm-filter-pill[data-filter="5m+"].active {
+  background: linear-gradient(135deg, #9333ea, #a855f7);
+  border-color: #9333ea;
+  box-shadow: 0 2px 6px rgba(147, 51, 234, 0.35);
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.ibm-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(94, 25, 234, 0.2);
+  border-top-color: #5e19ea;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
+
+
 
